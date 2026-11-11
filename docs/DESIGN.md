@@ -2,7 +2,7 @@
 
 muro-beam executes muro *run* images as processes, in the spirit of the Erlang BEAM: lightweight actors, mailboxes, and a wall between what a book proved and what the host steps at runtime.
 
-v0 is a total Agda book of the scheduler, the graded heap, and send. The current book is v1a: the same runtime, plus a CBV CEK that runs a closed `GTm` muro's `decide run` has accepted. It does not emit code. It does not re-check a muro term. It reads the grades muro's judgment already checked.
+v0 is a total Agda book of the scheduler, the graded heap, and send. v1a is that runtime plus a CBV CEK that runs a closed `GTm` muro's `decide run` has accepted. It does not emit code. It does not re-check a muro term. It reads the grades muro's judgment already checked. Boundary v1, in `MuroBeam.Boundary`, is the contract over that machine. The machine is the implementation.
 
 `main` at `079ca47` is tagged `v0`. v1 is three pull requests. This book is the first of them.
 
@@ -24,7 +24,7 @@ A `--safe` Agda model:
 - send that transfers ownership of a grade-1 value
 - the theorems named below
 
-The modules are `MuroBeam.Grade`, `MuroBeam.Heap`, `MuroBeam.Process`, `MuroBeam.Collect`, `MuroBeam.Unique`, and `MuroBeam.Example`. `MuroBeam.Lib` holds a few natural-number and list lemmas so the book does not import the large `Data.Nat.Properties` development. `MuroBeam` re-exports the book. `MuroBeam.Unique` holds grade-1 uniqueness and the proofs that `Step` preserves it.
+The modules are `MuroBeam.Grade`, `MuroBeam.Heap`, `MuroBeam.Process`, `MuroBeam.Collect`, `MuroBeam.Unique`, and `MuroBeam.Example`. v1a adds `MuroBeam.Source` and `MuroBeam.Lower`. Boundary v1 adds `MuroBeam.Boundary`. `MuroBeam.Lib` holds a few natural-number and list lemmas so the book does not import the large `Data.Nat.Properties` development. `MuroBeam` re-exports the book. `MuroBeam.Unique` holds grade-1 uniqueness and the proofs that `Step` preserves it.
 
 The grade lattice is the submodule `vendor/muro`, pinned at murolang/muro tag `v0.20.32` (commit `792497695ef3b0dd37fe2b262f6225c989eb6818`). Agda is invoked with `--no-libraries` and include paths `agda`, `vendor/muro/agda`, and `vendor/agda-stdlib/src` (stdlib v2.3). Checking the book typechecks `Muro.Grade` and the modules it imports (`Muro.Base`, `Muro.Syntax`, `Muro.Subst`, `Muro.Env`, `Muro.Arrow`). It does not typecheck `Muro.Soundness` or the rest of the muro library.
 
@@ -275,6 +275,59 @@ v1a refuses the alias. `eval1` will not install a `clo` whose environment contai
 
 Every v0 theorem name is still in the book. `grade0-not-dereferenced`, `send-preserves-residual`, `send-g1-moves`, `kept→≤ᵍ`, `collect-total`, and `reuse-in-place` are unchanged in force. `send-g1-moves` and `reuse-in-place` count the extended reference list: a grade-1 send still moves the only reference, and a successful reuse still requires that the object occur once.
 
+## Boundary v1
+
+`MuroBeam.Boundary` is boundary v1. The constant `boundary-version` is `1`. It is the contract a program targeting muro-beam relies on. `Heap`, `Process`, `Collect`, and `Lower` are the implementation. The boundary re-exports that implementation. It adds no typing judgment. `vendor/muro` stays at `v0.20.32`. Application stays additive: `decide` on `gapp` is `addU`, as recorded above from murolang/muro#211.
+
+The import arrow runs from `Boundary` into the v1a modules. Those modules do not import `Boundary`. Each of them is part of what the boundary re-exports, and the other direction is a cycle. `MuroBeam.Example` is the client. It imports `Boundary` and computes `inBoundary?` on muro's `grade-once` and on the §2B term. The umbrella imports `Boundary` and hides the re-exported v1a names, so each existing theorem stays a single binding.
+
+### Grades
+
+`BeamGrade` has three constructors: `g0`, `g1`, and `ω`. `beamGrade` reads a `Muro.Grade.Grade` as one of those, or as nothing. The reading is what v0 and v1a already do. It is not a second lattice. `kind`, `spend`, and `isZeroGrade` are the v1a functions, and they pattern-match on muro's own `Grade`.
+
+- **`pt (fin 0)`**, muro's `g0`. `beamGrade` returns `g0`. `kind` is `nothing`, so send is refused (`g0-not-sent`). `spend` refuses a use. `collect` drops a residual that is this point.
+- **`pt (fin 1)`**, muro's `g1`. `beamGrade` returns `g1`. `kind` is `Kmove` (`g1-moved`). `grade1-unique` is the uniqueness theorem.
+- **`pt inf`**, muro's `gω`. `beamGrade` returns `ω`. `kind` is `Kcopy` (`ω-copied`). `spend-ω` leaves the residual. `isZeroGrade` is false, so `collect` keeps the root.
+- **`iv a b`**, including muro's `aff`. `beamGrade` returns `ω` (`beam-iv`). This is an alias of that keep-alive behaviour, not a fourth grade. `kind (iv a b)` is `kind gω` (`iv-copied`): send copies. `spend-iv` leaves the residual (`iv-residual-stays` is that lemma). `isZeroGrade (iv a b)` is false, so `collect` does not drop the root. v0 and v1a do not spend inside an interval.
+- **`pt (fin n)` for `n ≥ 2`.** `beamGrade` returns `nothing` (`beam-fin2`). Send moves it and spend decrements it, and `grade1-unique` does not apply. The boundary does not call this point `g1` or `ω`.
+
+`beam-g0`, `beam-g1`, and `beam-ω` are the three `refl`s on muro's `g0`, `g1`, and `gω`.
+
+### Values and operations
+
+`BeamVal` is `Val`. A payload is a flat `nat`, a `suc↑` holding a `Ref`, or a `clo` holding the `List Ref` it captured and a scoped `GTm`. Those references live in an `Ordered` heap: every child index is strictly below its parent. The boundary does not redefine `Val`, `Ref`, or `Ordered`.
+
+`alloc`, `deref`, `send`, and `collect` are the v1a functions. `deref` spends through `spendRef`. The evidence is the existing lemmas, re-exported and not re-proved:
+
+- `collect-safe`, `collect-frees-zero`, `residual-inv-step`
+- `grade1-unique`, `send-g1-moves`
+- `grade0-not-dereferenced`, `reuse-ordered`
+- `lower-safe`, `lower-g0-never-deref`
+- `spend`, `spend-finite`, `spend-ω`, `spend-iv`
+
+### The fragment
+
+`InBoundary : GTm 0 → Set`. Lowering consumes a `Checked` term, and that term has scope 0, so the contract is a predicate on closed terms. `InB` is the same predicate under the binders the walk has entered. A free variable of an open term is not graded by `InBoundary`. `inBoundary? : (t : GTm 0) → Dec (InBoundary t)` decides it by recursion on the term. There is no fuel and no termination pragma.
+
+A `glam` is refused when a grade-1 binder is already in scope. `eval1` stores the whole environment in the closure (`clo env`), and `anyG1` refuses that step. The §2B term is this shape: both inner closures sit under the outer `g1`, including the closure that captures the `g1` variable and is passed to the `ω` binder. `boundary-refuse` is `inBoundary? cex ≡ no _`. `boundary-accept` is `inBoundary? (term once) ≡ yes _`. `once` is muro's `grade-once`, a checked `g1` λ whose body is a variable.
+
+The check is conservative. A `glam` under a `g1` binder is refused even when a particular trace never enters that binder. A `gvar` whose binder is `g0` is refused, because `spend` refuses a `g0` residual (`isZeroGrade`). Uses are not counted: two uses of a `g1` variable are `decide`'s refusal. A `gpi` body is erased by `eval1` and is still scanned, so a closure written only inside a Π can be refused even though that Π never runs it.
+
+`capture-check-clear` is the link that is proved. If `InB Γ (glam c t b)` and the environment realises `Γ` (`EnvGrades`), then `anyG1` of that environment is false. `lam-not-under-g1` is the syntactic half: an accepted `glam` has `sharpCxt Γ ≡ false`. `sharp-env` says `sharpCxt` and `anyG1` agree when the environment realises the context. `g1-blocks-lam` is the inner closure of the §2B shape, a `glam` in the singleton context `(g1)`. `closed-lam-clear` instantiates `capture-check-clear` at the empty environment `lower` starts from. `anyG1 []` is false for every closed λ, in the fragment or not.
+
+What is not proved, and is v1c: that a running trace stays inside `EnvGrades`, `NoEscape`, `noEscape?`, `budget-adequate`, `decide-sound`. `InBoundary` does not say that every `Step*` from `lower` avoids a stuck `eval1`. A shape-stuck term such as `gapp gze gze` is in the fragment. `badG1`, a second alias of a `g1` pointer, is not decided here.
+
+### Muro side
+
+A program imports the boundary. The implementation stays here. The Muro-side spelling, once an emitter exists, is:
+
+```
+import beam "muro-beam-boundary"
+def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
+```
+
+That is not a muro term in this repository. A pure Muro mirror of the boundary comes later. The Agda predicate is on a closed `GTm`, the run image. The Π above is the intended client spelling. It is not a type in this book.
+
 ## Limits
 
 - **ω and intervals are not spent down.** A use leaves the residual where it is. They are aliased, not moved. Ordered tracing frees the cell once nothing reaches it, including a degenerate interval `[0, 0]` after its last live reference is gone. Nothing inside an interval is decremented.
@@ -288,7 +341,8 @@ Every v0 theorem name is still in the book. `grade0-not-dereferenced`, `send-pre
 - **No spawn, failure, or supervision.** The process list is fixed by the configuration that starts the trace. `waiting` is still unused. Spawn, send, and recv as term formers are v1b.
 - **Environment slots are not reindexed by `collect`.** A `g0` root or mailbox message is dropped, as in v0. A `g0` environment slot stays in place so that de Bruijn indices do not move; it does not mark its object reached. Scope exit pops the binder. That is what lets `collect` free it.
 - **Grade 1 is the unique checked point `g1`.** Uniqueness is not claimed for a finite point above 1. Those are still moved rather than copied by send. The theorem that is actually proved is the `g1` statement, now over roots, messages, environments, frames, and heap edges.
-- **Not in this book.** `PTm`, `checkP`, `lowerP`, `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim`. No executable runtime, no extraction, no bytecode.
+- **`InBoundary` is not adequacy.** It refuses a closure in the scope of a `g1` binder, and a `g0` variable. It does not count uses, and it does not follow a trace. `NoEscape` and `budget-adequate` are still v1c.
+- **Not in this book.** `PTm`, `checkP`, `lowerP`, `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim`. No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary.
 
 ## Goals beyond v0
 
