@@ -4,7 +4,24 @@ A BEAM-like virtual machine for [muro](https://github.com/murolang/muro) books.
 
 v0 (tag `v0`) is a `--safe` Agda model of that runtime: processes and mailboxes, a one-step scheduling relation, a shared heap with checked and residual grades, a total `collect`, and send that moves a grade-1 value. It imports muro's grade lattice. It does not emit code and it does not re-check a muro term.
 
-v1a, on branch `v1a-lowering`, lowers a closed `GTm` that `decide run` accepts. A CEK step evaluates it on the v0 heap. Payloads are `nat`, `suc↑`, and `clo`. `collect` is one ordered pass. `lower-safe` says every reachable state stays well-formed, and a `g0` checked grade is never spent. Spawn is v1b. Adequacy is v1c.
+v1a lowers a closed `GTm` that `decide run` accepts. A CEK step evaluates it on the v0 heap. Payloads are `nat`, `suc↑`, and `clo`. `collect` is one ordered pass. `lower-safe` says every reachable state stays well-formed, and a `g0` checked grade is never spent. Spawn is v1b. Adequacy is v1c.
+
+## Boundary v1
+
+`MuroBeam.Boundary` is the contract, not the implementation. The implementation is the v1a machine. The boundary re-exports it: three grades, the payloads, and the theorems a client cites (`collect-safe`, `lower-safe`, and the others named in [docs/DESIGN.md](docs/DESIGN.md)). It is versioned. This book exports boundary v1 (`boundary-version` is 1).
+
+`BeamGrade` is `g0`, `g1`, and `ω`. An interval, including muro's `aff`, is read as `ω`: the runtime copies it and keeps the root alive. A finite point above 1 is outside those three.
+
+`InBoundary` is a decidable check on a closed `GTm`. It refuses a closure built in the scope of a grade-1 binder. muro's `grade-once` is accepted. The additive counterexample, a `g1` variable captured in a closure and passed to an `ω` binder, is refused. That check is not adequacy. Adequacy is v1c.
+
+A program imports the boundary. The Muro-side spelling, once an emitter exists, is:
+
+```
+import beam "muro-beam-boundary"
+def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
+```
+
+That import is not a muro term in this repository. A pure Muro mirror of the boundary comes later.
 
 See [docs/DESIGN.md](docs/DESIGN.md).
 
