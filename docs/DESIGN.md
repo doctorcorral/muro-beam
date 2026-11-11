@@ -57,3 +57,24 @@ The grades PR extends the judgment with a grade context, proves that the ungrade
 - **Interop.** A standalone VM versus talking to code that the existing Elixir backend already emitted for the real BEAM.
 
 These stay open until the grades landing in muro is something a runtime can actually read.
+
+## Application rule: additive, not multiplicative
+
+Recorded from the review of murolang/muro#211 (Ricardo Corral-Corral, 2026-11-10).
+
+The application rule in the graded judgment simply adds the use vectors of the function and the argument:
+
+```agda
+decide m Γ (gapp f a) =
+  decide m Γ f >>= λ fu →
+  decide m Γ a >>= λ au →
+  ok (addU fu au)
+```
+
+There is no multiplication by the grade of the parameter. In a full graded system the uses of the argument would be scaled by the computational grade of the binder they are substituted for. That scaling is omitted here so that a graded binder does not change the use-counting behaviour already defined for +. An operand is counted the same way whether it appears under a graded λ or under an ordinary one. The ungraded fragment therefore stays exactly as it was, and a graded book still emits the same code as the book with the grade pairs removed.
+
+Multiplying would have made grades affect the affine accounting itself. That is a larger change: it would require a second quantity, it would make the treatment of graded binders diverge from the treatment of +, and it would break the emission identity that the PR is careful to preserve. For a first introduction of grades as pure evidence that refine (but do not alter) the existing use check, the non-multiplying rule is the smaller and consistent design.
+
+If a later runtime needs the multiplicative reading, it can be added as an explicit extension on top of this judgment. The books that check today will still check, and the wall remains the same.
+
+Implication for muro-beam: the runtime must not assume that argument uses are scaled by the binder's computational grade. If muro-beam needs the multiplicative reading, it is added as an explicit extension on top of the judgment in murolang/muro, so books that check today keep checking.
