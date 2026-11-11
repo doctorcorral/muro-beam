@@ -2,7 +2,9 @@
 
 muro-beam executes muro *run* images as processes, in the spirit of the Erlang BEAM: lightweight actors, mailboxes, and a wall between what a book proved and what the host steps at runtime.
 
-v0 is a total Agda book of that runtime. It does not emit code and it does not re-check a muro term. It reads the grades muro's judgment already checked.
+v0 is a total Agda book of the scheduler, the graded heap, and send. The current book is v1a: the same runtime, plus a CBV CEK that runs a closed `GTm` muro's `decide run` has accepted. It does not emit code. It does not re-check a muro term. It reads the grades muro's judgment already checked.
+
+`main` at `079ca47` is tagged `v0`. v1 is three pull requests. This book is the first of them.
 
 ## Why
 
@@ -80,7 +82,7 @@ record Obj : Set where
     status  : Status
 ```
 
-Payloads are natural numbers. An object does not contain further pointers. The only references are roots and mailbox messages, so "reachable" in v0 means "pointed at by one of those references". This is not a tracing collector.
+In v0 a payload was a natural number and an object did not contain pointers, so "reachable" meant "pointed at by a root or a mailbox message". v1a replaces that payload with `Val` (`nat`, `suc↑`, `clo`). The ordered tracing collector is described in the v1 section. The reference record is unchanged.
 
 A reference stores the object index, the grade muro checked, and the residual computational grade (the checked grade minus the uses so far):
 
@@ -166,17 +168,127 @@ The names below are the names in the Agda book.
 - Allocate `g0` and dereference it in run mode. `deref` is nothing.
 - Allocate `g1` on process 0 and send it to process 1. Process 0's roots no longer contain it. Process 1's mailbox does. The object still has one reference. Receive moves that reference into process 1's roots.
 
+## v1
+
+v1 reads a closed `GTm` that `decide run []` accepts and runs it on the v0 heap. The pin stays murolang/muro `v0.20.32`. There is still no `erase : Tm → GTm` in that pin, so the machine never sees a core `Tm`. Application stays additive, as recorded below from murolang/muro#211. v1 does not add multiplication.
+
+Ricardo split v1 into three pull requests. Each one is meant to check alone.
+
+| PR | What it adds | What it leaves |
+|---|---|---|
+| **v1a** (this book) | `Checked`, CEK lowering, reference payloads, ordered tracing `collect`, safety of every reachable state | processes that spawn |
+| **v1b** | `PTm`, `checkP`, `lowerP`, spawn / send / recv lowering, `waiting` on an empty mailbox | adequacy and simulation |
+| **v1c** | `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim` | a multiplicative application rule, and `erase` |
+
+v1b and v1c are not in this book. The names above are the ones those PRs are expected to add. Nothing here postulates them.
+
+### Input
+
+`MuroBeam.Source` defines the input of v1a:
+
+```agda
+record Checked : Set where
+  field
+    term : GTm 0
+    ok   : decide run [] term ≡ ok []
+```
+
+Run mode only. Spec and evidence terms are not lowered.
+
+`decide-sound`, `NoEscape`, and `noEscape?` are v1c. v1a does not need them. A checked grade `g0` forces the residual to be `g0` (`Kept`), and `spend` refuses a `g0` residual, so no run step dereferences that binder. `gtyp` and `gpi` never call `spend`.
+
+### Control
+
+`Proc` gains `ctl : Ctl`. A v0 process that is not running code holds `idle`. A lowered program holds
+
+```agda
+ev term [] []
+```
+
+`Ctl` is a CEK state.
+
+- `ev` is a `GTm` closure: the term, an environment `List Ref` indexed by de Bruijn index, and a continuation.
+- `rv` is a returned value. The value is a `Ref`. The environment is threaded, so a spend inside a scrutinee is visible to the rest of the term.
+- Frames hold `Ref`s only where a value has to live across a sub-computation (`fn` holds the function; `bd` holds the caller environment while a body runs). Argument terms and match branches are syntax, not references.
+
+`eval1` is one CBV step of one process. It is a partial function (`Maybe`). `Step` gains `step-eval` beside deref, send, recv, alloc, reuse, and collect. `GTm` is untyped and can diverge, for example `(λω f. f f) (λω f. f f)`, so evaluation is a relation. Traces use `runFor : ℕ → Sys → Sys`, structural on the fuel.
+
+How a term steps:
+
+- `gvar x` is a run-mode dereference of environment slot `x`. That is v0 `spend`. A `g0` residual is not a step. A `nat` payload is copied into a fresh cell (the number itself, not a second graded reference). A `gω` or interval reference may be aliased. A second graded reference to a `g1` object is not a step.
+- `gtyp` and `gpi` allocate an erased unit `nat 0` and do not dereference anything. The body of a `gpi` is not evaluated. Type-level grades stay on the checker.
+- `gze` allocates a `nat 0` cell. `gsu` evaluates the predecessor, then allocates a `suc↑` cell whose child is that predecessor.
+- `glam` allocates a `clo` cell. The captured environment is a list of `Ref`s. The body is stored with its scope size (`Σ ℕ GTm`). Capturing a `g1` reference would be a second graded reference to that object, so `eval1` refuses it.
+- `gapp` evaluates the function, then the argument. A β step against `clo … (glam c t b)` regrades the argument reference to `checked = residual = c` and pushes it onto the closure's environment. The caller environment moves onto a `bd` frame, so it is not aliased for the duration of the call.
+- `gmatch` on `suc↑` binds the predecessor at `predPair`'s computational grade, the same grade `decide` uses: the scrutinee variable's checked grade, or `aff` when the scrutinee is not a variable. The zero branch binds nothing.
+- When the body returns, `bd` pops the binder reference and restores the caller environment. `collect` can then free the slot whether or not residual budget remains. A match may take a branch that uses a variable fewer times than the static max.
+
+`lower : Checked → Sys` builds one process, pid 0, with `ev term [] []`, and an empty heap. `lower-wf` says that system is well-formed.
+
+### Reference payloads and the ordered heap
+
+```agda
+data Val : Set where
+  nat  : ℕ → Val
+  suc↑ : Ref → Val
+  clo  : List Ref → Σ ℕ (λ n → GTm n) → Val
+```
+
+`suc↑` stores the predecessor reference. The child index in the spec is `obj` of that reference, so the edge has a grade and is counted by `count` and `hasG1`. A `nat` has no children. A `clo` 's children are its captured references.
+
+**Ordered.** Every child index is strictly below its parent's index. Allocation appends. No step writes an edge that points at or above its own slot. `reuse` writes a `nat`, which has no children, so it stays inside the order; `reuse-ordered` is that fact. An overwrite whose new children are not below the slot is not a step (`childrenBelow`).
+
+The order makes the heap acyclic. `collect` is one structural pass from the highest index down: seed the marks from roots, mailboxes, environments, and frames whose residual is not the point `g0`, then, from the top, mark the live children of a reached object. No `TERMINATING` pragma. `Reach` is the corresponding inductive predicate: a live root, message, environment, or frame reference, or a live edge (or `suc↑`) out of a reached parent at a higher index. `collect-safe` says a reached slot stays live. `collect-frees-zero` says a slot that is not reached is freed and cleared.
+
+`grade1-unique` counts every reference `refsOf` sees: roots, mailbox messages, environment slots, frame references, and heap edges.
+
+### The additive counterexample
+
+`decide` adds the use vectors of a function and its argument. It does not scale the argument by the grade of the binder it is substituted for. A closure that captures a grade-1 variable can be handed to a grade-ω binder, and the checker still counts the variable once.
+
+This closed term is accepted by `decide run []`:
+
+```agda
+cex : GTm 0
+cex =
+  glam g1 g0
+    (gapp
+      (glam gω g0
+        (gapp (gvar fzero) (gvar fzero)))
+      (glam aff g0
+        (gvar (fsuc fzero))))
+```
+
+Read as `λ(g1) x. (λ(gω) f. f f) (λ(aff) _. x)`. The inner λ captures `x`. The body of `f` is the ω binder's body `f f`: `f` is used twice, and the closure it receives reads `x`. Additively, `x` occurs once in the argument, so the outer `g1` checks. At run time a second use of that captured reference is a second graded reference, or a second `spend` of a residual that the first use already exhausted.
+
+v1a refuses the alias. `eval1` will not install a `clo` whose environment contains a `g1` reference while that reference still lives in the caller environment. Running `gapp cex gze` therefore gets stuck at the inner λ, after `x` has been allocated at grade 1. The stuck state is well-formed. `collect` does not free `x`: its residual is still `g1`, and the environment reference reaches it. Safety holds. Adequacy does not, and is not claimed. That is the runtime face of the #211 choice. It is not a bug in either repository.
+
+`NoEscape` (v1c) is the fragment in which this pattern is excluded and a checked program is not supposed to get stuck on a grade. v1a proves safety for every lowered program, including this one.
+
+### Theorems added in v1a
+
+- **`lower-wf`**. `WF (lower e)`. Bounds hold and grade 1 is unique. The heap is empty.
+- **`lower-safe`**. `Step* (lower e) s` implies `WF s` and `AllInv (refsOf s)`. Collect-safety and grade-1 uniqueness apply to every state reachable from a checked program.
+- **`lower-g0-never-deref`**. A reference whose checked grade is `g0` has residual `g0`, and neither `deref` nor `eval1` spends it. `gtyp` and `gpi` do not read the environment. The checker side of the same fact is `sat g0 (finᶜ 0)` and `erased-is-zero`; connecting those to a trace is `decide-sound` in v1c.
+- **`reuse-ordered`**. A successful `reuse` preserves the ordered-heap invariant.
+- **`residual-inv-step`**, **`collect-safe`**, **`collect-frees-zero`**, **`grade1-unique`**, **`step-preserves-grade1`**. The v0 statements, now over `refsOf` extended with environments, frames, and heap edges, and over `Reach` for the tracing collector.
+
+Every v0 theorem name is still in the book. `grade0-not-dereferenced`, `send-preserves-residual`, `send-g1-moves`, `kept→≤ᵍ`, `collect-total`, and `reuse-in-place` are unchanged in force. `send-g1-moves` and `reuse-in-place` count the extended reference list: a grade-1 send still moves the only reference, and a successful reuse still requires that the object occur once.
+
 ## Limits
 
-- **ω and intervals are kept alive.** v0 does not decrement them and does not trace through them. `collect` frees a slot only when every reference to it has residual point `g0`. An interval is not that point, so it is kept, including a degenerate interval `[0, 0]`. There is no tracing collector.
-- **No fairness.** `Step` is one step of some process. The book does not prove that a ready process eventually runs, and it does not count reductions.
+- **ω and intervals are not spent down.** A use leaves the residual where it is. They are aliased, not moved. Ordered tracing frees the cell once nothing reaches it, including a degenerate interval `[0, 0]` after its last live reference is gone. Nothing inside an interval is decremented.
+- **No fairness.** `Step` is one step of some process, or one `eval1`, or `collect`. The book does not prove that a ready process eventually runs, and it does not count reductions. Fuel in `runFor` is a bound supplied by the trace, not a liveness theorem.
 - **No distribution.** One shared heap, one list of processes, no locations, no network.
 - **No FPGA and no LVA.** Binder grades are used as written. There is no second analysis and no hardware emitter.
-- **No muro→muro-beam emitter.** v0 does not read `Muro` terms, judgments, or run images. A later book can translate a checked run term into these steps. This one only consumes grades.
-- **Application is additive.** As recorded below from the review of murolang/muro#211, the graded judgment adds use vectors and does not scale an argument by the binder's computational grade. The runtime follows that choice. Send does not multiply. A finite point grade is moved whole, residual included. `ω` and intervals are aliased. They are not scaled.
-- **Flat payloads.** Objects hold a `ℕ`, not a tuple of child pointers. Reachability in `collect-safe` is the reference itself.
-- **No spawn, failure, or supervision.** The process list is fixed by the configuration that starts the trace.
-- **Grade 1 is the unique checked point `g1`.** Uniqueness is not claimed for a finite point above 1. Those are still moved rather than copied, so v0 never aliases them either. The theorem that is actually proved is the `g1` statement.
+- **No muro→muro-beam emitter, and no core `Tm`.** v1a lowers a `GTm` that `decide run` already accepted. It does not read `Muro.Reduction`, and muro `v0.20.32` has no `erase : Tm → GTm`.
+- **Application is additive.** As recorded below from the review of murolang/muro#211, the graded judgment adds use vectors and does not scale an argument by the binder's computational grade. The runtime follows that choice. The counterexample in the v1 section is accepted by `decide` and gets stuck on the machine. Send does not multiply. A finite point grade is moved whole, residual included. `ω` and intervals are aliased. They are not scaled.
+- **Payloads are `nat`, `suc↑`, and `clo`.** A `nat` is copied on dereference. A `suc↑` or a `clo` is a reference payload. Reachability in `collect-safe` is `Reach`, not the reference alone.
+- **Capture of `g1` does not alias.** Building a closure that would put a second graded reference on a `g1` object is not a step. Programs that do that get stuck safely. `NoEscape` adequacy is v1c.
+- **No spawn, failure, or supervision.** The process list is fixed by the configuration that starts the trace. `waiting` is still unused. Spawn, send, and recv as term formers are v1b.
+- **Environment slots are not reindexed by `collect`.** A `g0` root or mailbox message is dropped, as in v0. A `g0` environment slot stays in place so that de Bruijn indices do not move; it does not mark its object reached. Scope exit pops the binder. That is what lets `collect` free it.
+- **Grade 1 is the unique checked point `g1`.** Uniqueness is not claimed for a finite point above 1. Those are still moved rather than copied by send. The theorem that is actually proved is the `g1` statement, now over roots, messages, environments, frames, and heap edges.
+- **Not in this book.** `PTm`, `checkP`, `lowerP`, `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim`. No executable runtime, no extraction, no bytecode.
 
 ## Goals beyond v0
 
@@ -230,7 +342,7 @@ Implication for muro-beam: the runtime must not assume that argument uses are sc
 
 ## Open questions
 
-- **Image format.** v0 does not choose bytecode, an interpreted run AST, or a new backend. There is still no emitter.
+- **Image format.** v1a runs a `GTm` in the CEK. It does not choose bytecode or a backend. There is still no emitter.
 - **Scheduling policy.** v0 fixes only the one-step relation. Reduction counting, preemption, and per-process heaps are open. v0 uses one shared heap.
 - **Intervals as usage budgets.** v0 keeps them. A later collector could spend inside an interval once the checker and the runtime agree on a decrement that stays inside `≤ᵍ`.
 - **Failure and supervision.** Open. Not in this book.
