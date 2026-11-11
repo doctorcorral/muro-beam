@@ -12,29 +12,41 @@
 
 module MuroBeam.Example where
 
+open import Data.Fin.Base using () renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; []; _∷_)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc)
+open import Data.Product.Base using (_,_)
+open import Data.Vec.Base as Vec using ()
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 
-open import Muro.Base using (run)
-open import Muro.Grade using (Grade; Point; fin; pt; iv; g0; g1; gω)
+open import Muro.Base using (run) renaming (ok to okR)
+open import Muro.Grade using
+  ( Grade; g0; g1; gω; aff
+  ; GTm; gvar; glam; gapp; gze; gmatch; decide
+  ; grade-once; grade-twice; grade-match-once; grade-match-many )
 
+open import MuroBeam.Grade using (selfKept)
 open import MuroBeam.Heap using
-  ( Obj; Status; live; free; payload; status
-  ; Ref; residual; checked; obj; count )
+  ( Obj; cell; Status; live; free; payload; status
+  ; Ref; ref; residual; checked; obj; count
+  ; Val; nat; suc↑; clo )
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Process using
-  ( Proc; proc; ready; Msg; msg; Sys; sys; heap; procs; roots; inbox
-  ; refsOf; rootAt; deref; send; recv; alloc; reuse )
+  ( Proc; proc; ready; idle; Msg; msg; Sys; sys; heap; procs; roots; inbox
+  ; ctl; Ctl; ev; rv
+  ; refsOf; rootAt; deref; send; recv; alloc; reuse
+  ; eval1; runFor )
 open import MuroBeam.Collect using (collect)
+open import MuroBeam.Source using (Checked)
+open import MuroBeam.Lower using (lower)
 
 take : ∀ {A : Set} → A → Maybe A → A
 take _ (just x) = x
 take d nothing  = d
 
 two : Sys
-two = sys [] (proc zero ready [] [] ∷ proc (suc zero) ready [] [] ∷ [])
+two = sys [] (proc zero ready [] [] idle ∷ proc (suc zero) ready [] [] idle ∷ [])
 
 resOf : Maybe Ref → Maybe Grade
 resOf nothing  = nothing
@@ -50,15 +62,20 @@ stOf (just o) = just (status o)
 stAt : List Obj → ℕ → Maybe Status
 stAt os i = stOf (lookup os i)
 
+natOf : Val → Maybe ℕ
+natOf (nat n)    = just n
+natOf (suc↑ _)   = nothing
+natOf (clo _ _)  = nothing
+
 payOf : Maybe Obj → Maybe ℕ
 payOf nothing  = nothing
-payOf (just o) = just (payload o)
+payOf (just o) = natOf (payload o)
 
 payAt : List Obj → ℕ → Maybe ℕ
 payAt os i = payOf (lookup os i)
 
 procOf : Maybe Proc → Proc
-procOf nothing  = proc zero ready [] []
+procOf nothing  = proc zero ready [] [] idle
 procOf (just p) = p
 
 atProc : Sys → ℕ → Proc
@@ -129,9 +146,6 @@ ex-ω-live = refl
 -- An interval is kept alive: the use does not change the residual.
 ------------------------------------------------------------------------
 
-aff : Grade
-aff = iv (fin zero) (fin (suc zero))
-
 iv-alloc : Sys
 iv-alloc = take two (alloc two zero aff (suc zero))
 
@@ -178,3 +192,76 @@ ex-recv-inbox-empty = refl
 
 ex-recv-still-unique : count zero (refsOf got) ≡ suc zero
 ex-recv-still-unique = refl
+
+------------------------------------------------------------------------
+-- Lowered checked terms. A closed λ is one step to a closure.
+-- The additive counterexample gets stuck with its g1 cell still live.
+------------------------------------------------------------------------
+
+lamBack : (c t : Grade) (b : GTm 1) → Sys
+lamBack c t b =
+  sys (cell (clo [] (zero , glam c t b)) live ∷ [])
+      (proc zero ready [] [] (rv (ref zero gω gω (selfKept gω)) [] []) ∷ [])
+
+once : Checked
+once = record { term = glam g1 g0 (gvar fzero) ; ok = grade-once }
+
+ex-once : runFor 1 (lower once) ≡ lamBack g1 g0 (gvar fzero)
+ex-once = refl
+
+twice : Checked
+twice = record
+  { term = glam gω g0 (gapp (gvar fzero) (gvar fzero))
+  ; ok = grade-twice }
+
+ex-twice : runFor 1 (lower twice) ≡ lamBack gω g0 (gapp (gvar fzero) (gvar fzero))
+ex-twice = refl
+
+match-once : Checked
+match-once = record
+  { term = glam g1 g0 (gmatch (gvar fzero) gze (gvar fzero))
+  ; ok = grade-match-once }
+
+ex-match-once : runFor 1 (lower match-once)
+               ≡ lamBack g1 g0 (gmatch (gvar fzero) gze (gvar fzero))
+ex-match-once = refl
+
+match-many : Checked
+match-many = record
+  { term = glam gω g0 (gmatch (gvar fzero) gze (gapp (gvar fzero) (gvar fzero)))
+  ; ok = grade-match-many }
+
+ex-match-many : runFor 1 (lower match-many)
+               ≡ lamBack gω g0 (gmatch (gvar fzero) gze (gapp (gvar fzero) (gvar fzero)))
+ex-match-many = refl
+
+-- λ(g1) x. (λ(gω) f. f f) (λ(aff) _. x), applied to zero.
+-- decide accepts it. The inner λ would capture the still-live g1, so
+-- eval1 refuses that closure. collect keeps the g1 cell.
+cex : GTm 0
+cex =
+  glam g1 g0
+    (gapp
+      (glam gω g0 (gapp (gvar fzero) (gvar fzero)))
+      (glam aff g0 (gvar (fsuc fzero))))
+
+cex-ok : decide run Vec.[] cex ≡ okR Vec.[]
+cex-ok = refl
+
+cexApp : Checked
+cexApp = record { term = gapp cex gze ; ok = cex-app-ok }
+  where
+  cex-app-ok : decide run Vec.[] (gapp cex gze) ≡ okR Vec.[]
+  cex-app-ok = refl
+
+stuck : Sys
+stuck = runFor 6 (lower cexApp)
+
+ex-cex-stuck : eval1 stuck zero ≡ nothing
+ex-cex-stuck = refl
+
+ex-cex-kept : stAt (heap (collect stuck)) (suc zero) ≡ just live
+ex-cex-kept = refl
+
+ex-cex-dead : stAt (heap (collect stuck)) zero ≡ just free
+ex-cex-dead = refl

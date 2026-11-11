@@ -7,32 +7,65 @@ on:
 
 jobs:
   agda:
-    name: agda
+    name: agda ${{ matrix.version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # v2.7.0 published no Linux binary. v2.7.0.1 is that leg.
+          - version: "2.8.0"
+            tag: "v2.8.0"
+            asset: "Agda-v2.8.0-linux.tar.xz"
+          - version: "2.7.0.1"
+            tag: "v2.7.0.1"
+            asset: "Agda-v2.7.0.1-linux.tar.xz"
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
-      # Extract outside the repo: the tarball's `agda` binary collides with
-      # the `agda/` source directory (tar exits 2).
-      - name: Install Agda 2.8.0
+      # Extract outside the repo. The 2.8 tarball is a single `agda` binary,
+      # which collides with the `agda/` source directory (tar exits 2).
+      # The 2.7.0.1 tarball is a tree: bin/agda plus data/, and the binary
+      # reads primitives from Agda_datadir.
+      - name: Install Agda ${{ matrix.version }}
         run: |
           set -euo pipefail
           tmp=$(mktemp -d)
-          asset="Agda-v2.8.0-linux.tar.xz"
+          asset="${{ matrix.asset }}"
           curl -fL --retry 5 -o "$tmp/$asset" \
-            "https://github.com/agda/agda/releases/download/v2.8.0/${asset}"
+            "https://github.com/agda/agda/releases/download/${{ matrix.tag }}/${asset}"
           tar -xJf "$tmp/$asset" -C "$tmp"
-          mkdir -p "$HOME/.local/bin"
-          install -m 0755 "$tmp/agda" "$HOME/.local/bin/agda"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/agda" --version
-          "$HOME/.local/bin/agda" --setup
+          mkdir -p "$HOME/.local/bin" "$HOME/.local/lib"
+          if [ -x "$tmp/agda" ]; then
+            install -m 0755 "$tmp/agda" "$HOME/.local/bin/agda"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.local/bin:$PATH"
+          else
+            src=$(echo "$tmp"/Agda-*/bin/agda)
+            root=$(dirname "$(dirname "$src")")
+            dest="$HOME/.local/lib/agda"
+            rm -rf "$dest"
+            mv "$root" "$dest"
+            echo "$dest/bin" >> "$GITHUB_PATH"
+            echo "Agda_datadir=$dest/data" >> "$GITHUB_ENV"
+            export PATH="$dest/bin:$PATH"
+            export Agda_datadir="$dest/data"
+          fi
+          agda --version
+          # 2.8 is a single binary and installs its primitives with --setup.
+          # 2.7.0.1 has no --setup flag; Agda_datadir is its data directory.
+          if agda --help 2>&1 | grep -q -- '--setup'; then
+            agda --setup
+          fi
 
       - name: Fetch Agda standard library 2.3
         run: git clone --depth 1 --branch v2.3 https://github.com/agda/agda-stdlib.git vendor/agda-stdlib
 
       - name: Run make agda
         run: make agda
+
+      - name: Run make audit
+        run: make audit
