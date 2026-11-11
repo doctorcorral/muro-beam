@@ -38,8 +38,9 @@ open import MuroBeam.Process using
   ; refsOf; rootAt; deref; send; recv; alloc; reuse
   ; eval1; runFor )
 open import MuroBeam.Collect using (collect)
-open import MuroBeam.Source using (Checked)
+open import MuroBeam.Source using (Checked; term)
 open import MuroBeam.Lower using (lower)
+open import MuroBeam.Boundary using (inBoundary?; yes; no)
 
 take : ∀ {A : Set} → A → Maybe A → A
 take _ (just x) = x
@@ -265,3 +266,15 @@ ex-cex-kept = refl
 
 ex-cex-dead : stAt (heap (collect stuck)) zero ≡ just free
 ex-cex-dead = refl
+
+------------------------------------------------------------------------
+-- Boundary v1. `grade-once` builds no closure under its g1 binder, so
+-- the fragment accepts it. The §2B term puts both inner closures under
+-- that binder, so the fragment refuses it.
+------------------------------------------------------------------------
+
+boundary-accept : inBoundary? (term once) ≡ yes _
+boundary-accept = refl
+
+boundary-refuse : inBoundary? cex ≡ no _
+boundary-refuse = refl
