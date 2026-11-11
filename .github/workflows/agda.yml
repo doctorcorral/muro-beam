@@ -55,7 +55,11 @@ jobs:
             export Agda_datadir="$dest/data"
           fi
           agda --version
-          agda --setup
+          # 2.8 is a single binary and installs its primitives with --setup.
+          # 2.7.0.1 has no --setup flag; Agda_datadir is its data directory.
+          if agda --help 2>&1 | grep -q -- '--setup'; then
+            agda --setup
+          fi
 
       - name: Fetch Agda standard library 2.3
         run: git clone --depth 1 --branch v2.3 https://github.com/agda/agda-stdlib.git vendor/agda-stdlib
