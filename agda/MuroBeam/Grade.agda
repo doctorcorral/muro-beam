@@ -51,6 +51,11 @@ kept→≤ᵍ (fin-kept le)      = ≤ᵇ-complete le
 kept→≤ᵍ ω-kept             = refl
 kept→≤ᵍ (iv-kept {a} {b})  = ∧-both (≤ᵖ-refl a) (≤ᵖ-refl b)
 
+-- A checked point of 0 leaves no residual. ω and intervals are not g0.
+kept-g0 : ∀ {r} → Kept r g0 → r ≡ g0
+kept-g0 (fin-kept {zero} _)  = refl
+kept-g0 (fin-kept {suc _} ())
+
 ------------------------------------------------------------------------
 -- A residual of point 0 is exhausted. Intervals are not that point.
 ------------------------------------------------------------------------

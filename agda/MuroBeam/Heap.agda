@@ -8,14 +8,14 @@
 
 module MuroBeam.Heap where
 
-open import Data.Bool.Base using (Bool; true; false; not; _∧_; _∨_)
+open import Data.Bool.Base using (Bool; true; false; not; _∧_; _∨_; if_then_else_)
 open import Data.List.Base using (List; []; _∷_; _++_)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _<_; _≡ᵇ_)
-open import Data.Product.Base using (_×_; _,_)
+open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _<_; _≡ᵇ_; _<ᵇ_)
+open import Data.Product.Base using (_×_; _,_; Σ)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong)
 
-open import Muro.Grade using (Grade; g0; g1; _≤ᵍ_)
+open import Muro.Grade using (Grade; g0; g1; _≤ᵍ_; GTm)
 
 open import MuroBeam.Grade using
   ( Kept; selfKept; kept→≤ᵍ
@@ -29,6 +29,7 @@ open import MuroBeam.Lib using
   ; ext; ext-cong; ext-0
   ; ∨-assoc; ∨-swap; ∨-falseʳ; ∧-cong
   ; lookup; removeAt; mapRem
+  ; ++-assoc
   )
 
 ------------------------------------------------------------------------
@@ -37,14 +38,6 @@ open import MuroBeam.Lib using
 
 data Status : Set where
   live free : Status
-
-record Obj : Set where
-  constructor cell
-  field
-    payload : ℕ
-    status  : Status
-
-open Obj public
 
 ------------------------------------------------------------------------
 -- A root: checked grade, residual grade, and the inequality.
@@ -59,6 +52,66 @@ record Ref : Set where
     kept     : Kept residual checked
 
 open Ref public
+
+------------------------------------------------------------------------
+-- Payloads. nat is copied on deref. suc↑ and clo hold child Refs.
+-- The child index of a successor is obj of its Ref.
+------------------------------------------------------------------------
+
+data Val : Set where
+  nat  : ℕ → Val
+  suc↑ : Ref → Val
+  clo  : List Ref → Σ ℕ (λ n → GTm n) → Val
+
+kids : Val → List Ref
+kids (nat _)    = []
+kids (suc↑ r)   = r ∷ []
+kids (clo rs _) = rs
+
+kidsBelow : ℕ → List Ref → Bool
+kidsBelow _ []       = true
+kidsBelow n (r ∷ rs) = (obj r <ᵇ n) ∧ kidsBelow n rs
+
+childrenBelow : ℕ → Val → Bool
+childrenBelow _ (nat _)    = true
+childrenBelow n (suc↑ r)   = obj r <ᵇ n
+childrenBelow n (clo rs _) = kidsBelow n rs
+
+record Obj : Set where
+  constructor cell
+  field
+    payload : Val
+    status  : Status
+
+open Obj public
+
+edgeRefs : List Obj → List Ref
+edgeRefs []       = []
+edgeRefs (o ∷ os) = kids (payload o) ++ edgeRefs os
+
+edgeRefs-++ : ∀ xs ys → edgeRefs (xs ++ ys) ≡ edgeRefs xs ++ edgeRefs ys
+edgeRefs-++ []       ys = refl
+edgeRefs-++ (o ∷ os) ys rewrite edgeRefs-++ os ys =
+  sym (++-assoc (kids (payload o)) (edgeRefs os) (edgeRefs ys))
+
+------------------------------------------------------------------------
+-- Ordered: every child index is strictly below its parent.
+------------------------------------------------------------------------
+
+data AllBelow (n : ℕ) : List Ref → Set where
+  abnil  : AllBelow n []
+  abcons : ∀ {r rs} → obj r < n → AllBelow n rs → AllBelow n (r ∷ rs)
+
+data Below (n : ℕ) : Val → Set where
+  b-nat : ∀ {k} → Below n (nat k)
+  b-suc : ∀ {r} → obj r < n → Below n (suc↑ r)
+  b-clo : ∀ {rs tm} → AllBelow n rs → Below n (clo rs tm)
+
+Ordered : List Obj → Set
+Ordered h = ∀ i o → lookup h i ≡ just o → Below i (payload o)
+
+ordered-nil : Ordered []
+ordered-nil i o ()
 
 residual-inv : Ref → Set
 residual-inv r = (residual r ≤ᵍ checked r) ≡ true

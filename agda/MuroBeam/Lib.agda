@@ -11,7 +11,7 @@ open import Data.List.Base using (List; []; _∷_; _++_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _<_; z≤n; s≤s; _≤ᵇ_; _≡ᵇ_; _<ᵇ_)
 open import Data.Product.Base using (_×_; _,_)
-open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
 data ⊥ : Set where
 
@@ -42,6 +42,13 @@ infix 3 _≢_
 ≤-trans z≤n       _         = z≤n
 ≤-trans (s≤s ab)  (s≤s bc)  = s≤s (≤-trans ab bc)
 
+≤-antisym : ∀ {m n} → m ≤ n → n ≤ m → m ≡ n
+≤-antisym z≤n z≤n = refl
+≤-antisym (s≤s ab) (s≤s ba) = cong suc (≤-antisym ab ba)
+
+≤-subst : ∀ {m n k} → m ≤ n → n ≡ k → m ≤ k
+≤-subst le refl = le
+
 -- The only proof of suc k ≤ n is s≤s, so one clause covers it.
 lower : ∀ {k n} → suc k ≤ n → k ≤ n
 lower (s≤s le) = ≤-step le
@@ -53,6 +60,29 @@ lower (s≤s le) = ≤-step le
 +-suc : ∀ a b → a + suc b ≡ suc (a + b)
 +-suc zero    b = refl
 +-suc (suc a) b rewrite +-suc a b = refl
+
+m≤m+k : ∀ m k → m ≤ m + k
+m≤m+k m zero rewrite +-identityʳ m = ≤-refl
+m≤m+k m (suc k) = ≤-subst (≤-step (m≤m+k m k)) (sym (+-suc m k))
+
+-- b < b + suc n
+<+suc : ∀ b n → b < b + suc n
+<+suc b n = subst (suc b ≤_) (sym (+-suc b n)) (s≤s (m≤m+k b n))
+
+k≤n+k : ∀ n k → k ≤ n + k
+k≤n+k n zero rewrite +-identityʳ n = z≤n
+k≤n+k n (suc k) = ≤-subst (s≤s (k≤n+k n k)) (sym (+-suc n k))
+
+≤-+ʳ : ∀ {m n} k → m ≤ n → m + k ≤ n + k
+≤-+ʳ k z≤n = k≤n+k _ k
+≤-+ʳ k (s≤s le) = s≤s (≤-+ʳ k le)
+
+≤-+ˡ : ∀ {m n} k → m ≤ n → k + m ≤ k + n
+≤-+ˡ zero le = le
+≤-+ˡ (suc k) le = s≤s (≤-+ˡ k le)
+
++-mono : ∀ {a b c d} → a ≤ b → c ≤ d → a + c ≤ b + d
++-mono ab cd = ≤-trans (≤-+ʳ _ ab) (≤-+ˡ _ cd)
 
 +-assoc : ∀ a b c → (a + b) + c ≡ a + (b + c)
 +-assoc zero    b c = refl
@@ -113,6 +143,30 @@ suc≰id (suc n) (s≤s le) = suc≰id n le
 ≤ᵇ-complete z≤n       = refl
 ≤ᵇ-complete (s≤s le)  = <ᵇ-complete le
 
+-- primNatLess reduces on constructors, so these two agree.
+<ᵇsuc≤ᵇ : ∀ m n → (m <ᵇ suc n) ≡ (m ≤ᵇ n)
+<ᵇsuc≤ᵇ zero    _ = refl
+<ᵇsuc≤ᵇ (suc _) _ = refl
+
+<ᵇzero : ∀ m → (m <ᵇ zero) ≡ false
+<ᵇzero zero    = refl
+<ᵇzero (suc m) = <ᵇzero m
+
+≤ᵇ-sound : ∀ m n → (m ≤ᵇ n) ≡ true → m ≤ n
+≤ᵇ-sound zero    n       _  = z≤n
+≤ᵇ-sound (suc m) zero    eq rewrite <ᵇzero m = ⊥-elim (bad eq)
+  where
+  bad : false ≡ true → ⊥
+  bad ()
+≤ᵇ-sound (suc m) (suc n) eq = s≤s (≤ᵇ-sound m n (trans (sym (<ᵇsuc≤ᵇ m n)) eq))
+
+-- m <ᵇ n is suc m ≤ᵇ n, and m < n is suc m ≤ n.
+ltᵇ-sound : ∀ m n → (m <ᵇ n) ≡ true → m < n
+ltᵇ-sound m n eq = ≤ᵇ-sound (suc m) n eq
+
+ltᵇ-complete : ∀ {m n} → m < n → (m <ᵇ n) ≡ true
+ltᵇ-complete lt = ≤ᵇ-complete lt
+
 plus : ℕ → ℕ → ℕ
 plus zero    n = n
 plus (suc m) n = suc (plus m n)
@@ -131,6 +185,24 @@ plus-zero (suc i) rewrite plus-zero i = refl
 
 ∧-both : ∀ {x y} → x ≡ true → y ≡ true → (x ∧ y) ≡ true
 ∧-both refl refl = refl
+
+∧-split : ∀ {a b} → (a ∧ b) ≡ true → a ≡ true × b ≡ true
+∧-split {true}  {true}  refl = refl , refl
+∧-split {true}  {false} ()
+∧-split {false} {_}     ()
+
+∧-trueʳ : ∀ b → (b ∧ true) ≡ b
+∧-trueʳ true  = refl
+∧-trueʳ false = refl
+
+∧-trueˡ : ∀ b → (true ∧ b) ≡ b
+∧-trueˡ true  = refl
+∧-trueˡ false = refl
+
+∨-false : ∀ a b → (a ∨ b) ≡ false → a ≡ false × b ≡ false
+∨-false false false refl = refl , refl
+∨-false true  _     ()
+∨-false false true  ()
 
 ∧-cong : ∀ {a b c d} → a ≡ b → c ≡ d → (a ∧ c) ≡ (b ∧ d)
 ∧-cong refl refl = refl
@@ -186,6 +258,15 @@ lookup []       _       = nothing
 lookup (x ∷ _)  zero    = just x
 lookup (_ ∷ xs) (suc n) = lookup xs n
 
+lookup-< : ∀ {A : Set} (xs : List A) i (x : A) → lookup xs i ≡ just x → i < length xs
+lookup-< []       i x ()
+lookup-< (_ ∷ ys) zero    _ refl = s≤s z≤n
+lookup-< (_ ∷ ys) (suc i) x eq   = s≤s (lookup-< ys i x eq)
+
+data In {A : Set} (x : A) : List A → Set where
+  in-here  : ∀ {xs} → In x (x ∷ xs)
+  in-there : ∀ {y xs} → In x xs → In x (y ∷ xs)
+
 mapRem : ∀ {A : Set} → A → Maybe (A × List A) → Maybe (A × List A)
 mapRem _ nothing         = nothing
 mapRem y (just (z , zs)) = just (z , y ∷ zs)
@@ -207,6 +288,19 @@ update (suc n) a (x ∷ xs) = mapCons x (update n a xs)
 ++-assoc : ∀ {A : Set} (xs ys zs : List A) → (xs ++ ys) ++ zs ≡ xs ++ (ys ++ zs)
 ++-assoc []       ys zs = refl
 ++-assoc (x ∷ xs) ys zs rewrite ++-assoc xs ys zs = refl
+
+++-identityʳ : ∀ {A : Set} (xs : List A) → xs ++ [] ≡ xs
+++-identityʳ []       = refl
+++-identityʳ (x ∷ xs) rewrite ++-identityʳ xs = refl
+
+reverse : ∀ {A : Set} → List A → List A
+reverse []       = []
+reverse (x ∷ xs) = reverse xs ++ x ∷ []
+
+reverse-++ : ∀ {A : Set} (xs ys : List A) →
+  reverse (xs ++ ys) ≡ reverse ys ++ reverse xs
+reverse-++ []       ys = sym (++-identityʳ (reverse ys))
+reverse-++ (x ∷ xs) ys rewrite reverse-++ xs ys = ++-assoc (reverse ys) (reverse xs) (x ∷ [])
 
 length-++ : ∀ {A : Set} (xs ys : List A) → length (xs ++ ys) ≡ length xs + length ys
 length-++ []       ys = refl
