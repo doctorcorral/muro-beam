@@ -1,0 +1,3 @@
+[submodule "vendor/muro"]
+	path = vendor/muro
+	url = https://github.com/murolang/muro.git

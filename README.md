@@ -2,13 +2,21 @@
 
 A BEAM-like virtual machine for [muro](https://github.com/murolang/muro) books.
 
-This repository is in an early design stage. There is no runtime yet.
+v0 is a `--safe` Agda model of that runtime: processes and mailboxes, a one-step scheduling relation, a shared heap with checked and residual grades, a total `collect`, and send that moves a grade-1 value. It imports muro's grade lattice. It does not emit code and it does not re-check a muro term.
 
-muro-beam is meant to execute muro *run* images as processes, in the spirit of the Erlang BEAM: lightweight actors, message passing, and a clear isolation boundary between what a book proved and what the host steps at runtime.
+See [docs/DESIGN.md](docs/DESIGN.md).
 
-It will consume static multiplicity facts from muro's graded judgment — optional grade pairs `(x : (c, t) A)` on binders — so a future VM can drop unused values, reuse a value in place, and treat exactly-once resources as exactly-once. Those grades are evidence produced by muro. Existing emitters erase them; this runtime is one of the later books that will elect to read them.
+## Check
 
-See [docs/DESIGN.md](docs/DESIGN.md) for goals, non-goals, and open questions.
+Agda 2.7 or 2.8, and the standard library v2.3. The lattice is the submodule `vendor/muro`, pinned at murolang/muro tag `v0.20.32`.
+
+```sh
+git submodule update --init vendor/muro
+git clone --depth 1 --branch v2.3 https://github.com/agda/agda-stdlib.git vendor/agda-stdlib
+make agda
+```
+
+`make agda` checks `agda/MuroBeam.agda` with `--safe` and `--no-libraries`. `vendor/agda-stdlib` is gitignored.
 
 ## Related
 
