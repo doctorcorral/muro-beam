@@ -7,9 +7,20 @@ on:
 
 jobs:
   agda:
-    name: agda
+    name: agda ${{ matrix.version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # v2.7.0 published no Linux binary. v2.7.0.1 is that leg.
+          - version: "2.8.0"
+            tag: "v2.8.0"
+            asset: "Agda-v2.8.0-linux.tar.xz"
+          - version: "2.7.0.1"
+            tag: "v2.7.0.1"
+            asset: "Agda-v2.7.0.1-linux.tar.xz"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,13 +28,13 @@ jobs:
 
       # Extract outside the repo: the tarball's `agda` binary collides with
       # the `agda/` source directory (tar exits 2).
-      - name: Install Agda 2.8.0
+      - name: Install Agda ${{ matrix.version }}
         run: |
           set -euo pipefail
           tmp=$(mktemp -d)
-          asset="Agda-v2.8.0-linux.tar.xz"
+          asset="${{ matrix.asset }}"
           curl -fL --retry 5 -o "$tmp/$asset" \
-            "https://github.com/agda/agda/releases/download/v2.8.0/${asset}"
+            "https://github.com/agda/agda/releases/download/${{ matrix.tag }}/${asset}"
           tar -xJf "$tmp/$asset" -C "$tmp"
           mkdir -p "$HOME/.local/bin"
           install -m 0755 "$tmp/agda" "$HOME/.local/bin/agda"
@@ -36,3 +47,6 @@ jobs:
 
       - name: Run make agda
         run: make agda
+
+      - name: Run make audit
+        run: make audit
