@@ -1,0 +1,27 @@
+-- Trace events both sides of the conformance test will emit.
+-- Nothing in this part produces a trace. A later part compiles the Agda
+-- model with MAlonzo and compares event lists. Names are prefixed so
+-- they do not clash with PTm constructors in the one constructor scope.
+--
+-- tr-alloc    object index, checked grade
+-- tr-spend    object index, residual before, residual after
+-- tr-send     source pid, destination pid, reference, Kmove or Kcopy
+-- tr-recv     pid, reference
+-- tr-spawn    parent pid, child pid
+-- tr-step     pid. One CEK step. The control before and after is a
+--             later field; this part fixes the event, not the stepper.
+-- tr-collect  freed object indices, in increasing index order
+
+import "heap.muro"
+
+data Event : Type where
+  tr-alloc : Nat → Grade → Event
+  tr-spend : Nat → Grade → Grade → Event
+  tr-send : Nat → Nat → Ref → Kind → Event
+  tr-recv : Nat → Ref → Event
+  tr-spawn : Nat → Nat → Event
+  tr-step : Nat → Event
+  tr-collect : List Nat → Event
+
+data Trace : Type where
+  trace : List Event → Trace

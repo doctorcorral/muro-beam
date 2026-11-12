@@ -1,0 +1,193 @@
+-- Grades as ordinary inductive data.
+--
+-- BeamGrade / beamGrade is the runtime reading of a muro Grade.
+-- grade0, grade1, gradeOmega, and aff are Grade values. They are not
+-- BeamGrade constructors, and they are not muro's graded binders.
+-- A `+` on a field is the host's reuse quantity so a walker can read
+-- the field twice. It is not a BeamGrade.
+
+import "data.muro"
+
+data Point : Type where
+  fin : Π (+ k : Nat) → Point
+  inf : Point
+
+data Grade : Type where
+  pt : Point → Grade
+  iv : Point → Point → Grade
+
+data BeamGrade : Type where
+  g0 : BeamGrade
+  g1 : BeamGrade
+  omega : BeamGrade
+
+def grade0 : run Grade := pt (fin 0)
+def grade1 : run Grade := pt (fin (suc 0))
+def gradeOmega : run Grade := pt inf
+def aff : run Grade := iv (fin 0) (fin (suc 0))
+
+def beamGrade : run Π (g : Grade) → Maybe BeamGrade :=
+  λ (g : Grade) →
+    match g motive (λ _ → Maybe BeamGrade)
+      | pt p =>
+          (match p motive (λ _ → Maybe BeamGrade)
+            | fin k =>
+                (match k motive (λ _ → Maybe BeamGrade)
+                  | 0 => just g0
+                  | suc k1 =>
+                      (match k1 motive (λ _ → Maybe BeamGrade)
+                        | 0 => just g1
+                        | suc k2 => nothing))
+            | inf => just omega)
+      | iv a b => just omega
+
+def beam-g0 : evidence {beamGrade grade0 ≡ just g0 : Maybe BeamGrade} := refl
+def beam-g1 : evidence {beamGrade grade1 ≡ just g1 : Maybe BeamGrade} := refl
+def beam-omega : evidence {beamGrade gradeOmega ≡ just omega : Maybe BeamGrade} := refl
+def beam-iv : evidence Π (a : Point) → Π (b : Point) → {beamGrade (iv a b) ≡ just omega : Maybe BeamGrade} :=
+  λ (a : Point) → λ (b : Point) → refl
+def beam-fin2 : evidence {beamGrade (pt (fin (suc (suc 0)))) ≡ nothing : Maybe BeamGrade} := refl
+
+def isZeroGrade : run Π (g : Grade) → Bool :=
+  λ (g : Grade) →
+    match g motive (λ _ → Bool)
+      | pt p =>
+          (match p motive (λ _ → Bool)
+            | fin k =>
+                (match k motive (λ _ → Bool)
+                  | 0 => true
+                  | suc k1 => false)
+            | inf => false)
+      | iv a b => false
+
+def isG1 : run Π (g : Grade) → Bool :=
+  λ (g : Grade) →
+    match g motive (λ _ → Bool)
+      | pt p =>
+          (match p motive (λ _ → Bool)
+            | fin k =>
+                (match k motive (λ _ → Bool)
+                  | 0 => false
+                  | suc k1 =>
+                      (match k1 motive (λ _ → Bool)
+                        | 0 => true
+                        | suc k2 => false))
+            | inf => false)
+      | iv a b => false
+
+-- A grade-1 binder anywhere in the context. Same boolean as Agda g1InScope.
+def g1InScope : run Π (-n : Nat) → Π (ctx : Vec Grade n) → Bool :=
+  λ (-n : Nat) → λ (ctx : Vec Grade n) →
+    match ctx motive (λ (k : Nat) → λ (_ : Vec Grade k) → Bool)
+      | vnil => false
+      | vcons m g gs => orB (isG1 g) (g1InScope m gs)
+
+-- Boundary.agda's sharpCxt is this boolean.
+def sharpCxt : run Π (-n : Nat) → Π (ctx : Vec Grade n) → Bool :=
+  λ (-n : Nat) → λ (ctx : Vec Grade n) → g1InScope n ctx
+
+data Kind : Type where
+  Kmove : Kind
+  Kcopy : Kind
+
+def kind : run Π (g : Grade) → Maybe Kind :=
+  λ (g : Grade) →
+    match g motive (λ _ → Maybe Kind)
+      | pt p =>
+          (match p motive (λ _ → Maybe Kind)
+            | fin k =>
+                (match k motive (λ _ → Maybe Kind)
+                  | 0 => nothing
+                  | suc k1 => just Kmove)
+            | inf => just Kcopy)
+      | iv a b => just Kcopy
+
+def g0-not-sent : evidence {kind grade0 ≡ nothing : Maybe Kind} := refl
+def g1-moved : evidence {kind grade1 ≡ just Kmove : Maybe Kind} := refl
+def omega-copied : evidence {kind gradeOmega ≡ just Kcopy : Maybe Kind} := refl
+def iv-copied : evidence Π (a : Point) → Π (b : Point) → {kind (iv a b) ≡ kind gradeOmega : Maybe Kind} :=
+  λ (a : Point) → λ (b : Point) → refl
+
+-- Residual ≤ checked. fin-kept steps a finite point down.
+-- omega-kept and iv-kept stay put. This is data, not a spec Le.
+data Kept : Grade → Grade → Type where
+  fin-kept : Π (+ k : Nat) → Π (n : Nat) → Le k n → Kept (pt (fin k)) (pt (fin n))
+  omega-kept : Kept gradeOmega gradeOmega
+  iv-kept : Π (a : Point) → Π (b : Point) → Kept (iv a b) (iv a b)
+
+def selfKept : run Π (g : Grade) → Kept g g :=
+  λ (g : Grade) →
+    match g motive (λ (x : Grade) → Kept x x)
+      | pt p =>
+          (match p motive (λ (q : Point) → Kept (pt q) (pt q))
+            | fin k => fin-kept k k (leRefl k)
+            | inf => omega-kept)
+      | iv a b => iv-kept a b
+
+def kept-refl : evidence {selfKept grade1 ≡ fin-kept (suc 0) (suc 0) (leRefl (suc 0)) : Kept grade1 grade1} := refl
+
+-- isZeroGrade g ≡ false, as data. A constructor field cannot store the
+-- bool equality: positivity unfolds a recursive function until the fuel
+-- runs out and then reports the field as not strictly positive.
+data NotZero : Grade → Type where
+  nz-suc : Π (k : Nat) → NotZero (pt (fin (suc k)))
+  nz-inf : NotZero (pt inf)
+  nz-iv : Π (a : Point) → Π (b : Point) → NotZero (iv a b)
+
+def notZero-sound : evidence Π (g : Grade) → Π (p : NotZero g) → {isZeroGrade g ≡ false : Bool} :=
+  λ (g : Grade) → λ (p : NotZero g) →
+    match p motive (λ (h : Grade) → λ (_ : NotZero h) → {isZeroGrade h ≡ false : Bool})
+      | nz-suc k => refl
+      | nz-inf => refl
+      | nz-iv a b => refl
+
+-- isG1 g ≡ false, as data.
+data NotG1 : Grade → Type where
+  ng1-zero : NotG1 (pt (fin 0))
+  ng1-high : Π (k : Nat) → NotG1 (pt (fin (suc (suc k))))
+  ng1-inf : NotG1 (pt inf)
+  ng1-iv : Π (a : Point) → Π (b : Point) → NotG1 (iv a b)
+
+def notG1-sound : evidence Π (g : Grade) → Π (p : NotG1 g) → {isG1 g ≡ false : Bool} :=
+  λ (g : Grade) → λ (p : NotG1 g) →
+    match p motive (λ (h : Grade) → λ (_ : NotG1 h) → {isG1 h ≡ false : Bool})
+      | ng1-zero => refl
+      | ng1-high k => refl
+      | ng1-inf => refl
+      | ng1-iv a b => refl
+
+-- Lookup as a relation. The bool vlookup is recursive, so a constructor
+-- cannot mention it. One index package: a later index cannot depend on
+-- an earlier index value.
+data AtIx : Type where
+  atix : Π (n : Nat) → Fin n → Vec Grade n → Grade → AtIx
+
+data At : AtIx → Type where
+  at-zero : Π (n : Nat) → Π (g : Grade) → Π (gs : Vec Grade n) →
+            At (atix (suc n) (fzero n) (vcons n g gs) g)
+  at-suc : Π (n : Nat) → Π (i : Fin n) → Π (h : Grade) → Π (gs : Vec Grade n) →
+           Π (a : Grade) →
+           At (atix n i gs a) →
+           At (atix (suc n) (fsuc n i) (vcons n h gs) a)
+
+-- g1InScope ctx ≡ false: every binder fails isG1.
+data NoG1Ix : Type where
+  ngix : Π (n : Nat) → Vec Grade n → NoG1Ix
+
+data NoG1 : NoG1Ix → Type where
+  ng-nil : NoG1 (ngix 0 vnil)
+  ng-cons : Π (n : Nat) → Π (g : Grade) → Π (gs : Vec Grade n) →
+            NotG1 g →
+            NoG1 (ngix n gs) →
+            NoG1 (ngix (suc n) (vcons n g gs))
+
+def noG1-sound : evidence Π (-n : Nat) → Π (-ctx : Vec Grade n) → Π (p : NoG1 (ngix n ctx)) → {g1InScope n ctx ≡ false : Bool} :=
+  λ (-n : Nat) → λ (-ctx : Vec Grade n) → λ (p : NoG1 (ngix n ctx)) →
+    match p motive (λ (i : NoG1Ix) → λ (_ : NoG1 i) →
+        match i motive (λ _ → Type)
+          | ngix m d => {g1InScope m d ≡ false : Bool})
+      | ng-nil => refl
+      | ng-cons m g gs q rest =>
+          rewrite notG1-sound g q motive (λ z → {orB z (g1InScope m gs) ≡ false : Bool}) in
+          rewrite noG1-sound m gs rest motive (λ z → {orB false z ≡ false : Bool}) in
+          refl

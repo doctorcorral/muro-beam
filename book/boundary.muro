@@ -1,0 +1,174 @@
+-- Pure Muro mirror of MuroBeam.Boundary's filter and of NoEscape.
+--
+-- muro 0.20.33 elaborates every data parameter as Type, and it does not
+-- instantiate a later index whose type depends on an earlier index value.
+-- InB and NoEsc are therefore indexed by one Ix package (scope, context,
+-- term), not by the Agda telescope Vec Grade n → GTm n. The statement
+-- is the same. The packaging is the encoding.
+--
+-- The bool premises (isZeroGrade (lookup) ≡ false, g1InScope ≡ false)
+-- cannot be constructor fields either: the positivity walk unfolds a
+-- recursive function until the fuel is gone. At, NotZero, NoG1, and Pred
+-- are those premises as inductive relations. notZero-sound and
+-- notG1-sound send them back to the bools.
+
+import "term.muro"
+
+data Ix : Type where
+  ix : Π (n : Nat) → Vec Grade n → GTm n → Ix
+
+-- The g0 premise is NotZero of the grade At relates to the variable.
+-- The glam premise is NoG1, which is g1InScope ≡ false.
+-- The match successor context is the grade Pred relates to the scrutinee.
+-- notZero-sound and notG1-sound map those relations back to the bools.
+data InB : Ix → Type where
+  ib-var : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (x : Fin n) → Π (g : Grade) →
+           At (atix n x ctx g) →
+           NotZero g →
+           InB (ix n ctx (gvar n x))
+  ib-typ : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (x : Fin n) →
+           InB (ix n ctx (gtyp n x))
+  ib-ze : Π (n : Nat) → Π (ctx : Vec Grade n) →
+          InB (ix n ctx (gze n))
+  ib-su : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+          InB (ix n ctx e) →
+          InB (ix n ctx (gsu n e))
+  ib-app : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (f : GTm n) → Π (a : GTm n) →
+           InB (ix n ctx f) →
+           InB (ix n ctx a) →
+           InB (ix n ctx (gapp n f a))
+  ib-pi : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) → Π (ty : Grade) →
+          Π (b : GTm suc(n)) →
+          InB (ix (suc n) (vcons n c ctx) b) →
+          InB (ix n ctx (gpi n c ty b))
+  ib-lam : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) → Π (ty : Grade) →
+           Π (b : GTm suc(n)) →
+           NoG1 (ngix n ctx) →
+           InB (ix (suc n) (vcons n c ctx) b) →
+           InB (ix n ctx (glam n c ty b))
+  ib-mat : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+           Π (z : GTm n) → Π (s : GTm suc(n)) → Π (g : Grade) →
+           Pred (prix n ctx e g) →
+           InB (ix n ctx e) →
+           InB (ix n ctx z) →
+           InB (ix (suc n) (vcons n g ctx) s) →
+           InB (ix n ctx (gmatch n e z s))
+
+-- NoEscape drops the g0-variable premise. The glam premise stays.
+data NoEsc : Ix → Type where
+  ne-var : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (x : Fin n) →
+           NoEsc (ix n ctx (gvar n x))
+  ne-typ : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (x : Fin n) →
+           NoEsc (ix n ctx (gtyp n x))
+  ne-ze : Π (n : Nat) → Π (ctx : Vec Grade n) →
+          NoEsc (ix n ctx (gze n))
+  ne-su : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+          NoEsc (ix n ctx e) →
+          NoEsc (ix n ctx (gsu n e))
+  ne-app : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (f : GTm n) → Π (a : GTm n) →
+           NoEsc (ix n ctx f) →
+           NoEsc (ix n ctx a) →
+           NoEsc (ix n ctx (gapp n f a))
+  ne-pi : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) → Π (ty : Grade) →
+          Π (b : GTm suc(n)) →
+          NoEsc (ix (suc n) (vcons n c ctx) b) →
+          NoEsc (ix n ctx (gpi n c ty b))
+  ne-lam : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) → Π (ty : Grade) →
+           Π (b : GTm suc(n)) →
+           NoG1 (ngix n ctx) →
+           NoEsc (ix (suc n) (vcons n c ctx) b) →
+           NoEsc (ix n ctx (glam n c ty b))
+  ne-mat : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+           Π (z : GTm n) → Π (s : GTm suc(n)) → Π (g : Grade) →
+           Pred (prix n ctx e g) →
+           NoEsc (ix n ctx e) →
+           NoEsc (ix n ctx z) →
+           NoEsc (ix (suc n) (vcons n g ctx) s) →
+           NoEsc (ix n ctx (gmatch n e z s))
+
+-- The filter implies the capture restriction. The g0 premise is dropped.
+-- The converse is not claimed. The Ix argument is erased so the descent
+-- candidate is the proof.
+def toNo : evidence Π (-i : Ix) → Π (p : InB i) → NoEsc i :=
+  λ (-i : Ix) → λ (p : InB i) →
+    match p motive (λ (j : Ix) → λ (_ : InB j) → NoEsc j)
+      | ib-var n ctx x g lk nz => ne-var n ctx x
+      | ib-typ n ctx x => ne-typ n ctx x
+      | ib-ze n ctx => ne-ze n ctx
+      | ib-su n ctx e q => ne-su n ctx e (toNo (ix n ctx e) q)
+      | ib-app n ctx f a pf pa =>
+          ne-app n ctx f a (toNo (ix n ctx f) pf) (toNo (ix n ctx a) pa)
+      | ib-pi n ctx c ty b q =>
+          ne-pi n ctx c ty b (toNo (ix (suc n) (vcons n c ctx) b) q)
+      | ib-lam n ctx c ty b sharp q =>
+          ne-lam n ctx c ty b sharp (toNo (ix (suc n) (vcons n c ctx) b) q)
+      | ib-mat n ctx e z s g pr pe pz ps =>
+          ne-mat n ctx e z s g pr
+            (toNo (ix n ctx e) pe)
+            (toNo (ix n ctx z) pz)
+            (toNo (ix (suc n) (vcons n g ctx) s) ps)
+
+-- Closed statement. InBoundary t is InB (ix 0 vnil t).
+def inBoundary-to-noEscape : evidence Π (e : GTm 0) → Π (p : InB (ix 0 vnil e)) → NoEsc (ix 0 vnil e) :=
+  λ (e : GTm 0) → λ (p : InB (ix 0 vnil e)) → toNo (ix 0 vnil e) p
+
+-- Decidable check. Returns Answer, not a proof-carrying Dec: refl is
+-- refused in run mode, so a run cannot build the yes proof.
+-- The sharp flag starts false at the empty context and is pushed with
+-- orB (isG1 c), the same boolean as g1InScope. Uses are not counted.
+-- A gpi body is scanned. A gvar whose binder is g0 is refused.
+def inBoundaryAt : run Π (-n : Nat) → Π (t : GTm n) → Π (+ ctx : Vec Grade n) → Π (+ sharp : Bool) → Answer :=
+  λ (-n : Nat) → λ (t : GTm n) → λ (+ ctx : Vec Grade n) → λ (+ sharp : Bool) →
+    (match t motive (λ (k : Nat) → λ (_ : GTm k) → Π (+ d : Vec Grade k) → Π (+ s : Bool) → Answer)
+      | gvar m x => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          (match isZeroGrade (vlookup Grade m x d) motive (λ _ → Answer)
+            | true => no
+            | false => yes)
+      | gtyp m x => λ (+ d : Vec Grade m) → λ (+ s : Bool) → yes
+      | gze m => λ (+ d : Vec Grade m) → λ (+ s : Bool) → yes
+      | gsu m e => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          inBoundaryAt m e d s
+      | gapp m f a => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          both (inBoundaryAt m f d s) (inBoundaryAt m a d s)
+      | gpi m c ty b => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          inBoundaryAt (suc m) b (vcons m c d) (orB s (isG1 c))
+      | glam m c ty b => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          (match s motive (λ _ → Answer)
+            | true => no
+            | false => inBoundaryAt (suc m) b (vcons m c d) (isG1 c))
+      | gmatch m e z body => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (inBoundaryAt m e d sh)
+            (both (inBoundaryAt m z d sh)
+              (inBoundaryAt (suc m) body
+                (vcons m (predGrade m d e) d)
+                (orB sh (isG1 (predGrade m d e)))))) ctx sharp
+
+def inBoundary : run Π (t : GTm 0) → Answer :=
+  λ (t : GTm 0) → inBoundaryAt 0 t vnil false
+
+-- Same walk, except a gvar is always accepted.
+def noEscapeAt : run Π (-n : Nat) → Π (t : GTm n) → Π (+ ctx : Vec Grade n) → Π (+ sharp : Bool) → Answer :=
+  λ (-n : Nat) → λ (t : GTm n) → λ (+ ctx : Vec Grade n) → λ (+ sharp : Bool) →
+    (match t motive (λ (k : Nat) → λ (_ : GTm k) → Π (+ d : Vec Grade k) → Π (+ s : Bool) → Answer)
+      | gvar m x => λ (+ d : Vec Grade m) → λ (+ s : Bool) → yes
+      | gtyp m x => λ (+ d : Vec Grade m) → λ (+ s : Bool) → yes
+      | gze m => λ (+ d : Vec Grade m) → λ (+ s : Bool) → yes
+      | gsu m e => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          noEscapeAt m e d s
+      | gapp m f a => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          both (noEscapeAt m f d s) (noEscapeAt m a d s)
+      | gpi m c ty b => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          noEscapeAt (suc m) b (vcons m c d) (orB s (isG1 c))
+      | glam m c ty b => λ (+ d : Vec Grade m) → λ (+ s : Bool) →
+          (match s motive (λ _ → Answer)
+            | true => no
+            | false => noEscapeAt (suc m) b (vcons m c d) (isG1 c))
+      | gmatch m e z body => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (noEscapeAt m e d sh)
+            (both (noEscapeAt m z d sh)
+              (noEscapeAt (suc m) body
+                (vcons m (predGrade m d e) d)
+                (orB sh (isG1 (predGrade m d e)))))) ctx sharp
+
+def noEscape : run Π (t : GTm 0) → Answer :=
+  λ (t : GTm 0) → noEscapeAt 0 t vnil false
