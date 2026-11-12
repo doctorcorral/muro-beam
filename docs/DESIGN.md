@@ -4,7 +4,7 @@ muro-beam executes muro *run* images as processes, in the spirit of the Erlang B
 
 v0 is a total Agda book of the scheduler, the graded heap, and send. v1a is that runtime plus a CBV CEK that runs a closed `GTm` muro's `decide run` has accepted. It does not emit code. It does not re-check a muro term. It reads the grades muro's judgment already checked. Boundary v1, in `MuroBeam.Boundary`, is the contract over that machine. The machine is the implementation.
 
-`main` at `079ca47` is tagged `v0`. v1 is three pull requests. This book is the second of them: the process layer on top of v1a.
+`main` at `079ca47` is tagged `v0`. v1 is three pull requests. This book is the third: adequacy of the v1a machine, on top of the v1b process layer.
 
 ## Why
 
@@ -177,10 +177,10 @@ Ricardo split v1 into three pull requests. Each one is meant to check alone.
 | PR | What it adds | What it leaves |
 |---|---|---|
 | **v1a** | `Checked`, CEK lowering, reference payloads, ordered tracing `collect`, safety of every reachable state | processes that spawn |
-| **v1b** (this book) | `PTm`, `checkP`, `lowerP`, spawn / send / recv, `waiting`, the request/reply ether, `no-stray-reply` | adequacy and simulation |
-| **v1c** | `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim` | a multiplicative application rule, and `erase` |
+| **v1b** | `PTm`, `checkP`, `lowerP`, spawn / send / recv, `waiting`, the request/reply ether, `no-stray-reply` | adequacy |
+| **v1c** (this book) | `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref` | a multiplicative application rule, `erase`, and forward `lower-sim` |
 
-v1c is not in this book. The v1c names above are the ones that PR is expected to add. Nothing here postulates them.
+`lower-sim` was attempted in this book and is not a theorem. The statement is false for the `NoEscape` defined below. The section "v1c" records the counterexample. Nothing here postulates it.
 
 ### Input
 
@@ -195,7 +195,7 @@ record Checked : Set where
 
 Run mode only. Spec and evidence terms are not lowered.
 
-`decide-sound`, `NoEscape`, and `noEscape?` are v1c. v1a does not need them. A checked grade `g0` forces the residual to be `g0` (`Kept`), and `spend` refuses a `g0` residual, so no run step dereferences that binder. `gtyp` and `gpi` never call `spend`.
+`decide-sound`, `NoEscape`, and `noEscape?` are proved in v1c. v1a does not need them for safety. A checked grade `g0` forces the residual to be `g0` (`Kept`), and `spend` refuses a `g0` residual, so no run step dereferences that binder. `gtyp` and `gpi` never call `spend`.
 
 ### Control
 
@@ -263,13 +263,13 @@ Read as `λ(g1) x. (λ(gω) f. f f) (λ(aff) _. x)`. The inner λ captures `x`. 
 
 v1a refuses the alias. `eval1` will not install a `clo` whose environment contains a `g1` reference while that reference still lives in the caller environment. Running `gapp cex gze` therefore gets stuck at the inner λ, after `x` has been allocated at grade 1. The stuck state is well-formed. `collect` does not free `x`: its residual is still `g1`, and the environment reference reaches it. Safety holds. Adequacy does not, and is not claimed. That is the runtime face of the #211 choice. It is not a bug in either repository.
 
-`NoEscape` (v1c) is the fragment in which this pattern is excluded and a checked program is not supposed to get stuck on a grade. v1a proves safety for every lowered program, including this one.
+`NoEscape` excludes this pattern: both inner λs sit under the outer `g1`. v1a proves safety for every lowered program, including this one. Adequacy does not claim it. The exact predicate is in the v1c section. It is stricter than the spec's wording, which would still allow a λ in the head of a β-redex. This machine refuses every `glam` while `anyG1` is true, so the predicate refuses every such λ.
 
 ### Theorems added in v1a
 
 - **`lower-wf`**. `WF (lower e)`. Bounds hold and grade 1 is unique. The heap is empty.
 - **`lower-safe`**. `Step* (lower e) s` implies `WF s` and `AllInv (refsOf s)`. Collect-safety and grade-1 uniqueness apply to every state reachable from a checked program.
-- **`lower-g0-never-deref`**. A reference whose checked grade is `g0` has residual `g0`, and neither `deref` nor `eval1` spends it. `gtyp` and `gpi` do not read the environment. The checker side of the same fact is `sat g0 (finᶜ 0)` and `erased-is-zero`; connecting those to a trace is `decide-sound` in v1c.
+- **`lower-g0-never-deref`**. A reference whose checked grade is `g0` has residual `g0`, and neither `deref` nor `eval1` spends it. `gtyp` and `gpi` do not read the environment. The checker side of the same fact is `sat g0 (finᶜ 0)` and `erased-is-zero`. `decide-sound` is the discharge fact for every binder, and it is not a trace. The trace fact for a grade-1 slot is `budget-adequate`.
 - **`reuse-ordered`**. A successful `reuse` preserves the ordered-heap invariant.
 - **`residual-inv-step`**, **`collect-safe`**, **`collect-frees-zero`**, **`grade1-unique`**, **`step-preserves-grade1`**. The v0 statements, now over `refsOf` extended with environments, frames, and heap edges, and over `Reach` for the tracing collector.
 
@@ -315,7 +315,7 @@ The check is conservative. A `glam` under a `g1` binder is refused even when a p
 
 `capture-check-clear` is the link that is proved. If `InB Γ (glam c t b)` and the environment realises `Γ` (`EnvGrades`), then `anyG1` of that environment is false. `lam-not-under-g1` is the syntactic half: an accepted `glam` has `sharpCxt Γ ≡ false`. `sharp-env` says `sharpCxt` and `anyG1` agree when the environment realises the context. `g1-blocks-lam` is the inner closure of the §2B shape, a `glam` in the singleton context `(g1)`. `closed-lam-clear` instantiates `capture-check-clear` at the empty environment `lower` starts from. `anyG1 []` is false for every closed λ, in the fragment or not.
 
-What is not proved, and is v1c: that a running trace stays inside `EnvGrades`, `NoEscape`, `noEscape?`, `budget-adequate`, `decide-sound`. `InBoundary` does not say that every `Step*` from `lower` avoids a stuck `eval1`. A shape-stuck term such as `gapp gze gze` is in the fragment. `badG1`, a second alias of a `g1` pointer, is not decided here.
+`InBoundary` is not a trace theorem. A `yes` does not say that every `Step*` from `lower` avoids a stuck `eval1`. A shape-stuck term such as `gapp gze gze` is in the fragment. So is `alias` in `MuroBeam.Example`: `inBoundary?` and `noEscape?` both accept it, the reference machine returns the argument closure, and the CEK stands on a `β` that `badG1` refuses. `inBoundary→noEscape` is the implication that is proved. The converse is not claimed. `budget-adequate` is a separate trace invariant for match-free terms, stated in the v1c section.
 
 ### Muro side
 
@@ -387,7 +387,7 @@ no-stray-reply :
   → mailHas (procs t) i τ ≡ false
 ```
 
-`ReplyDone` is established by `flush1` and by a consuming `await1` (`ignore-consumes`, `await-consumes`) when `count τ (edgeRefs (heap s)) ≡ 0`. A `nat` cell has no outgoing edge, so the examples meet the premise. A `suc↑` or a `clo` that still points at `τ` does not. Naive demonitor does not establish `ReplyDone`: the flight is still a reference, and `dead` is not set.
+`ReplyDone` is unchanged: the count of `τ` in `refsOf` is zero, the object is in bounds, and `dead` is set. `flush1` and a consuming `await1` establish it (`ignore-consumes`, `await-consumes`). Those two lemmas no longer take `count τ (edgeRefs h) ≡ 0`. `consume` blanks every payload that still holds `τ` (`blankVal`: a `suc↑` or a `clo` whose children include the tag becomes `nat 0`) and then appends the fresh `g0` placeholder. Blanking is what makes the edge count zero, so a reply that lived only in a `suc↑` or a `clo` is covered by the same `ReplyDone`. The old premise is the special case in which the heap already had no such edge. `PExample.edge-stays` is that trace: the tag is the child of a `suc↑`, flush blanks it, and `no-stray-reply` applies to every later `PStep*`. Naive demonitor does not establish `ReplyDone`: the flight is still a reference, and `dead` is not set. Blanking is stronger than an `after 0` receive, and stronger than the v1b flush, which left the edge in place. A `gmatch` that extracts a `suc↑` and then sends the child can reintroduce the tag only when the edge was not blanked.
 
 `PExample` records the schedules. `j5-stays` and `k4-stays` apply `no-stray-reply` after a flushing `ignore`: the reply was delivered in the demonitor/flush window, and flush ran before deliver. `a4-stays` is the same fact for `await`. `naive-leak` is a concrete `PStep*` from `n0` to `n5` on which `mailHas` of tag 0 is still true.
 
@@ -400,7 +400,7 @@ These are the places the model is sharper or coarser than the BEAM. They are ass
 - The ether is the sender's flight list. `emit` then `deliver` is the two-phase send. v0 `send` stays atomic and cannot express this window by itself.
 - `demonitor` does not retract a flight and does not delete a mailbox message. It does not set `dead`. `deliver` reads `dead` only, so a reply that is in flight during demonitor is still enqueued if `flush` has not run.
 - `Process.demonitor(ref, [:flush])` flushes `DOWN` messages, not `{ref, reply}`. This model has no `DOWN` constructor. The reply is an ordinary `msg`. The flag is not treated as removing that message.
-- Proper `flush` consumes both a reply that has already arrived and a reply that is still a flight. On the BEAM, `flush_reply` is an `after 0` receive: it only sees the mailbox. A message still on the wire after that receive can still be delivered. Here the reply is a grade-1 reference, so the consuming flush deletes every remaining non-edge copy, and `dead` makes a later `deliver` drop instead of enqueue. That is what makes the theorem true for every interleaving, including a `deliver` after `flush`. It is stronger than one `after 0` receive, and it is the model's reading of "once `ignore` has returned, a late copy of this unique reply is not deposited."
+- Proper `flush` consumes both a reply that has already arrived and a reply that is still a flight. On the BEAM, `flush_reply` is an `after 0` receive: it only sees the mailbox. A message still on the wire after that receive can still be delivered. Here the reply is a grade-1 reference, so the consuming flush deletes every remaining non-edge copy, blanks a `suc↑` or `clo` payload that still holds the tag, and `dead` makes a later `deliver` drop instead of enqueue. That is what makes the theorem true for every interleaving, including a `deliver` after `flush`, and including a tag that lived only as a heap edge. It is stronger than one `after 0` receive, and stronger than a flush that left the edge in place. It is the model's reading of "once `ignore` has returned, a late copy of this unique reply is not deposited."
 - A new `emit` is refused when the destination already has the tag in `demo` or in `dead`. Refusal does not delete a flight that is already in the ether. Deactivation of the alias does not recall a message already sent.
 - The naive leak is a concrete `PStep*` trace. The reply is in the ether while `ndemon1` runs, `dead` is not set, and the following `deliver` leaves `msg` in the caller's mailbox. A second window, `deliver` between the empty `after 0` and demonitor, is the same fact. If the mailbox already holds the tag, `npeek1` consumes it and there is no leak. That is the successful `after 0` branch.
 - `seq` parks flights on `saved`. `deliver` pulls from `pr` and from `saved`. `bind` resumes only when `saved` is the whole stack, which is the shape `seq` produces. A `saved` frame buried under another `saved` is not produced by `seq`.
@@ -408,7 +408,106 @@ These are the places the model is sharper or coarser than the BEAM. They are ass
 
 ### What v1b does not prove
 
-`NoEscape`, `noEscape?`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `decide-sound`, `lower-sim`. No multiplicative application. No new typing judgment. No executable runtime.
+The adequacy statements are the next section. v1b does not prove them. No multiplicative application. No new typing judgment. No executable runtime.
+
+## v1c
+
+Adequacy lives in muro-beam. muro is untouched, and application stays additive. The modules are `MuroBeam.Source` (`NoEscape`), `MuroBeam.Boundary` (`inBoundary→noEscape`), `MuroBeam.Adequacy` (`decide-sound`, `done-collect-empty`), `MuroBeam.Budget` (`budget-adequate`, `exact-exhausts`), and `MuroBeam.Ref` (the grade-free machine). There is no `MuroBeam.Sim`. `lower-sim` is not defined.
+
+### `NoEscape`
+
+The spec's wording was: a λ whose free variables include a finite or interval grade appears only in the head of a β-redex, or as the argument of a `glam` whose grade is a finite point of 1 or less. This machine does not implement that positions predicate. `eval1` on `glam` is `pass (not (anyG1 env))`, and `anyG1` is true when any captured reference has checked grade `g1`. A λ under a `g1` binder is not a step, including one that sits in the head of a β-redex. The predicate is that restriction, on the syntax:
+
+```agda
+NoEscape : GTm 0 → Set
+NoEscape e = NoEsc [] e
+
+-- ne-lam is the only interesting clause:
+ne-lam : ∀ {c t b} → g1InScope Γ ≡ false → NoEsc (c ∷ Γ) b →
+         NoEsc Γ (glam c t b)
+```
+
+`g1InScope` is true when the context contains `pt (fin 1)`. `noEscape? : (e : GTm 0) → Dec (NoEscape e)`. A finite point above 1, and an interval, may still be captured. That is weaker than the spec on those grades, and it is what makes `InBoundary` imply the predicate. `InBoundary` also refuses a `g0` variable, so the converse is false.
+
+```agda
+inBoundary→noEscape : ∀ {e} → InBoundary e → NoEscape e
+```
+
+`InBoundary` stays a sound but incomplete syntactic filter. It is not a trace theorem. The trace theorem is `budget-adequate`, which takes `NoEscape` as a side condition and quantifies over every `Step*` from `lower`, not over one schedule. It does not quantify over an arbitrary `PStep*`: a spawned process is outside this invariant. `no-stray-reply` is the statement that does quantify over every `PStep*` interleaving, and it is unchanged.
+
+### `decide-sound`
+
+The sentence "if `decide run Γ e ≡ ok us`, then each `us[x]` satisfies `sat` of `Γ[x]`" is false. `decide` on `gvar` does not consult `Γ`. `decide run (gp g0 g0 ∷ []) (gvar fzero)` returns computational count `finᶜ 1`, and `sat g0 (finᶜ 1)` is false. A closed `Uses 0` is empty, so that reading says nothing about a closed term either. What `under` checks is the binder. Spec mode forgets the computational component. A `gpi` is checked in spec mode even when the surrounding judgment is run.
+
+```agda
+decide-sound : ∀ {n} (Γ : GCtx n) e us →
+               decide run Γ e ≡ okR us → Discharged run Γ e
+```
+
+`Discharged` carries, at each `glam`, `gpi`, and `gmatch`, evidence that checking the body returned a vector headed by `sp co ty`, and `sat` of the component the mode inspects on those counts. `ds-pi` checks the body in spec mode and records the type component only. `sat-g0-zero` is the static half of a grade-0 binder: `sat g0 k ≡ true` implies `k ≡ finᶜ 0`. `¬discharged-ghost` is `¬ Discharged run [] (glam g0 g0 (gvar fzero))`: the body checks as one computational use, and `sat g0` rejects it. `decide` fails the same term (`ghost-decide-fails`).
+
+### `budget-adequate` and `exact-exhausts`
+
+Only a checked grade of `g1` is tracked, and only on a match-free term. `MatchFree` has no `gmatch` clause. The spec's `NoEscape` mentions `gmatch`; this proof does not. Along every `Step*` from `lower`:
+
+```agda
+budget-adequate : (e : Checked) {s : Sys} →
+                  NoEscape (term e) → MatchFree (term e) →
+                  Step* (lower e) s → Inv tight s
+```
+
+`Inv tight` says the heap payloads and the focused control agree on the debt. A slot whose checked grade is still `g1` has residual `g1` and exactly one computational occurrence ahead, or residual `g0` and none. `spendRef` therefore does not refuse that deref. The debt is the `occ` count of the focus plus the frames, which for a checked `g1` binder is 1. Finite points above 1 are outside the invariant: a `pt (fin 2)` binder may be captured by an ω closure and used more than twice, and that term is still `NoEscape`. An interval does not step down to `g0`.
+
+```agda
+exact-exhausts : ∀ (e : Checked) {s h p v env env0 k i r} →
+                 NoEscape (term e) → MatchFree (term e) →
+                 Step* (lower e) s →
+                 s ≡ sys h (p ∷ []) →
+                 ctl p ≡ rv v env (bd env0 ∷ k) →
+                 lookup env i ≡ just r →
+                 isG1 (checked r) ≡ true →
+                 residual r ≡ g0
+```
+
+At a `bd` pop the debt is 0, so a `g1` residual is `g0`. That is the one use, which is what `reuse` asks of a grade-1 cell. The spec's reading for every `fin n` is not what is proved. A binder that has not reached the pop is outside the claim. `budget-g1` is the companion fact: a `g1` variable that is about to be read still has residual `g1`.
+
+Two machine limits are excluded rather than repaired. `onMatch` regrades the predecessor with `predComp` of the environment after the scrutinee was evaluated. A `g1` `suc↑` or `clo` moves, and the env slot is then a fresh `g0`, so `predComp` reads `g0`. `gmatch` on `suc` also extends the environment without shifting frames that were pushed in the unextended scope. `MatchFree` keeps both out of `budget-adequate`. `exact-exhausts` was already match-free in the spec.
+
+### `done-collect-empty`
+
+`collect` marks from `liveRefs` only. A false bit never marks a child, so an empty live set frees every slot even when edges exist.
+
+```agda
+done-collect-empty : ∀ s → liveRefs s ≡ [] → AllFree (heap (collect s))
+```
+
+`done-pid0` is the finished process: pid 0, state `done`, empty roots, empty inbox, empty environment, empty ether. A finished process that still holds flights does not free the objects those flights reach. The v1b model keeps the ether of `done`.
+
+### `MuroBeam.Ref` and `lower-sim`
+
+`MuroBeam.Ref` is a CBV environment machine. `RVal` is a nat, a successor, or a closure (`rlam`). `rstep : RCtl → Maybe RCtl` does not read a grade. A variable lookup returns the environment entry. `_↦_` is the graph of a successful `rstep`. `runR` is fuel-bounded evaluation, the same shape as `runFor`.
+
+Forward simulation does not hold. The spec's statement is: if `e ↦ e'` and `NoEscape e`, then a `lower`-related CEK state reaches a related state by one or more non-collect `Step`s. `alias` in `MuroBeam.Example` is a counterexample:
+
+```agda
+alias =
+  gapp
+    (glam gω g0
+      (gapp (glam g1 g0 (gvar fzero)) (gvar fzero)))
+    (glam gω g0 gze)
+```
+
+`decide run [] alias ≡ ok []`. `noEscape? alias ≡ yes _`. `inBoundary? alias ≡ yes _`. `runR 40 (startR alias)` is the argument closure, `rlam` of `gze`. `runFor 40 (lower alias)` is a CEK state whose control is a returned argument under an `fn` frame, and `eval1` of that state is `nothing`. The argument object is also in the environment, so `badG1` refuses the β. The reference machine takes that β. Putting the name `lower-sim` on a lemma that adds "no grade-1 β of an aliased object", or "no finite point above 1", would be a weaker statement than the one that was asked for. The name is not used.
+
+The same gap is why a grade-free simulation cannot be the proof of the budget. `budget-adequate` is proved directly on `Step*`. A second counterexample shape, not needed for the `alias` trace, is a `pt (fin 2)` binder captured by an ω closure and applied more times than the static count. `NoEscape` allows that capture. The CEK copies the residual into the closure, so the shared budget is not what `spend` sees either. The invariant does not claim it.
+
+`use1`, `gapp (glam g1 g0 (gvar fzero)) gze`, is the adequate trace. It is in `InBoundary`, hence `NoEscape`, both machines return zero, and the CEK halts on that nat. `once`, `twice`, `match-once`, and `match-many` are muro's `grade-once`, `grade-twice`, `grade-match-once`, and `grade-match-many`, each lowered one step to a closure. `cex` is the §2B term: `decide` accepts it, `noEscape?` and `inBoundary?` refuse it, and `runFor 6` is stuck with the `g1` cell still live.
+
+Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduction` is not stated: the pin has no `erase : Tm → GTm`.
+
+### `bind1`
+
+`bind1` resumes only a singleton `saved` stack. `seq` pushes one `saved` frame and parks an empty environment there, so the traces this book runs never need a deeper stack. A `saved` frame under another frame is not produced by `seq`. Generalising the resumption would be a change to the process layer for a case the layer does not build. It is left as it was.
 
 ## Limits
 
@@ -419,12 +518,17 @@ These are the places the model is sharper or coarser than the BEAM. They are ass
 - **No muro→muro-beam emitter, and no core `Tm`.** v1a lowers a `GTm` that `decide run` already accepted. It does not read `Muro.Reduction`, and muro `v0.20.32` has no `erase : Tm → GTm`.
 - **Application is additive.** As recorded below from the review of murolang/muro#211, the graded judgment adds use vectors and does not scale an argument by the binder's computational grade. The runtime follows that choice. The counterexample in the v1 section is accepted by `decide` and gets stuck on the machine. Send does not multiply. A finite point grade is moved whole, residual included. `ω` and intervals are aliased. They are not scaled.
 - **Payloads are `nat`, `suc↑`, and `clo`.** A `nat` is copied on dereference. A `suc↑` or a `clo` is a reference payload. Reachability in `collect-safe` is `Reach`, not the reference alone.
-- **Capture of `g1` does not alias.** Building a closure that would put a second graded reference on a `g1` object is not a step. Programs that do that get stuck safely. `NoEscape` adequacy is v1c.
+- **Capture of `g1` does not alias.** Building a closure that would put a second graded reference on a `g1` object is not a step. Programs that do that get stuck safely. `NoEscape` is that restriction. It does not stop `badG1` from refusing a grade-1 β of a value that is already aliased, and `alias` is the witness.
 - **No failure or supervision.** Spawn, send, recv, and `waiting` are in this book. A finished process stays in the list. Nothing here restarts a process or links two of them.
 - **Environment slots are not reindexed by `collect`.** A `g0` root or mailbox message is dropped, as in v0. A `g0` environment slot stays in place so that de Bruijn indices do not move; it does not mark its object reached. Scope exit pops the binder. That is what lets `collect` free it.
 - **Grade 1 is the unique checked point `g1`.** Uniqueness is not claimed for a finite point above 1. Those are still moved rather than copied by send. The theorem that is actually proved is the `g1` statement, now over roots, messages, environments, frames, and heap edges.
-- **`InBoundary` is not adequacy.** It refuses a closure in the scope of a `g1` binder, and a `g0` variable. It does not count uses, and it does not follow a trace. `NoEscape` and `budget-adequate` are still v1c.
-- **Not in this book.** `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim`. No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`.
+- **`InBoundary` is not adequacy.** It refuses a closure in the scope of a `g1` binder, and a `g0` variable. It does not count uses, and it does not follow a trace. It implies `NoEscape`. `budget-adequate` is the trace invariant, for match-free terms and for checked grade `g1` only.
+- **`budget-adequate` is not every binder.** Finite points above 1 and intervals are outside `Inv tight`. `gmatch` is outside it (`MatchFree`). A moved `g1` scrutinee is rebound from the slot after the move, which is a fresh `g0`. The successor branch of `gmatch` extends the environment under frames typed in the unextended scope.
+- **`exact-exhausts` is the `g1` pop.** It does not claim every `fin n`. A binder that has not reached `bd` is outside it.
+- **`decide-sound` is binder discharge.** The counts are the uses `decide` computed for the body. It is not the false free-variable reading recorded in the v1c section.
+- **`lower-sim` is not a theorem.** The grade-free machine takes the β that `badG1` refuses. Backward simulation and determinacy are not in this book.
+- **`bind1` resumes one frame.** `seq` produces that shape. A nested `saved` stack is not resumed.
+- **Not in this book.** No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
 
 ## Goals beyond v0
 

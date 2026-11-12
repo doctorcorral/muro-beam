@@ -4,9 +4,10 @@
 -- A count of zero for an in-bounds object is preserved by every PStep.
 -- A mailbox message is a reference in refsOf, so once that count is zero
 -- the mailbox cannot hold the tag. flush and a consuming await establish
--- the count when no heap edge still points at the tag. The edge premise
--- is necessary: a suc↑ or a clo is not scrubbed, and a later copy of that
--- edge can be sent by the atomic v0 send, which does not read dead.
+-- the count by blanking every payload that holds the tag (a suc↑ or a clo
+-- becomes nat 0) and then scrubbing the non-edge copies. The mailbox fact
+-- is unchanged: after that step, count τ (refsOf t) ≡ 0, and every later
+-- PStep* keeps the mailbox clear of τ.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -75,6 +76,7 @@ open import MuroBeam.PRun using
   ; setCtlSt; scrubOne; scrubRefs; scrubCode; scrubFrame; scrubFrames; scrubCtl
   ; scrubProc; dropRefs; dropMsgs; dropFlights
   ; finishFlush; finishAwait; finishPeek; consume
+  ; blankEdges; blank-length; blank-count-≤; blank-edge-0
   ; mailHas; deadAt; inboxHas; deadInCtl; hasTag
   ; _>>=_ )
 open import MuroBeam.Unique using
@@ -1347,13 +1349,16 @@ module Preserve (τ : ℕ) where
     zr = proj₂ (proj₂ (parts h ps zc))
     ph = placeholder h
     np = len-miss fit
-    h' = snoc h (nat zero)
+    hB = blankEdges τf h
+    h' = snoc hB (nat zero)
     ps1 = map (scrubProc τf ph) ps
     nope : nothing ≡ just t → Clear t
     nope ()
     zctl1 = ctlKeep τf ph ps np zctl
     zr1 = refsKeep τf ph ps zr
-    ze' = trans (cong (count τ) (edge-nat h zero)) ze
+    zeB = le0 (blank-count-≤ τ τf h) ze
+    ze' = trans (cong (count τ) (edge-nat hB zero)) zeB
+    fitB = subst (τ <_) (sym (blank-length τf h)) fit
     at : (m : Maybe Proc) →
          (m >>= λ p1 →
             finish τf (ctl p1) >>= λ c' →
@@ -1381,31 +1386,32 @@ module Preserve (τ : ℕ) where
         st (just ps2) refl es =
           let zc2 = setCtl-ctl0 i ps1 c' ready ps2 zctl1 zc' es
               zr2 = trans (cong (count τ) (setCtl-refsEq i ps1 c' ready ps2 es)) zr1
-          in clear (refs0 h' ps2 ze' zc2 zr2) (fit-snoc h (nat zero) fit)
+          in clear (refs0 h' ps2 ze' zc2 zr2) (fit-snoc hB (nat zero) fitB)
 
   ------------------------------------------------------------------------
-  -- Consume of this tag, with no heap edge, establishes the count.
-  -- Edges are not scrubbed, so the premise is required.
+  -- Consume of this tag establishes the count. Payloads that hold the
+  -- tag are blanked to nat 0, so a prior edge is not a premise.
   ------------------------------------------------------------------------
 
   consume-establish : ∀ h ps i finish t →
     consume (sys h ps) i τ finish ≡ just t →
     (∀ c c' → finish τ c ≡ just c' → ctlRefs c' ≡ ctlRefs c) →
     (∀ c c' → finish τ c ≡ just c' → hasTag τ (deadInCtl c') ≡ true) →
-    count τ (edgeRefs h) ≡ 0 →
     τ < length h →
     ReplyDone t i τ
-  consume-establish h ps i finish t eq fre fdead ze fit = at (lookup ps1 i) eq refl
+  consume-establish h ps i finish t eq fre fdead fit = at (lookup ps1 i) eq refl
     where
     ph = placeholder h
     np = len-miss fit
-    h' = snoc h (nat zero)
+    hB = blankEdges τ h
+    h' = snoc hB (nat zero)
     ps1 = map (scrubProc τ ph) ps
     nope : nothing ≡ just t → ReplyDone t i τ
     nope ()
     zctl1 = ctlKill ph ps np
     zr1 = refsKill ph ps
-    ze' = trans (cong (count τ) (edge-nat h zero)) ze
+    ze' = trans (cong (count τ) (edge-nat hB zero)) (blank-edge-0 τ h)
+    fitB = subst (τ <_) (sym (blank-length τ h)) fit
     at : (m : Maybe Proc) →
          (m >>= λ p1 →
             finish τ (ctl p1) >>= λ c' →
@@ -1433,19 +1439,18 @@ module Preserve (τ : ℕ) where
         st (just ps2) refl es =
           let zc2 = setCtl-ctl0 i ps1 c' ready ps2 zctl1 zc' es
               zr2 = trans (cong (count τ) (setCtl-refsEq i ps1 c' ready ps2 es)) zr1
-          in replied (refs0 h' ps2 ze' zc2 zr2) (fit-snoc h (nat zero) fit)
+          in replied (refs0 h' ps2 ze' zc2 zr2) (fit-snoc hB (nat zero) fitB)
                      (setCtl-dead i ps1 c' ready ps2 es (fdead (ctl p1) c' ef))
 
   ignore-consumes : ∀ {h ps i t n} {k : PTm n} {env eth d dm p} →
     lookup ps i ≡ just p →
     ctl p ≡ pr (go (flushT τ k) env eth d dm) →
     flush1 (sys h ps) i ≡ just t →
-    count τ (edgeRefs h) ≡ 0 →
     τ < length h →
     ReplyDone t i τ
-  ignore-consumes {h = h} {ps = ps} {i = i} {t = t} lk ec eq ze fit =
+  ignore-consumes {h = h} {ps = ps} {i = i} {t = t} lk ec eq fit =
     consume-establish h ps i finishFlush t (reduced eq)
-      (finishFlush-refs τ) finishFlush-dead ze fit
+      (finishFlush-refs τ) finishFlush-dead fit
     where
     reduced : flush1 (sys h ps) i ≡ just t → consume (sys h ps) i τ finishFlush ≡ just t
     reduced eqf rewrite lk | ec = eqf
@@ -1455,12 +1460,11 @@ module Preserve (τ : ℕ) where
     ctl p ≡ pr (go (awaitT τ k) env eth d dm) →
     inboxHas (inbox p) τ ≡ true →
     await1 (sys h ps) i ≡ just t →
-    count τ (edgeRefs h) ≡ 0 →
     τ < length h →
     ReplyDone t i τ
-  await-consumes {h = h} {ps = ps} {i = i} {t = t} lk ec hb eq ze fit =
+  await-consumes {h = h} {ps = ps} {i = i} {t = t} lk ec hb eq fit =
     consume-establish h ps i finishAwait t (reduced eq)
-      (finishAwait-refs τ) finishAwait-dead ze fit
+      (finishAwait-refs τ) finishAwait-dead fit
     where
     reduced : await1 (sys h ps) i ≡ just t → consume (sys h ps) i τ finishAwait ≡ just t
     reduced eqa rewrite lk | ec | hb = eqa
@@ -2142,19 +2146,17 @@ ignore-consumes : ∀ {h ps i t τ n} {k : PTm n} {env eth d dm p} →
   lookup ps i ≡ just p →
   ctl p ≡ pr (go (flushT τ k) env eth d dm) →
   flush1 (sys h ps) i ≡ just t →
-  count τ (edgeRefs h) ≡ 0 →
   τ < length h →
   ReplyDone t i τ
-ignore-consumes {h = h} {ps = ps} {i = i} {t = t} {τ = τ} lk ec eq ze fit =
-  Preserve.ignore-consumes τ {h = h} {ps = ps} {i = i} {t = t} lk ec eq ze fit
+ignore-consumes {h = h} {ps = ps} {i = i} {t = t} {τ = τ} lk ec eq fit =
+  Preserve.ignore-consumes τ {h = h} {ps = ps} {i = i} {t = t} lk ec eq fit
 
 await-consumes : ∀ {h ps i t τ n} {k : PTm n} {env eth d dm p} →
   lookup ps i ≡ just p →
   ctl p ≡ pr (go (awaitT τ k) env eth d dm) →
   inboxHas (inbox p) τ ≡ true →
   await1 (sys h ps) i ≡ just t →
-  count τ (edgeRefs h) ≡ 0 →
   τ < length h →
   ReplyDone t i τ
-await-consumes {h = h} {ps = ps} {i = i} {t = t} {τ = τ} lk ec hb eq ze fit =
-  Preserve.await-consumes τ {h = h} {ps = ps} {i = i} {t = t} lk ec hb eq ze fit
+await-consumes {h = h} {ps = ps} {i = i} {t = t} {τ = τ} lk ec hb eq fit =
+  Preserve.await-consumes τ {h = h} {ps = ps} {i = i} {t = t} lk ec hb eq fit

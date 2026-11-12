@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
--- muro-beam v1b, plus the boundary v1 contract.
--- v0 is the tagged parent. v1a lowered GTm. v1c adds adequacy.
+-- muro-beam v1c. v0 is the tagged parent. v1a lowered GTm, v1b added
+-- processes, and this book adds the adequacy side conditions.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -15,6 +15,13 @@ open import MuroBeam.Collect public
 open import MuroBeam.Unique public hiding (true≢false)
 open import MuroBeam.Source public
 open import MuroBeam.Lower public
+open import MuroBeam.Adequacy public
+-- Budget re-exports `Checked`. The umbrella already has it from Source.
+-- `Focus` is Unique's reference-list witness. Budget's control
+-- invariant keeps that name inside `MuroBeam.Budget`.
+open import MuroBeam.Budget public hiding
+  (term; ok; Focus; just-inj; true≢false)
+open import MuroBeam.Ref public
 -- Boundary re-exports the names above. Hide the copies so the
 -- umbrella keeps a single binding for each v1a theorem.
 open import MuroBeam.Boundary public hiding (
@@ -33,7 +40,7 @@ open import MuroBeam.Example public
 -- `go` is Collect's traversal. `done`, `send`, and `recv` are the v0
 -- machine. The process constructors stay on `MuroBeam.PSyntax`.
 open import MuroBeam.PSyntax public hiding (go; done; send; recv; hasTag)
-open import MuroBeam.PRun public hiding (hasTag; Split)
+open import MuroBeam.PRun public hiding (hasTag; Split; ⊥; ⊥-elim)
 open import MuroBeam.PTm public
 open import MuroBeam.Stray public
 open import MuroBeam.PWf public using
