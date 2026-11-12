@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------
--- muro-beam v1a, plus the boundary v1 contract.
--- v0 is the tagged parent. v1b adds spawn; v1c adds adequacy.
+-- muro-beam v1b, plus the boundary v1 contract.
+-- v0 is the tagged parent. v1a lowered GTm. v1c adds adequacy.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -30,3 +30,12 @@ open import MuroBeam.Boundary public hiding (
   ; lower; Step*; lower-safe; lower-g0-never-deref
   )
 open import MuroBeam.Example public
+-- `go` is Collect's traversal. `done`, `send`, and `recv` are the v0
+-- machine. The process constructors stay on `MuroBeam.PSyntax`.
+open import MuroBeam.PSyntax public hiding (go; done; send; recv; hasTag)
+open import MuroBeam.PRun public hiding (hasTag; Split)
+open import MuroBeam.PTm public
+open import MuroBeam.Stray public
+open import MuroBeam.PWf public using
+  ( lowerP-safe; spawn-preserves-grade1; pstep-wf; psteps )
+open import MuroBeam.PExample public hiding (take)
