@@ -4,7 +4,9 @@ A BEAM-like virtual machine for [muro](https://github.com/murolang/muro) books.
 
 v0 (tag `v0`) is a `--safe` Agda model of that runtime: processes and mailboxes, a one-step scheduling relation, a shared heap with checked and residual grades, a total `collect`, and send that moves a grade-1 value. It imports muro's grade lattice. It does not emit code and it does not re-check a muro term.
 
-v1a lowers a closed `GTm` that `decide run` accepts. A CEK step evaluates it on the v0 heap. Payloads are `nat`, `suc↑`, and `clo`. `collect` is one ordered pass. `lower-safe` says every reachable state stays well-formed, and a `g0` checked grade is never spent. Spawn is v1b. Adequacy is v1c.
+v1a lowers a closed `GTm` that `decide run` accepts. A CEK step evaluates it on the v0 heap. Payloads are `nat`, `suc↑`, and `clo`. `collect` is one ordered pass. `lower-safe` says every reachable state stays well-formed, and a `g0` checked grade is never spent.
+
+v1b adds `PTm`: `spawn`, `send`, `recv`, `seq`, and `done`, plus `await` and `ignore`. A reply can sit in the sender's ether before it is delivered, which is the window v0's atomic `send` does not have. `no-stray-reply` says that after the caller finishes `await` or a flushing `ignore` on a grade-1 reply, no interleaving puts that reply back in the caller's mailbox. A naive `ignore` that demonitors without flushing does leave it there. Adequacy is v1c.
 
 ## Boundary v1
 

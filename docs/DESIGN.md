@@ -4,7 +4,7 @@ muro-beam executes muro *run* images as processes, in the spirit of the Erlang B
 
 v0 is a total Agda book of the scheduler, the graded heap, and send. v1a is that runtime plus a CBV CEK that runs a closed `GTm` muro's `decide run` has accepted. It does not emit code. It does not re-check a muro term. It reads the grades muro's judgment already checked. Boundary v1, in `MuroBeam.Boundary`, is the contract over that machine. The machine is the implementation.
 
-`main` at `079ca47` is tagged `v0`. v1 is three pull requests. This book is the first of them.
+`main` at `079ca47` is tagged `v0`. v1 is three pull requests. This book is the second of them: the process layer on top of v1a.
 
 ## Why
 
@@ -176,11 +176,11 @@ Ricardo split v1 into three pull requests. Each one is meant to check alone.
 
 | PR | What it adds | What it leaves |
 |---|---|---|
-| **v1a** (this book) | `Checked`, CEK lowering, reference payloads, ordered tracing `collect`, safety of every reachable state | processes that spawn |
-| **v1b** | `PTm`, `checkP`, `lowerP`, spawn / send / recv lowering, `waiting` on an empty mailbox | adequacy and simulation |
+| **v1a** | `Checked`, CEK lowering, reference payloads, ordered tracing `collect`, safety of every reachable state | processes that spawn |
+| **v1b** (this book) | `PTm`, `checkP`, `lowerP`, spawn / send / recv, `waiting`, the request/reply ether, `no-stray-reply` | adequacy and simulation |
 | **v1c** | `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim` | a multiplicative application rule, and `erase` |
 
-v1b and v1c are not in this book. The names above are the ones those PRs are expected to add. Nothing here postulates them.
+v1c is not in this book. The v1c names above are the ones that PR is expected to add. Nothing here postulates them.
 
 ### Input
 
@@ -328,6 +328,88 @@ def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
 
 That is not a muro term in this repository. A pure Muro mirror of the boundary comes later. The Agda predicate is on a closed `GTm`, the run image. The Π above is the intended client spelling. It is not a type in this book.
 
+## v1b / processes
+
+v1b adds a process term and a scheduler step that can see a reply in flight. The modules are `MuroBeam.PSyntax`, `MuroBeam.PRun`, `MuroBeam.PTm`, `MuroBeam.Stray`, and `MuroBeam.PWf`. `MuroBeam.PExample` is the trace. v0 and v1a are unchanged: every theorem they named still has the same statement. `vendor/muro` stays at `v0.20.32`.
+
+### Term
+
+`PTm` is our own term. It is not a new typing judgment inside muro.
+
+- `done` ends the process.
+- `send j x` sends environment slot `x` to pid `j`. One computational use of `x`.
+- `recv (c , t) P` receives into a binder checked the way `glam` is checked (`under`).
+- `spawn (Γ' ⊆ Γ) P` starts a child on a sub-environment. The thinning is `Thin`.
+- `seq e P` runs a `GTm` and binds the value at grade `(ω , 0)`.
+- `await`, `ignore`, and `nignore` are the request/reply surface. `await` and `ignore` consume a grade-1 reply. `nignore` is the negative example: the pre-fix shape that does not flush.
+
+`checkP` calls muro's `decide`, `sat`, and `checkGrade` for every grade decision. It does not define a lattice. A send of a point at least 1 is one use, discharged later by `hold` / `under`. Grade 0 is refused because `sat g0 (finᶜ 1)` is false. A copied grade (ω or an interval) must pass `checkGrade` at `U0`, `U1`, or `Uω`. That chain rejects a narrow interval such as `[2 , 3]`. The gap is intentional and is the same kind of incompleteness as `InBoundary`: a `no` is a refusal, a `yes` is only the fragment the checker knows how to discharge.
+
+`spawn` hands variables over the way v0 send does. A finite point, `g1` included, moves out of the parent. ω and intervals are copied. `g0` cannot be handed over. Moved slots in the parent become one shared fresh `g0` cell, so the placeholder is not an alias of a live object. The child's uses of a moved variable are the uses the parent context is charged. A protocol consumer (`await`, `ignore`, or `nignore`) sitting at the root of the parent continuation must itself be exactly one computational use; that use is the shape check, and it is not added on top of the child's use. Buried under `seq` or another constructor, it is not rewritten. Pids are stable: `spawn` appends, and nothing removes a process.
+
+`seq` requires `inB?` of the embedded `GTm`, then `decide run`. `InBoundary` stays what v1a proved. Acceptance means the term is in the fragment the v1a machine was proved to keep well-formed. It does not mean every reduction sequence succeeds. This book does not turn `InBoundary` into a trace theorem.
+
+### Runtime
+
+A process instruction is a `Code`: the `PTm`, the environment, an ether of flights, and two tag lists, `dead` and `demo`. A flight is `flight dst ref`. It sits in the sender's `Code`. `ctlRefs` of `pr` counts the environment and the flights. While `seq` runs, the code is parked on a `saved` frame and `seq` parks an empty environment there, so the CEK environment stays the only copy of those references. `frameRefs` of `saved` still counts the parked environment together with the flights. `bind` moves that environment into the resumed code, a permutation of `refsOf`. Counting the parked environment means a tag cannot sit in a continuation and later reappear without having been in `refsOf`. `collect` and `grade1-unique` see an in-flight reply. There is no new `Msg` constructor and no ether field on `Sys`. v0 `send` still deposits straight into a mailbox. It is only a lifted step.
+
+`recv` on an empty mailbox is no longer stuck as `nothing` when the instruction is the process `recv`. The process moves to `waiting`. A delivery sets it back to `ready`. The v0 function `recv` is unchanged and still returns `nothing` on an empty mailbox. `waiting` is used only by the process-layer steps. A finished process stays in the list, in `done`. `done` drops its environment and its roots and keeps the ether, so a reply already emitted can still be delivered.
+
+`lowerP` starts pid 0 on an empty heap, in `pr`. `lowerP-safe` says every state reachable by `PStep*` is well-formed: the bound, `grade1-unique`, and `AllInv` on `refsOf`. `spawn-preserves-grade1` is the handover case of that proof (v0's move and copy facts, through `grow-unique`). `spawn-preserves-residual` is `AllInv (refsOf t)`, the same strength as `send-preserves-residual`: every reference still carries `Kept`.
+
+### v1b / no-stray-reply
+
+A request carries one grade-1 reply reference. The tag is that reference's object index, not a natural number a process could forge with `alloc`. The caller must consume it exactly once, by `await` or by a proper `ignore`.
+
+Proper `ignore` is two steps, in the shape of Elixir's `Task.ignore/1` after the fix in elixir-lang/elixir@4104cd6 (issue [#16064](https://github.com/elixir-lang/elixir/issues/16064)):
+
+1. `arm1` demonitors. The tag is recorded in `demo`. The mailbox and the ether are left alone. `dead` is not set.
+2. `flush1` consumes the tag. It deletes every non-edge occurrence (mailboxes, roots, flights in every process) and replaces environment and frame occurrences with one fresh `g0` cell, so de Bruijn indices do not move. Then it sets `dead`.
+
+`await` consumes the same way. It does not bind the payload. The reply value is the reference itself. On an empty mailbox it waits.
+
+Naive `ignore` is the pre-fix shape: `npeek1` is the `after 0` receive, and on a miss `ndemon1` demonitors with no flush and without setting `dead`.
+
+The step relation these theorems quantify over is `PStep`, not `Step`. `PStep` includes every v0/v1a `Step` via `lift`, plus spawn, emit, deliver, recv, await, arm, flush, the naive pair, seq, bind, and done. One schedule is not enough. `PStep*` is any finite interleaving.
+
+```agda
+data ReplyDone (s : Sys) (i τ : ℕ) : Set where
+  replied :
+      count τ (refsOf s) ≡ 0
+    → τ < length (heap s)
+    → deadAt (procs s) i τ ≡ true
+    → ReplyDone s i τ
+
+no-stray-reply :
+    ∀ {s t i τ}
+  → PStep* s t
+  → ReplyDone s i τ
+  → mailHas (procs t) i τ ≡ false
+```
+
+`ReplyDone` is established by `flush1` and by a consuming `await1` (`ignore-consumes`, `await-consumes`) when `count τ (edgeRefs (heap s)) ≡ 0`. A `nat` cell has no outgoing edge, so the examples meet the premise. A `suc↑` or a `clo` that still points at `τ` does not. Naive demonitor does not establish `ReplyDone`: the flight is still a reference, and `dead` is not set.
+
+`PExample` records the schedules. `j5-stays` and `k4-stays` apply `no-stray-reply` after a flushing `ignore`: the reply was delivered in the demonitor/flush window, and flush ran before deliver. `a4-stays` is the same fact for `await`. `naive-leak` is a concrete `PStep*` from `n0` to `n5` on which `mailHas` of tag 0 is still true.
+
+The proof is that a count of zero for an in-bounds object is preserved by every `PStep`, and a mailbox message is a reference in `refsOf`. `alloc`'s index is the length of the heap. `reuse` needs a live reference. Copying or sending needs a reference that is already there. None of those rebuilds an object whose count is already zero.
+
+### Modeling assumptions
+
+These are the places the model is sharper or coarser than the BEAM. They are assumptions, not theorems about Erlang.
+
+- The ether is the sender's flight list. `emit` then `deliver` is the two-phase send. v0 `send` stays atomic and cannot express this window by itself.
+- `demonitor` does not retract a flight and does not delete a mailbox message. It does not set `dead`. `deliver` reads `dead` only, so a reply that is in flight during demonitor is still enqueued if `flush` has not run.
+- `Process.demonitor(ref, [:flush])` flushes `DOWN` messages, not `{ref, reply}`. This model has no `DOWN` constructor. The reply is an ordinary `msg`. The flag is not treated as removing that message.
+- Proper `flush` consumes both a reply that has already arrived and a reply that is still a flight. On the BEAM, `flush_reply` is an `after 0` receive: it only sees the mailbox. A message still on the wire after that receive can still be delivered. Here the reply is a grade-1 reference, so the consuming flush deletes every remaining non-edge copy, and `dead` makes a later `deliver` drop instead of enqueue. That is what makes the theorem true for every interleaving, including a `deliver` after `flush`. It is stronger than one `after 0` receive, and it is the model's reading of "once `ignore` has returned, a late copy of this unique reply is not deposited."
+- A new `emit` is refused when the destination already has the tag in `demo` or in `dead`. Refusal does not delete a flight that is already in the ether. Deactivation of the alias does not recall a message already sent.
+- The naive leak is a concrete `PStep*` trace. The reply is in the ether while `ndemon1` runs, `dead` is not set, and the following `deliver` leaves `msg` in the caller's mailbox. A second window, `deliver` between the empty `after 0` and demonitor, is the same fact. If the mailbox already holds the tag, `npeek1` consumes it and there is no leak. That is the successful `after 0` branch.
+- `seq` parks flights on `saved`. `deliver` pulls from `pr` and from `saved`. `bind` resumes only when `saved` is the whole stack, which is the shape `seq` produces. A `saved` frame buried under another `saved` is not produced by `seq`.
+- The tag rewrite at `spawn` applies only to a protocol constructor at the root of the parent continuation.
+
+### What v1b does not prove
+
+`NoEscape`, `noEscape?`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `decide-sound`, `lower-sim`. No multiplicative application. No new typing judgment. No executable runtime.
+
 ## Limits
 
 - **ω and intervals are not spent down.** A use leaves the residual where it is. They are aliased, not moved. Ordered tracing frees the cell once nothing reaches it, including a degenerate interval `[0, 0]` after its last live reference is gone. Nothing inside an interval is decremented.
@@ -338,11 +420,11 @@ That is not a muro term in this repository. A pure Muro mirror of the boundary c
 - **Application is additive.** As recorded below from the review of murolang/muro#211, the graded judgment adds use vectors and does not scale an argument by the binder's computational grade. The runtime follows that choice. The counterexample in the v1 section is accepted by `decide` and gets stuck on the machine. Send does not multiply. A finite point grade is moved whole, residual included. `ω` and intervals are aliased. They are not scaled.
 - **Payloads are `nat`, `suc↑`, and `clo`.** A `nat` is copied on dereference. A `suc↑` or a `clo` is a reference payload. Reachability in `collect-safe` is `Reach`, not the reference alone.
 - **Capture of `g1` does not alias.** Building a closure that would put a second graded reference on a `g1` object is not a step. Programs that do that get stuck safely. `NoEscape` adequacy is v1c.
-- **No spawn, failure, or supervision.** The process list is fixed by the configuration that starts the trace. `waiting` is still unused. Spawn, send, and recv as term formers are v1b.
+- **No failure or supervision.** Spawn, send, recv, and `waiting` are in this book. A finished process stays in the list. Nothing here restarts a process or links two of them.
 - **Environment slots are not reindexed by `collect`.** A `g0` root or mailbox message is dropped, as in v0. A `g0` environment slot stays in place so that de Bruijn indices do not move; it does not mark its object reached. Scope exit pops the binder. That is what lets `collect` free it.
 - **Grade 1 is the unique checked point `g1`.** Uniqueness is not claimed for a finite point above 1. Those are still moved rather than copied by send. The theorem that is actually proved is the `g1` statement, now over roots, messages, environments, frames, and heap edges.
 - **`InBoundary` is not adequacy.** It refuses a closure in the scope of a `g1` binder, and a `g0` variable. It does not count uses, and it does not follow a trace. `NoEscape` and `budget-adequate` are still v1c.
-- **Not in this book.** `PTm`, `checkP`, `lowerP`, `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim`. No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary.
+- **Not in this book.** `NoEscape`, `noEscape?`, `decide-sound`, `budget-adequate`, `exact-exhausts`, `done-collect-empty`, `MuroBeam.Ref`, `lower-sim`. No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`.
 
 ## Goals beyond v0
 

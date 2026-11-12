@@ -27,6 +27,7 @@ open import MuroBeam.Heap using
   ; count; hasG1; Grade1Unique
   ; repl )
 open import MuroBeam.Lib using (lookup; update; removeAt; mapCons; ≤-refl; ≡ᵇ-sound)
+open import MuroBeam.PSyntax using (Code; codeRefs; codeEth; flightRefs)
 
 ------------------------------------------------------------------------
 -- Process and mailbox
@@ -45,6 +46,12 @@ data Frame : Set where
   su : Frame
   mt : ∀ {n} → GTm n → GTm n → GTm (suc n) → Frame
   bd : List Ref → Frame
+  -- Parked process code. The environment and the flights are both
+  -- references. `seq` parks an empty environment, so the CEK
+  -- environment stays the only copy while the term runs. `bind`
+  -- moves the parked environment back. Counting it means a tag
+  -- cannot hide there and reappear outside `refsOf`.
+  saved : Code → Frame
 
 frameRefs : Frame → List Ref
 frameRefs (ar _)       = []
@@ -52,6 +59,7 @@ frameRefs (fn r)       = r ∷ []
 frameRefs su           = []
 frameRefs (mt _ _ _)   = []
 frameRefs (bd env)     = env
+frameRefs (saved c)    = codeRefs c
 
 framesRefs : List Frame → List Ref
 framesRefs []       = []
@@ -61,11 +69,13 @@ data Ctl : Set where
   idle : Ctl
   ev   : ∀ {n} → GTm n → List Ref → List Frame → Ctl
   rv   : Ref → List Ref → List Frame → Ctl
+  pr   : Code → Ctl
 
 ctlRefs : Ctl → List Ref
 ctlRefs idle             = []
 ctlRefs (ev _ env k)     = env ++ framesRefs k
 ctlRefs (rv r env k)     = r ∷ env ++ framesRefs k
+ctlRefs (pr c)           = codeRefs c
 
 msgRef : Msg → Ref
 msgRef (msg r) = r
@@ -538,11 +548,14 @@ evalRet h ps i r env (su ∷ k) =
   install (snoc h (suc↑ r)) ps i (rv (freshRef h gω) env k)
 evalRet h ps i r env (mt e z s ∷ k) = onMatch h ps i r env e z s k (payloadAt h (obj r))
 evalRet h ps i r env (bd env0 ∷ k) = install h ps i (rv r env0 k)
+-- `saved` is resumed by the process layer, not by `eval1`.
+evalRet _ _ _ _ _ (saved _ ∷ _) = nothing
 
 evalHere : List Obj → List Proc → ℕ → Ctl → Maybe Sys
 evalHere _ _ _ idle = nothing
 evalHere h ps i (ev t env k) = evalTm h ps i t env k
 evalHere h ps i (rv r env k) = evalRet h ps i r env k
+evalHere _ _ _ (pr _) = nothing
 
 eval1 : Sys → ℕ → Maybe Sys
 eval1 (sys h ps) i = at (lookup ps i)
