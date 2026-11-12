@@ -12,6 +12,7 @@
 
 module MuroBeam.Example where
 
+open import Data.Bool.Base using (Bool; true; false)
 open import Data.Fin.Base using () renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; []; _∷_)
 open import Data.Maybe.Base using (Maybe; just; nothing)
@@ -34,11 +35,13 @@ open import MuroBeam.Heap using
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Process using
   ( Proc; proc; ready; idle; Msg; msg; Sys; sys; heap; procs; roots; inbox
-  ; ctl; Ctl; ev; rv
+  ; ctl; Ctl; ev; rv; Frame; fn
   ; refsOf; rootAt; deref; send; recv; alloc; reuse
   ; eval1; runFor )
+open import MuroBeam.Ref using
+  ( RVal; rnat; RCtl; rrv; startR; runR; closedLam )
 open import MuroBeam.Collect using (collect)
-open import MuroBeam.Source using (Checked; term)
+open import MuroBeam.Source using (Checked; term; noEscape?)
 open import MuroBeam.Lower using (lower)
 open import MuroBeam.Boundary using (inBoundary?; yes; no)
 
@@ -278,3 +281,96 @@ boundary-accept = refl
 
 boundary-refuse : inBoundary? cex ≡ no _
 boundary-refuse = refl
+
+-- `InBoundary` implies `NoEscape`. `grade-once` is in the filter, so
+-- the capture restriction holds, and one eval step builds the closure.
+-- The §2B term is outside both.
+once-no-escape : noEscape? (term once) ≡ yes _
+once-no-escape = refl
+
+cex-escapes : noEscape? cex ≡ no _
+cex-escapes = refl
+
+------------------------------------------------------------------------
+-- A grade-1 use inside `InBoundary`. The reference machine returns
+-- zero. The CEK does too, and the binder has been popped: the run
+-- ends on a nat, which is the adequate trace of muro's `grade-once`
+-- shape applied to zero. The four `ex-*` lemmas above are the
+-- closures of muro's own checked examples (`grade-once`,
+-- `grade-twice`, `grade-match-once`, `grade-match-many`).
+------------------------------------------------------------------------
+
+use1 : GTm 0
+use1 = gapp (glam g1 g0 (gvar fzero)) gze
+
+use1-ok : decide run Vec.[] use1 ≡ okR Vec.[]
+use1-ok = refl
+
+use1c : Checked
+use1c = record { term = use1 ; ok = use1-ok }
+
+use1-boundary : inBoundary? use1 ≡ yes _
+use1-boundary = refl
+
+use1-no-escape : noEscape? use1 ≡ yes _
+use1-no-escape = refl
+
+use1-ref : runR 40 (startR use1) ≡ rrv (rnat zero) []
+use1-ref = refl
+
+-- The nat the CEK returned, when the control is a value and the stack
+-- is empty. `payAt` reads a flat payload.
+resultNat : Sys → Maybe ℕ
+resultNat s with ctl (atProc s zero)
+... | rv r [] [] = payAt (heap s) (obj r)
+... | _          = nothing
+
+use1-cek : resultNat (runFor 40 (lower use1c)) ≡ just zero
+use1-cek = refl
+
+use1-halt : eval1 (runFor 40 (lower use1c)) zero ≡ nothing
+use1-halt = refl
+
+once-ref : runR 1 (startR (term once)) ≡ rrv (closedLam (gvar fzero)) []
+once-ref = refl
+
+------------------------------------------------------------------------
+-- `NoEscape` does not make the CEK follow the reference machine.
+-- λ(ω) f. (λ(g1) x. x) f, applied to λ(ω) _. 0, is in `InBoundary`.
+-- The reference β returns the argument closure. The CEK is standing
+-- on that β and `eval1` is nothing: the argument object is also in
+-- the environment, so `badG1` refuses the step.
+------------------------------------------------------------------------
+
+alias : GTm 0
+alias =
+  gapp
+    (glam gω g0
+      (gapp (glam g1 g0 (gvar fzero)) (gvar fzero)))
+    (glam gω g0 gze)
+
+alias-ok : decide run Vec.[] alias ≡ okR Vec.[]
+alias-ok = refl
+
+aliasc : Checked
+aliasc = record { term = alias ; ok = alias-ok }
+
+alias-boundary : inBoundary? alias ≡ yes _
+alias-boundary = refl
+
+alias-no-escape : noEscape? alias ≡ yes _
+alias-no-escape = refl
+
+alias-ref : runR 40 (startR alias) ≡ rrv (closedLam gze) []
+alias-ref = refl
+
+stuckBeta : Sys → Bool
+stuckBeta s with ctl (atProc s zero)
+... | rv _ _ (fn _ ∷ _) = true
+... | _                 = false
+
+alias-cek : stuckBeta (runFor 40 (lower aliasc)) ≡ true
+alias-cek = refl
+
+alias-halt : eval1 (runFor 40 (lower aliasc)) zero ≡ nothing
+alias-halt = refl
