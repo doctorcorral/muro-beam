@@ -62,8 +62,8 @@ open import MuroBeam.Process using
   ; recv; recvAt; recvInbox; addRoot; alloc
   ; poke; length-poke; reuse; reuseFrom; reuseOk
   ; preOf; ctlRefsPs; ctlEq-putRoot; ctlEq-update; eval1
-  ; ctl; Ctl; idle; ev; rv
-  ; Frame; ar; fn; su; mt; ctlRefs; framesRefs
+  ; ctl; Ctl; idle; ev; rv; pr
+  ; Frame; ar; fn; su; mt; saved; ctlRefs; framesRefs
   ; setProc; install; pass; snoc; freshRef; regrade
   ; anyG1; badG1; predComp; payloadAt; setPayload
   ; evalHere; evalTm; evalRet; useVar; beta; onMatch )
@@ -3632,12 +3632,16 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
     onRet r env (su ∷ k) eqp e′ = sucGo r env k eqp e′
     onRet r env (mt e0 z s ∷ k) eqp e′ = matchGo r env e0 z s k eqp e′
     onRet r env (frameBd env0 ∷ k) eqp e′ = popGo r env env0 k eqp e′
+    onRet r env (saved _ ∷ k) eqp e′ with e′
+    ... | ()
 
     on : (c : Ctl) → evalHere h ps i c ≡ just t → ctl p ≡ c → WF t
     on idle e′ _ with e′
     ... | ()
     on (ev tm env k) e′ eqp = onTm tm env k eqp e′
     on (rv r env k) e′ eqp = onRet r env k eqp e′
+    on (pr _) e′ _ with e′
+    ... | ()
 
 ------------------------------------------------------------------------
 -- Every step preserves the bound and grade-1 uniqueness.
