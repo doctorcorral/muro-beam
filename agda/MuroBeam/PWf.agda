@@ -68,6 +68,7 @@ open import MuroBeam.PRun using
   ; consume; finishFlush; finishAwait; finishPeek
   ; scrubOne; scrubRefs; scrubFrame; scrubFrames; scrubCtl; scrubProc
   ; dropRefs; dropMsgs; dropFlights
+  ; blankEdges; blank-length; blank-bound; blank-has; blank-count-≤
   ; wake )
 open import MuroBeam.Unique using
   ( WF; step-preserves-grade1; thin-unique; grow-unique
@@ -1111,8 +1112,8 @@ refs-eq h ps ps' cq rq =
   trans (cong (λ c → (edgeRefs h ++ c) ++ refsPs ps') cq)
         (cong ((edgeRefs h ++ ctlRefsPs ps) ++_) rq)
 
--- Scrubbing deletes or replaces. With the fresh cell's edges unchanged,
--- every index other than the placeholder only loses references.
+-- Scrubbing deletes or replaces. Blanking an edge only removes
+-- references, and every index other than the placeholder only shrinks.
 scrub-shrink : ∀ k τ h ps → (obj (placeholder h) ≡ᵇ k) ≡ false →
   (count k (edgeRefs h) + count k (ctlRefsPs (map (scrubProc τ (placeholder h)) ps)))
     + count k (refsPs (map (scrubProc τ (placeholder h)) ps))
@@ -1143,9 +1144,58 @@ scrub-has-step k τ h ps hf = body (hasG1 k (edgeRefs h)) refl
   body true eb rewrite eb = refl
   body false eb rewrite eb = map-has k τ ph ps np hf
 
+-- Same shrinkage once edges that hold the tag have been blanked.
+scrub-shrink-blank : ∀ k τ h ps → (obj (placeholder h) ≡ᵇ k) ≡ false →
+  (count k (edgeRefs (blankEdges τ h)) +
+   count k (ctlRefsPs (map (scrubProc τ (placeholder h)) ps)))
+    + count k (refsPs (map (scrubProc τ (placeholder h)) ps))
+  ≤
+  (count k (edgeRefs h) + count k (ctlRefsPs ps)) + count k (refsPs ps)
+scrub-shrink-blank k τ h ps hp =
+  subst (λ m → m ≤ (E + C) + R) (sym (+-assoc E' C' R'))
+    (subst (λ m → E' + (C' + R') ≤ m) (sym (+-assoc E C R))
+      (+-mono (blank-count-≤ k τ h) (map-le k τ (placeholder h) ps hp)))
+  where
+  E' = count k (edgeRefs (blankEdges τ h))
+  E  = count k (edgeRefs h)
+  C' = count k (ctlRefsPs (map (scrubProc τ (placeholder h)) ps))
+  R' = count k (refsPs (map (scrubProc τ (placeholder h)) ps))
+  C  = count k (ctlRefsPs ps)
+  R  = count k (refsPs ps)
+
+-- Blanking can delete a `g1` edge. A hit that remains in the scrubbed
+-- control or roots is still a hit on the original heap.
+or-pad-has : ∀ e c r → (c ∨ r) ≡ true → ((e ∨ c) ∨ r) ≡ true
+or-pad-has e c true  _ rewrite ∨-trueʳ (e ∨ c) = refl
+or-pad-has e true false _ rewrite ∨-trueʳ e = refl
+or-pad-has _ false false ()
+
+scrub-has-blank : ∀ k τ h ps →
+  ((hasG1 k (edgeRefs (blankEdges τ h)) ∨
+    hasG1 k (ctlRefsPs (map (scrubProc τ (placeholder h)) ps))) ∨
+   hasG1 k (refsPs (map (scrubProc τ (placeholder h)) ps))) ≡ true →
+  ((hasG1 k (edgeRefs h) ∨ hasG1 k (ctlRefsPs ps)) ∨ hasG1 k (refsPs ps)) ≡ true
+scrub-has-blank k τ h ps hf = body (hasG1 k (edgeRefs (blankEdges τ h))) refl
+  where
+  ph = placeholder h
+  np : isG1 (checked ph) ≡ false
+  np = refl
+  body : (b : Bool) → hasG1 k (edgeRefs (blankEdges τ h)) ≡ b →
+         ((hasG1 k (edgeRefs h) ∨ hasG1 k (ctlRefsPs ps)) ∨
+          hasG1 k (refsPs ps)) ≡ true
+  body true  eb =
+    subst (λ z → ((z ∨ hasG1 k (ctlRefsPs ps)) ∨ hasG1 k (refsPs ps)) ≡ true)
+          (sym (blank-has k τ h eb)) refl
+  body false eb rewrite eb =
+    or-pad-has (hasG1 k (edgeRefs h))
+               (hasG1 k (ctlRefsPs ps))
+               (hasG1 k (refsPs ps))
+               (map-has k τ ph ps np hf)
+
 ------------------------------------------------------------------------
--- consume snocs one grade-0 cell and scrubs the tag everywhere except
--- heap edges. `finish` keeps the scrubbed control references.
+-- consume blanks every edge that holds the tag, snocs one grade-0
+-- cell, and scrubs the tag out of every non-edge position. `finish`
+-- keeps the scrubbed control references.
 ------------------------------------------------------------------------
 
 consume-wf : ∀ h ps i τ finish t →
@@ -1164,7 +1214,9 @@ consume-wf h ps i τ finish t wf eq fre = at (lookup ps1 i) eq refl
   ph = placeholder h
   np : isG1 (checked ph) ≡ false
   np = refl
-  h' = snoc h (nat zero)
+  hB = blankEdges τ h
+  h' = snoc hB (nat zero)
+  lenB = blank-length τ h
   ps1 = map (scrubProc τ ph) ps
   at : (m : Maybe Proc) →
        (m >>= λ p1 →
@@ -1189,18 +1241,19 @@ consume-wf h ps i τ finish t wf eq fre = at (lookup ps1 i) eq refl
         let cq , rq = setCtl-keep i ps1 c' ready ps2 p1 lk es creq
             cMiss , rMiss = map-miss τ ph ps np bCtl bRs
             bMapC , bMapR = map-bd τ ph ps (monoS bCtl) (monoS bRs) (fresh-< n)
-            eF = count0-has n (edgeRefs h) (bound-count0 bEdge n ≤-refl)
-            eF' = trans (cong (hasG1 n) (edge-nat h zero)) eF
+            bBlank = blank-bound τ h bEdge
+            eF = count0-has n (edgeRefs hB) (bound-count0 bBlank n ≤-refl)
+            eF' = trans (cong (hasG1 n) (edge-nat hB zero)) eF
             cF = trans (cong (hasG1 n) cq) cMiss
             rF = trans (cong (hasG1 n) rq) rMiss
             zn = trans (refs-or n h' ps2)
                    (∨-both-false (∨-both-false eF' cF) rF)
-            bEdge' = subst (Bound (suc n)) (sym (edge-nat h zero)) (monoS bEdge)
+            bEdge' = subst (Bound (suc n)) (sym (edge-nat hB zero)) (monoS bBlank)
             bCtl2 = subst (Bound (suc n)) (sym cq) bMapC
             bRs2 = subst (Bound (suc n)) (sym rq) bMapR
             bSuc = bound-++ (bound-++ bEdge' bCtl2) bRs2
-            bLen = subst (λ m → Bound m (refsOf (sys h' ps2)))
-                     (sym (length-snoc h (cell (nat zero) live))) bSuc
+            lenH' = trans (length-snoc hB (cell (nat zero) live)) (cong suc lenB)
+            bLen = subst (λ m → Bound m (refsOf (sys h' ps2))) (sym lenH') bSuc
         in bLen , mask-unique (refsOf (sys h' ps2)) (refsOf (sys h ps)) n
              (λ i eb → leStep i eb cq rq) (λ i eb hf → hasStep i eb cq rq hf) zn (proj₂ wf)
         where
@@ -1208,17 +1261,17 @@ consume-wf h ps i τ finish t wf eq fre = at (lookup ps1 i) eq refl
                  ctlRefsPs ps2 ≡ ctlRefsPs ps1 → refsPs ps2 ≡ refsPs ps1 →
                  count i (refsOf (sys h' ps2)) ≤ count i (refsOf (sys h ps))
         leStep i eb cq0 rq0 =
-          ≤-subst (subst (λ m → m ≤ mid) (sym newEq) (scrub-shrink i τ h ps eb))
+          ≤-subst (subst (λ m → m ≤ mid) (sym newEq) (scrub-shrink-blank i τ h ps eb))
                   (sym (refs-sum i h ps))
           where
           mid = (count i (edgeRefs h) + count i (ctlRefsPs ps)) + count i (refsPs ps)
           newEq =
             trans (refs-sum i h' ps2)
             (trans (cong (λ e → (e + count i (ctlRefsPs ps2)) + count i (refsPs ps2))
-                         (cong (count i) (edge-nat h zero)))
-            (trans (cong (λ c → (count i (edgeRefs h) + c) + count i (refsPs ps2))
+                         (cong (count i) (edge-nat hB zero)))
+            (trans (cong (λ c → (count i (edgeRefs hB) + c) + count i (refsPs ps2))
                          (cong (count i) cq0))
-                   (cong (λ r → (count i (edgeRefs h) + count i (ctlRefsPs ps1)) + r)
+                   (cong (λ r → (count i (edgeRefs hB) + count i (ctlRefsPs ps1)) + r)
                          (cong (count i) rq0))))
         hasStep : ∀ i → (n ≡ᵇ i) ≡ false →
                   ctlRefsPs ps2 ≡ ctlRefsPs ps1 → refsPs ps2 ≡ refsPs ps1 →
@@ -1226,16 +1279,16 @@ consume-wf h ps i τ finish t wf eq fre = at (lookup ps1 i) eq refl
                   hasG1 i (refsOf (sys h ps)) ≡ true
         hasStep i eb cq0 rq0 hf =
           subst (λ z → z ≡ true) (sym (refs-or i h ps))
-            (scrub-has-step i τ h ps
+            (scrub-has-blank i τ h ps
               (subst (λ z → z ≡ true) orEq
                 (subst (λ z → z ≡ true) (refs-or i h' ps2) hf)))
           where
           orEq =
             trans (cong (λ e → (e ∨ hasG1 i (ctlRefsPs ps2)) ∨ hasG1 i (refsPs ps2))
-                        (cong (hasG1 i) (edge-nat h zero)))
-            (trans (cong (λ c → (hasG1 i (edgeRefs h) ∨ c) ∨ hasG1 i (refsPs ps2))
+                        (cong (hasG1 i) (edge-nat hB zero)))
+            (trans (cong (λ c → (hasG1 i (edgeRefs hB) ∨ c) ∨ hasG1 i (refsPs ps2))
                          (cong (hasG1 i) cq0))
-                   (cong (λ r → (hasG1 i (edgeRefs h) ∨ hasG1 i (ctlRefsPs ps1)) ∨ r)
+                   (cong (λ r → (hasG1 i (edgeRefs hB) ∨ hasG1 i (ctlRefsPs ps1)) ∨ r)
                          (cong (hasG1 i) rq0)))
 
 flush-refs : ∀ τ c c' → finishFlush τ c ≡ just c' → ctlRefs c' ≡ ctlRefs c

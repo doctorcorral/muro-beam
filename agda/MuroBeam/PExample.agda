@@ -22,7 +22,7 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 open import Muro.Grade using (Grade; g0; g1)
 
 open import MuroBeam.Grade using (selfKept)
-open import MuroBeam.Heap using (Obj; cell; live; nat; Ref; ref; obj; count)
+open import MuroBeam.Heap using (Obj; cell; live; nat; suc↑; Ref; ref; obj; count)
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.PSyntax using
   ( Thin; t[]; keep; PTm; done; send; recv; spawn; ignore; nignore; await
@@ -350,3 +350,44 @@ naive-trace =
   (pmore (p-ndemon {n3} {zero} {n4} refl)
   (pmore (p-deliver {n4} {suc zero} {n5} refl)
   pdone))))
+
+------------------------------------------------------------------------
+-- The reply is the child of a suc↑. Flush blanks that payload, so the
+-- count is zero afterwards even though the edge held the tag. Every
+-- later interleaving stays out of the mailbox.
+------------------------------------------------------------------------
+
+ρe : Ref
+ρe = ref zero g1 g1 (selfKept g1)
+
+he : List Obj
+he = cell (nat zero) live ∷ cell (suc↑ ρe) live ∷ []
+
+edge0 : Sys
+edge0 =
+  sys he
+    (proc zero ready [] [] (pr (go (flushT zero (done {0})) [] [] [] [])) ∷ [])
+
+edge1 : Sys
+edge1 = take edge0 (flush1 edge0 zero)
+
+edge-before : count zero (refsOf edge0) ≡ suc zero
+edge-before = refl
+
+edge-after : count zero (refsOf edge1) ≡ zero
+edge-after = refl
+
+edge-dead : deadAt (procs edge1) zero zero ≡ true
+edge-dead = refl
+
+edge-clear : mailHas (procs edge1) zero zero ≡ false
+edge-clear = refl
+
+edge-fit : zero < length (heap edge1)
+edge-fit = s≤s z≤n
+
+edge-done : ReplyDone edge1 zero zero
+edge-done = replied edge-after edge-fit edge-dead
+
+edge-stays : ∀ {t} → PStep* edge1 t → mailHas (procs t) zero zero ≡ false
+edge-stays tr = no-stray-reply tr edge-done

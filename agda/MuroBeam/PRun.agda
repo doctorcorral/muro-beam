@@ -14,16 +14,20 @@ open import Data.Bool.Base using (Bool; true; false; not; _∧_; _∨_; if_then_
 open import Data.Fin.Base using (toℕ)
 open import Data.List.Base using (List; []; _∷_; _++_; length; map)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc; _≡ᵇ_)
+open import Data.Nat.Base using (ℕ; zero; suc; _≤_; _≡ᵇ_; z≤n)
 open import Data.Product.Base using (_×_; _,_)
-open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
 open import Muro.Grade using (Grade; g0; GTm)
 
 open import MuroBeam.Grade using (selfKept; isZeroGrade; kind; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using
-  ( Obj; cell; live; Val; nat; Ref; ref; obj; checked; residual; repl )
-open import MuroBeam.Lib using (lookup; update; mapCons)
+  ( Obj; cell; live; Val; nat; suc↑; clo; payload; kids
+  ; Ref; ref; obj; checked; residual; repl
+  ; count; hasG1; count-++; has-++
+  ; edgeRefs
+  ; Bound; bnil; bcons; bound-++ )
+open import MuroBeam.Lib using (lookup; update; mapCons; ≤-refl; +-mono; ∨-trueʳ)
 open import MuroBeam.PSyntax using
   ( Thin; t[]; keep; skip
   ; PTm; done; send; recv; spawn; seq; await; ignore; nignore
@@ -267,7 +271,10 @@ recv1 (sys h ps) i =
 -- Scrub a tag out of every non-edge position. Environment slots are
 -- replaced, so de Bruijn indices stay put. Mailbox messages, roots,
 -- and flights are deleted, so the mailbox does not keep a dummy.
--- Heap edges are not scrubbed.
+-- A suc↑ or clo edge is not replaced by the placeholder: that index
+-- sits at the end of the heap and would break the child-below-parent
+-- order. `blankEdges` clears any payload that still holds the tag,
+-- so the edge is not a reference anymore.
 ------------------------------------------------------------------------
 
 scrubOne : ℕ → Ref → Ref → Ref
@@ -336,10 +343,147 @@ finishPeek τ (pr (go (ncheckT τ' k) env eth d dm)) =
   if τ ≡ᵇ τ' then just (pr (go k env eth (τ ∷ d) dm)) else nothing
 finishPeek _ _ = nothing
 
+------------------------------------------------------------------------
+-- Edge scrub. A payload that holds the tag becomes `nat 0`, which has
+-- no children. A nat stays a nat. The placeholder is not written into
+-- an edge: its index is the length of the heap, so it is not below
+-- its parent. Clearing the payload keeps the ordered heap and drops
+-- the reference, including every other child of that same closure.
+------------------------------------------------------------------------
+
+-- Local absurdity. Hidden from the umbrella so it does not clash
+-- with the copy in Collect.
+data ⊥ : Set where
+
+⊥-elim : ∀ {A : Set} → ⊥ → A
+⊥-elim ()
+
+holdsRefs : ℕ → List Ref → Bool
+holdsRefs _ []       = false
+holdsRefs τ (r ∷ rs) = (obj r ≡ᵇ τ) ∨ holdsRefs τ rs
+
+holdsVal : ℕ → Val → Bool
+holdsVal _ (nat _)     = false
+holdsVal τ (suc↑ r)    = obj r ≡ᵇ τ
+holdsVal τ (clo rs _)  = holdsRefs τ rs
+
+blankVal : ℕ → Val → Val
+blankVal τ v = if holdsVal τ v then nat zero else v
+
+blankObj : ℕ → Obj → Obj
+blankObj τ o = record o { payload = blankVal τ (payload o) }
+
+blankEdges : ℕ → List Obj → List Obj
+blankEdges _ []       = []
+blankEdges τ (o ∷ os) = blankObj τ o ∷ blankEdges τ os
+
+blank-length : ∀ τ h → length (blankEdges τ h) ≡ length h
+blank-length _ []       = refl
+blank-length τ (_ ∷ os) = cong suc (blank-length τ os)
+
+holdsRefs-0 : ∀ τ rs → holdsRefs τ rs ≡ false → count τ rs ≡ 0
+holdsRefs-0 _ []       _  = refl
+holdsRefs-0 τ (r ∷ rs) eq with obj r ≡ᵇ τ
+... | true  = ⊥-elim (boom eq)
+  where
+  boom : true ≡ false → ⊥
+  boom ()
+... | false = holdsRefs-0 τ rs eq
+
+kids-blank : ∀ τ v → count τ (kids (blankVal τ v)) ≡ 0
+kids-blank _ (nat _) = refl
+kids-blank τ (suc↑ r) with obj r ≡ᵇ τ in eq
+... | true  = refl
+... | false rewrite eq = refl
+kids-blank τ (clo rs _) with holdsRefs τ rs in eq
+... | true  = refl
+... | false = holdsRefs-0 τ rs eq
+
+blank-edge-0 : ∀ τ h → count τ (edgeRefs (blankEdges τ h)) ≡ 0
+blank-edge-0 _ []       = refl
+blank-edge-0 τ (o ∷ os) rewrite
+    count-++ τ (kids (payload (blankObj τ o))) (edgeRefs (blankEdges τ os))
+  | kids-blank τ (payload o)
+  | blank-edge-0 τ os = refl
+
+kids-le : ∀ k τ v → count k (kids (blankVal τ v)) ≤ count k (kids v)
+kids-le _ _ (nat _) = ≤-refl
+kids-le _ τ (suc↑ r) with obj r ≡ᵇ τ
+... | true  = z≤n
+... | false = ≤-refl
+kids-le _ τ (clo rs _) with holdsRefs τ rs
+... | true  = z≤n
+... | false = ≤-refl
+
+blank-count-≤ : ∀ k τ h →
+  count k (edgeRefs (blankEdges τ h)) ≤ count k (edgeRefs h)
+blank-count-≤ _ _ []       = ≤-refl
+blank-count-≤ k τ (o ∷ os) rewrite
+    count-++ k (kids (payload (blankObj τ o))) (edgeRefs (blankEdges τ os))
+  | count-++ k (kids (payload o)) (edgeRefs os) =
+  +-mono (kids-le k τ (payload o)) (blank-count-≤ k τ os)
+
+kids-has : ∀ k τ v →
+  hasG1 k (kids (blankVal τ v)) ≡ true → hasG1 k (kids v) ≡ true
+kids-has _ _ (nat _) ()
+kids-has _ τ (suc↑ r) eq with obj r ≡ᵇ τ
+... | true  = ⊥-elim (boom eq)
+  where
+  boom : false ≡ true → ⊥
+  boom ()
+... | false = eq
+kids-has _ τ (clo rs _) eq with holdsRefs τ rs
+... | true  = ⊥-elim (boom eq)
+  where
+  boom : false ≡ true → ⊥
+  boom ()
+... | false = eq
+
+or-keep : ∀ {a b c d} →
+  (a ≡ true → c ≡ true) → (b ≡ true → d ≡ true) →
+  (a ∨ b) ≡ true → (c ∨ d) ≡ true
+or-keep {a = a} {b = b} {c = c} {d = d} ac k2 eq = body a b c d ac k2 eq
+  where
+  body : (x y p q : Bool) →
+         (x ≡ true → p ≡ true) → (y ≡ true → q ≡ true) →
+         (x ∨ y) ≡ true → (p ∨ q) ≡ true
+  body true  _ p _ ac' _  _   rewrite ac' refl = refl
+  body false _ p _ _   k2' eq' rewrite k2' eq' = ∨-trueʳ p
+
+blank-has : ∀ k τ h →
+  hasG1 k (edgeRefs (blankEdges τ h)) ≡ true → hasG1 k (edgeRefs h) ≡ true
+blank-has _ _ [] ()
+blank-has k τ (o ∷ os) eq =
+  subst (_≡ true) (sym (has-++ k (kids (payload o)) (edgeRefs os)))
+    (or-keep (kids-has k τ (payload o)) (blank-has k τ os)
+      (subst (_≡ true) (has-++ k (kids (payload (blankObj τ o)))
+                                 (edgeRefs (blankEdges τ os))) eq))
+
+split-bound : ∀ {n} xs ys → Bound n (xs ++ ys) → Bound n xs × Bound n ys
+split-bound []       ys b = bnil , b
+split-bound (x ∷ xs) ys (bcons lt rest) =
+  let bx , by = split-bound xs ys rest
+  in bcons lt bx , by
+
+kids-bound : ∀ {n} τ v → Bound n (kids v) → Bound n (kids (blankVal τ v))
+kids-bound _ (nat _)    b = b
+kids-bound τ (suc↑ r)   b with obj r ≡ᵇ τ
+... | true  = bnil
+... | false = b
+kids-bound τ (clo rs _) b with holdsRefs τ rs
+... | true  = bnil
+... | false = b
+
+blank-bound : ∀ {n} τ h → Bound n (edgeRefs h) → Bound n (edgeRefs (blankEdges τ h))
+blank-bound _ []       b = b
+blank-bound τ (o ∷ os) b =
+  let bk , br = split-bound (kids (payload o)) (edgeRefs os) b
+  in bound-++ (kids-bound τ (payload o) bk) (blank-bound τ os br)
+
 consume : Sys → ℕ → ℕ → (ℕ → Ctl → Maybe Ctl) → Maybe Sys
 consume (sys h ps) i τ finish =
   let ph  = placeholder h
-      h'  = snoc h (nat zero)
+      h'  = snoc (blankEdges τ h) (nat zero)
       ps1 = map (scrubProc τ ph) ps
   in lookup ps1 i >>= λ p1 →
      finish τ (ctl p1) >>= λ c' →
