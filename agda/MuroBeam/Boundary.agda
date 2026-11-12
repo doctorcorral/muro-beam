@@ -58,6 +58,9 @@ open import MuroBeam.Unique using
   ( WF; grade1-unique; send-g1-moves
   ) public
 open import MuroBeam.Source using (Checked; term) public
+open import MuroBeam.Source using
+  ( g1InScope; predG; NoEsc; NoEscape
+  ; ne-var; ne-typ; ne-ze; ne-su; ne-app; ne-pi; ne-lam; ne-mat )
 open import MuroBeam.Lower using
   ( lower; Step*; lower-safe; lower-g0-never-deref
   ) public
@@ -179,16 +182,14 @@ BeamVal = Val
 Cxt : ℕ → Set
 Cxt n = Vec Grade n
 
+-- Same boolean as `g1InScope`. A `glam` under it is the capture
+-- `eval1` refuses, so `InB` implies `NoEsc`.
 sharpCxt : ∀ {n} → Cxt n → Bool
-sharpCxt Vec.[]        = false
-sharpCxt (g Vec.∷ Γ)   = isG1 g ∨ sharpCxt Γ
+sharpCxt = g1InScope
 
--- Computational grade of the predecessor, as `predPair` / `predComp`.
--- A variable inherits its binder. Anything else is `aff`, and `aff`
--- is not `g1`.
+-- Same predecessor grade `NoEsc` uses on a match.
 predGrade : ∀ {n} → Cxt n → GTm n → Grade
-predGrade Γ (gvar x) = lookup Γ x
-predGrade _ _        = aff
+predGrade = predG
 
 data InB {n} (Γ : Cxt n) : GTm n → Set where
   ib-var : ∀ x → isZeroGrade (lookup Γ x) ≡ false → InB Γ (gvar x)
@@ -204,6 +205,22 @@ data InB {n} (Γ : Cxt n) : GTm n → Set where
 
 InBoundary : GTm 0 → Set
 InBoundary t = InB Vec.[] t
+
+-- The filter implies the capture restriction. The `g0` premise of
+-- `ib-var` is dropped: `NoEscape` does not refuse a `g0` variable.
+-- The converse is not claimed.
+inBoundary→noEscape : ∀ {e} → InBoundary e → NoEscape e
+inBoundary→noEscape = toNo Vec.[]
+  where
+  toNo : ∀ {n} (Γ : Cxt n) {e} → InB Γ e → NoEsc Γ e
+  toNo Γ (ib-var x _)     = ne-var x
+  toNo Γ (ib-typ x)       = ne-typ x
+  toNo _ ib-ze            = ne-ze
+  toNo Γ (ib-su p)        = ne-su (toNo Γ p)
+  toNo Γ (ib-app pf pa)   = ne-app (toNo Γ pf) (toNo Γ pa)
+  toNo _ (ib-pi p)        = ne-pi (toNo _ p)
+  toNo _ (ib-lam q p)     = ne-lam q (toNo _ p)
+  toNo Γ (ib-mat pe pz ps) = ne-mat (toNo Γ pe) (toNo Γ pz) (toNo _ ps)
 
 -- A `glam` the fragment accepts is not under a grade-1 binder.
 lam-not-under-g1 : ∀ {n} {Γ : Cxt n} {c t b} →
