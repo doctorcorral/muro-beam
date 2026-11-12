@@ -444,7 +444,7 @@ decide-sound : ∀ {n} (Γ : GCtx n) e us →
                decide run Γ e ≡ okR us → Discharged run Γ e
 ```
 
-`Discharged` carries, at each `glam` and each `gmatch` binder, `sat` of the component the mode inspects. `sat-g0-zero` is the static half of a grade-0 binder: `sat g0 k ≡ true` implies `k ≡ finᶜ 0`.
+`Discharged` carries, at each `glam`, `gpi`, and `gmatch`, evidence that checking the body returned a vector headed by `sp co ty`, and `sat` of the component the mode inspects on those counts. `ds-pi` checks the body in spec mode and records the type component only. `sat-g0-zero` is the static half of a grade-0 binder: `sat g0 k ≡ true` implies `k ≡ finᶜ 0`. `¬discharged-ghost` is `¬ Discharged run [] (glam g0 g0 (gvar fzero))`: the body checks as one computational use, and `sat g0` rejects it. `decide` fails the same term (`ghost-decide-fails`).
 
 ### `budget-adequate` and `exact-exhausts`
 
@@ -525,7 +525,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **`InBoundary` is not adequacy.** It refuses a closure in the scope of a `g1` binder, and a `g0` variable. It does not count uses, and it does not follow a trace. It implies `NoEscape`. `budget-adequate` is the trace invariant, for match-free terms and for checked grade `g1` only.
 - **`budget-adequate` is not every binder.** Finite points above 1 and intervals are outside `Inv tight`. `gmatch` is outside it (`MatchFree`). A moved `g1` scrutinee is rebound from the slot after the move, which is a fresh `g0`. The successor branch of `gmatch` extends the environment under frames typed in the unextended scope.
 - **`exact-exhausts` is the `g1` pop.** It does not claim every `fin n`. A binder that has not reached `bd` is outside it.
-- **`decide-sound` is binder discharge.** It is not the false free-variable reading recorded in the v1c section.
+- **`decide-sound` is binder discharge.** The counts are the uses `decide` computed for the body. It is not the false free-variable reading recorded in the v1c section.
 - **`lower-sim` is not a theorem.** The grade-free machine takes the β that `badG1` refuses. Backward simulation and determinacy are not in this book.
 - **`bind1` resumes one frame.** `seq` produces that shape. A nested `saved` stack is not resumed.
 - **Not in this book.** No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.

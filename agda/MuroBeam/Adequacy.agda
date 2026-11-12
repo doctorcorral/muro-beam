@@ -7,10 +7,14 @@
 -- `decide run (gp g0 g0 ∷ []) (gvar fzero)` returns computational
 -- count 1, and `sat g0 (finᶜ 1)` is false. A closed `Uses 0` is empty,
 -- so that reading says nothing there either. What `under` checks, and
--- what this theorem records, is that every binder the judgment accepts
--- satisfies `sat` on the component the mode inspects. Spec mode forgets
--- the computational component. A `gpi` is checked in spec mode,
--- including when the surrounding judgment is run.
+-- what this theorem records, is each binder the judgment accepts.
+-- `co` and `ty` are the head of the vector `decide` returns for that
+-- body (`sp co ty ∷ _`), so `sat` is about those uses, not about counts
+-- chosen beside the derivation. Spec mode forgets the computational
+-- component. A `gpi` is checked in spec mode, including when the
+-- surrounding judgment is run. `¬discharged-ghost` is the old hand-built
+-- inhabitant: both counts zero on `glam g0 g0 (gvar fzero)`. The body
+-- checks as one computational use, so that derivation is empty.
 --
 -- `done-collect-empty` does not follow a trace of `eval1`. `collect`
 -- marks from `liveRefs` only, and a false bit never marks a child, so
@@ -25,7 +29,8 @@ module MuroBeam.Adequacy where
 
 open import Data.Bool.Base using (Bool; true; false; if_then_else_)
 open import Data.Empty using (⊥; ⊥-elim)
-open import Data.Fin.Base using (Fin)
+open import Relation.Nullary.Negation.Core using (¬_)
+open import Data.Fin.Base using (Fin) renaming (zero to fzero)
 open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Nat.Base using (ℕ; zero; suc)
 open import Data.Product.Base using (_×_; _,_; Σ)
@@ -33,7 +38,7 @@ open import Data.String.Base using (String)
 open import Data.Sum.Base using (_⊎_; inj₁; inj₂)
 open import Data.Unit.Base using (tt)
 open import Data.Vec.Base using (Vec; []; _∷_)
-open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; cong; subst)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
 open import Muro.Base using (Mode; run; spec; evid; Result; fail; _>>=_; _>>_)
   renaming (ok to okR)
@@ -61,16 +66,19 @@ data Discharged (m : Mode) {n} (Γ : GCtx n) : GTm n → Set where
   ds-su  : ∀ {e} → Discharged m Γ e → Discharged m Γ (gsu e)
   ds-app : ∀ {f a} → Discharged m Γ f → Discharged m Γ a →
            Discharged m Γ (gapp f a)
-  ds-pi  : ∀ {c t b} (ty : Count) →
+  ds-pi  : ∀ {c t b us} (co ty : Count) →
+           decide spec (gp c t ∷ Γ) b ≡ okR (sp co ty ∷ us) →
            sat t ty ≡ true →
            Discharged spec (gp c t ∷ Γ) b →
            Discharged m Γ (gpi c t b)
-  ds-lam : ∀ {c t b} (co ty : Count) →
+  ds-lam : ∀ {c t b us} (co ty : Count) →
+           decide m (gp c t ∷ Γ) b ≡ okR (sp co ty ∷ us) →
            sat t ty ≡ true →
            (m ≡ run ⊎ m ≡ evid → sat c co ≡ true) →
            Discharged m (gp c t ∷ Γ) b →
            Discharged m Γ (glam c t b)
-  ds-mat : ∀ {e z s} (co ty : Count) →
+  ds-mat : ∀ {e z s us} (co ty : Count) →
+           decide m (predPair Γ e ∷ Γ) s ≡ okR (sp co ty ∷ us) →
            sat (ptype (predPair Γ e)) ty ≡ true →
            (m ≡ run ⊎ m ≡ evid → sat (pcomp (predPair Γ e)) co ≡ true) →
            Discharged m Γ e →
@@ -173,7 +181,9 @@ discharge m Γ (glam c t b) out eq with decide m (gp c t ∷ Γ) b in bq
            under m c t us ≡ okR out →
            Discharged m Γ (glam c t b)
   fromUs (sp co ty ∷ rest) bq' uq with under-facts m c t co ty rest out uq
-  ... | st , sc = ds-lam co ty st sc (discharge m (gp c t ∷ Γ) b (sp co ty ∷ rest) bq')
+  ... | st , sc =
+    ds-lam co ty bq' st sc
+      (discharge m (gp c t ∷ Γ) b (sp co ty ∷ rest) bq')
 discharge m Γ (gpi c t b) out eq with decide spec (gp c t ∷ Γ) b in bq
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR us = fromPi us bq eq
@@ -183,7 +193,9 @@ discharge m Γ (gpi c t b) out eq with decide spec (gp c t ∷ Γ) b in bq
            under spec c t us ≡ okR out →
            Discharged m Γ (gpi c t b)
   fromPi (sp co ty ∷ rest) bq' uq with under-spec c t co ty rest out uq
-  ... | st , _ = ds-pi ty st (discharge spec (gp c t ∷ Γ) b (sp co ty ∷ rest) bq')
+  ... | st , _ =
+    ds-pi co ty bq' st
+      (discharge spec (gp c t ∷ Γ) b (sp co ty ∷ rest) bq')
 discharge m Γ (gmatch e z s) out eq with decide m Γ e in eqe
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR eu with decide m Γ z in eqz
@@ -193,23 +205,46 @@ discharge m Γ (gmatch e z s) out eq with decide m Γ e in eqe
 ... | okR su with under m (pcomp (predPair Γ e)) (ptype (predPair Γ e)) su in equ
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR srest =
-    fromMatch su equ
+    fromMatch su equ eqs
       (discharge m Γ e eu eqe)
       (discharge m Γ z zu eqz)
       (discharge m (predPair Γ e ∷ Γ) s su eqs)
   where
   fromMatch : (su : Uses (suc _)) →
               under m (pcomp (predPair Γ e)) (ptype (predPair Γ e)) su ≡ okR srest →
+              decide m (predPair Γ e ∷ Γ) s ≡ okR su →
               Discharged m Γ e → Discharged m Γ z →
               Discharged m (predPair Γ e ∷ Γ) s →
               Discharged m Γ (gmatch e z s)
-  fromMatch (sp co ty ∷ rest) uq de dz ds
+  fromMatch (sp co ty ∷ rest) uq sq de dz ds
     with under-facts m (pcomp (predPair Γ e)) (ptype (predPair Γ e)) co ty rest srest uq
-  ... | st , sc = ds-mat co ty st sc de dz ds
+  ... | st , sc = ds-mat co ty sq st sc de dz ds
 
 decide-sound : ∀ {n} (Γ : GCtx n) e us →
                decide run Γ e ≡ okR us → Discharged run Γ e
 decide-sound Γ e us eq = discharge run Γ e us eq
+
+-- The body uses the grade-0 binder once. `decide` refuses the λ.
+-- `Discharged` refuses it too: `ds-lam` must quote that vector, and
+-- `sat g0` rejects the computational count. A zero-count premise
+-- contradicts the same equality.
+ghost-body-once :
+  decide run (gp g0 g0 ∷ []) (gvar fzero)
+    ≡ okR (sp (finᶜ (suc zero)) (finᶜ zero) ∷ [])
+ghost-body-once = refl
+
+ghost-decide-fails :
+  decide run [] (glam g0 g0 (gvar fzero))
+    ≡ fail "erased variable used computationally"
+ghost-decide-fails = refl
+
+¬discharged-ghost : ¬ Discharged run [] (glam g0 g0 (gvar fzero))
+¬discharged-ghost (ds-lam co ty eq _ sc _)
+  with ok-inj (trans (sym ghost-body-once) eq)
+... | refl = bad (sc (inj₁ refl))
+  where
+  bad : false ≡ true → ⊥
+  bad ()
 
 -- A point g0 accepts only the count zero. This is the static half of
 -- "a run binder of grade 0 is not a computational use".
