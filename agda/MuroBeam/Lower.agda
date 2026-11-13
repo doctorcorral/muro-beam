@@ -11,9 +11,7 @@
 
 module MuroBeam.Lower where
 
-open import Data.List.Base using ([] ; _∷_)
 open import Data.Maybe.Base using (just; nothing)
-open import Data.Nat.Base using (zero)
 open import Data.Product.Base using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; subst)
 
@@ -25,21 +23,20 @@ open import MuroBeam.Heap using
   ( Ref; checked; residual; kept; spendRef; spendRef-zero
   ; Bound; bnil; Grade1Unique; uniq-nil; Ordered; ordered-nil )
 open import MuroBeam.Process using
-  ( Sys; sys; heap; Proc; proc; ready; Ctl; ev
-  ; refsOf; rootAt; deref; AllInv
+  ( Sys; heap; refsOf; rootAt; deref; AllInv
   ; grade0-not-dereferenced; residual-inv-refs )
 open import MuroBeam.Collect using (Step)
 open import MuroBeam.Source using (Checked; term)
+open import MuroBeam.Cex using (lowerTm)
 open import MuroBeam.Unique using (WF; step-preserves-grade1)
 
 ------------------------------------------------------------------------
 -- One process, pid 0, empty heap, the term in an empty environment.
+-- The system is Cex.lowerTm of the checked term.
 ------------------------------------------------------------------------
 
 lower : Checked → Sys
-lower e =
-  sys []
-    (proc zero ready [] [] (ev (term e) [] []) ∷ [])
+lower e = lowerTm (term e)
 
 lower-wf : ∀ e → WF (lower e)
 lower-wf e = bnil , uniq-nil
