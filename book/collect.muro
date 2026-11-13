@@ -16,7 +16,8 @@
 -- and messages. Environment and frame slots stay, so indices do not move.
 --
 -- collect : Sys → Sys. It is not Maybe. It does not emit tr-collect.
--- recv, spawn, and the Step relation are a later part.
+-- The scheduling relation is book/sched.muro. Emission of the freed
+-- indices is book/emit.muro.
 
 import "ops.muro"
 

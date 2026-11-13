@@ -1,0 +1,316 @@
+-- In-boundary schedule: spawn, emit a grade-1 reference, deliver, recv.
+-- The equations call spawn1, emit1, deliver1, recv1, runPops, and
+-- emitPops. The expected systems are what those runs return.
+--
+-- Refusals are nothing from the same runs. The terms are well-typed.
+-- flush, await, npeek, and ndemon are not run here.
+
+import "emit.muro"
+
+def rho : run Ref := ref 0 grade1 grade1 (selfKept grade1)
+def ph : run Ref := ref 1 grade0 grade0 (selfKept grade0)
+def ph2 : run Ref := ref 2 grade0 grade0 (selfKept grade0)
+
+def tripH0 : run List Obj := cons (cell (nat 0) live) nil
+def tripH1 : run List Obj := append Obj tripH0 (cons (cell (nat 0) live) nil)
+def tripH2 : run List Obj := append Obj tripH1 (cons (cell (nat 0) live) nil)
+
+def tripChild : run PTm (suc 0) :=
+  send (suc 0) 0 (fzero 0) (pdone (suc 0))
+
+def tripParent : run PTm (suc 0) :=
+  recv (suc 0) grade1 grade0 (pdone (suc (suc 0)))
+
+def tripTm : run PTm (suc 0) :=
+  spawn (suc 0) (suc 0) (keep 0 0 tnil) tripChild tripParent
+
+def s0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil (pr (go (suc 0) tripTm (cons rho nil) nil nil nil))) nil)
+
+def s1 : run Sys :=
+  sys tripH1
+    (cons (proc 0 ready nil nil (pr (go (suc 0) tripParent (cons ph nil) nil nil nil)))
+    (cons (proc 1 ready nil nil (pr (go (suc 0) tripChild (cons rho nil) nil nil nil)))
+    nil))
+
+def s2 : run Sys :=
+  sys tripH2
+    (cons (proc 0 ready nil nil (pr (go (suc 0) tripParent (cons ph nil) nil nil nil)))
+    (cons (proc 1 ready nil nil
+      (pr (go (suc 0) (pdone (suc 0)) (cons ph2 nil) (cons (flight 0 rho) nil) nil nil)))
+    nil))
+
+def s3 : run Sys :=
+  sys tripH2
+    (cons (proc 0 ready nil (cons (msg rho) nil)
+      (pr (go (suc 0) tripParent (cons ph nil) nil nil nil)))
+    (cons (proc 1 ready nil nil
+      (pr (go (suc 0) (pdone (suc 0)) (cons ph2 nil) nil nil nil)))
+    nil))
+
+def s4 : run Sys :=
+  sys tripH2
+    (cons (proc 0 ready nil nil
+      (pr (go (suc (suc 0)) (pdone (suc (suc 0))) (cons rho (cons ph nil)) nil nil nil)))
+    (cons (proc 1 ready nil nil
+      (pr (go (suc 0) (pdone (suc 0)) (cons ph2 nil) nil nil nil)))
+    nil))
+
+def trip-spawn : evidence {spawn1 s0 0 ≡ just s1 : Maybe Sys} := refl
+def trip-emit : evidence {emit1 s1 1 ≡ just s2 : Maybe Sys} := refl
+def trip-deliver : evidence {deliver1 s2 1 ≡ just s3 : Maybe Sys} := refl
+def trip-recv : evidence {recv1 s3 0 ≡ just s4 : Maybe Sys} := refl
+
+def tripPops : run List Pop :=
+  cons (pop-spawn 0)
+    (cons (pop-emit 1)
+      (cons (pop-deliver 1)
+        (cons (pop-recv 0) nil)))
+
+def trip-run : evidence {runPops tripPops s0 ≡ just s4 : Maybe Sys} := refl
+
+def trip-p-spawn : evidence
+    {pstepOf s0 (pop-spawn 0) ≡ just (p-spawn s0 s1) : Maybe PStep} := refl
+def trip-p-emit : evidence
+    {pstepOf s1 (pop-emit 1) ≡ just (p-emit s1 s2) : Maybe PStep} := refl
+def trip-p-deliver : evidence
+    {pstepOf s2 (pop-deliver 1) ≡ just (p-deliver s2 s3) : Maybe PStep} := refl
+def trip-p-recv : evidence
+    {pstepOf s3 (pop-recv 0) ≡ just (p-recv s3 s4) : Maybe PStep} := refl
+
+-- The four constructors pstepOf returns. PStepStar does not store the
+-- just-proof; trip-p-spawn through trip-p-recv and trip-run are that check.
+def tripStar : run PStepStar :=
+  pmore (p-spawn s0 s1)
+    (pmore (p-emit s1 s2)
+      (pmore (p-deliver s2 s3)
+        (pmore (p-recv s3 s4) (pstop s4))))
+
+-- deliver adds no event. The placeholder snoc is not tr-alloc.
+def tripEvents : run List Event :=
+  cons (tr-spawn 0 1)
+    (cons (tr-send 1 0 rho Kmove)
+      (cons (tr-recv 0 rho) nil))
+
+def trip-trace : evidence
+    {emitPops tripPops s0 ≡ just (ran s4 tripEvents) : Maybe Run} := refl
+
+------------------------------------------------------------------------
+-- Spawn refusals.
+------------------------------------------------------------------------
+
+def spawn-miss : evidence {spawn1 (sys nil nil) 0 ≡ nothing : Maybe Sys} := refl
+
+def spawn-idle : evidence {spawn1 lone 0 ≡ nothing : Maybe Sys} := refl
+
+def spawn-pdone : evidence
+    {spawn1 (sys nil (cons (proc 0 ready nil nil (pr (go 0 (pdone 0) nil nil nil nil))) nil)) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+def g0ref : run Ref := ref 0 grade0 grade0 (selfKept grade0)
+
+def spawnG0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0)
+        (spawn (suc 0) (suc 0) (keep 0 0 tnil) (pdone (suc 0)) (pdone (suc 0)))
+        (cons g0ref nil) nil nil nil))) nil)
+
+def spawn-g0 : evidence {spawn1 spawnG0 0 ≡ nothing : Maybe Sys} := refl
+
+def thinBad : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0)
+        (spawn (suc 0) (suc 0) (keep 0 0 tnil) (pdone (suc 0)) (pdone (suc 0)))
+        nil nil nil nil))) nil)
+
+def spawn-thin : evidence {spawn1 thinBad 0 ≡ nothing : Maybe Sys} := refl
+
+------------------------------------------------------------------------
+-- Emit and deliver refusals. A missing destination is blocked.
+------------------------------------------------------------------------
+
+def emitG0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (send (suc 0) 0 (fzero 0) (pdone (suc 0))) (cons g0ref nil) nil nil nil)))
+    (cons (proc 1 ready nil nil idle) nil))
+
+def emit-g0 : evidence {emit1 emitG0 0 ≡ nothing : Maybe Sys} := refl
+def emit-g0-trace : evidence {emitEmit emitG0 0 ≡ nothing : Maybe Run} := refl
+
+def emit-not-send : evidence {emit1 s0 0 ≡ nothing : Maybe Sys} := refl
+
+def emitMiss : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (send (suc 0) 9 (fzero 0) (pdone (suc 0))) (cons rho nil) nil nil nil))) nil)
+
+def emit-miss : evidence {emit1 emitMiss 0 ≡ nothing : Maybe Sys} := refl
+
+def deliver-empty : evidence {deliver1 s0 0 ≡ nothing : Maybe Sys} := refl
+def deliver-empty-trace : evidence {emitDeliver s0 0 ≡ nothing : Maybe Run} := refl
+
+------------------------------------------------------------------------
+-- recv1. Empty and ready parks, and the trace is empty. Empty and
+-- waiting is nothing. A term that is not recv is nothing.
+------------------------------------------------------------------------
+
+def park0 : run Sys :=
+  sys nil (cons (proc 0 ready nil nil (pr (go (suc 0) tripParent nil nil nil nil))) nil)
+
+def park1 : run Sys :=
+  sys nil (cons (proc 0 waiting nil nil (pr (go (suc 0) tripParent nil nil nil nil))) nil)
+
+def recv-park : evidence {recv1 park0 0 ≡ just park1 : Maybe Sys} := refl
+
+def recv-park-trace : evidence
+    {emitRecv1 park0 0 ≡ just (ran park1 nil) : Maybe Run} := refl
+
+def recv-waiting : evidence {recv1 park1 0 ≡ nothing : Maybe Sys} := refl
+
+def recv-not : evidence {recv1 s2 1 ≡ nothing : Maybe Sys} := refl
+
+def recv1-miss : evidence {recv1 (sys nil nil) 0 ≡ nothing : Maybe Sys} := refl
+
+------------------------------------------------------------------------
+-- Copy keeps the omega reference on both sides and still allocates
+-- the placeholder cell. The emit trace is Kcopy and the heap stays.
+------------------------------------------------------------------------
+
+def rhoW : run Ref := ref 0 gradeOmega gradeOmega omega-kept
+
+def copyTm : run PTm (suc 0) :=
+  spawn (suc 0) (suc 0) (keep 0 0 tnil) (pdone (suc 0)) (pdone (suc 0))
+
+def copy0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil (pr (go (suc 0) copyTm (cons rhoW nil) nil nil nil))) nil)
+
+def copy1 : run Sys :=
+  sys tripH1
+    (cons (proc 0 ready nil nil (pr (go (suc 0) (pdone (suc 0)) (cons rhoW nil) nil nil nil)))
+    (cons (proc 1 ready nil nil (pr (go (suc 0) (pdone (suc 0)) (cons rhoW nil) nil nil nil)))
+    nil))
+
+def copy-spawn : evidence {spawn1 copy0 0 ≡ just copy1 : Maybe Sys} := refl
+
+def copy-spawn-trace : evidence
+    {emitSpawn copy0 0 ≡ just (ran copy1 (cons (tr-spawn 0 1) nil)) : Maybe Run} :=
+  refl
+
+def copyE0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (send (suc 0) 0 (fzero 0) (pdone (suc 0))) (cons rhoW nil) nil nil nil))) nil)
+
+def copyE1 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (pdone (suc 0)) (cons rhoW nil) (cons (flight 0 rhoW) nil) nil nil))) nil)
+
+def copy-emit : evidence {emit1 copyE0 0 ≡ just copyE1 : Maybe Sys} := refl
+
+def copy-emit-trace : evidence
+    {emitEmit copyE0 0 ≡ just (ran copyE1 (cons (tr-send 0 0 rhoW Kcopy) nil)) : Maybe Run} :=
+  refl
+
+------------------------------------------------------------------------
+-- ignore becomes ignoreT on the moved slot. arm turns that into flushT
+-- and records the tag. The reply is not flushed: flush1 is not this book.
+------------------------------------------------------------------------
+
+def igParent : run PTm (suc 0) :=
+  ignore (suc 0) (fzero 0) (pdone (suc 0))
+
+def igTm : run PTm (suc 0) :=
+  spawn (suc 0) (suc 0) (keep 0 0 tnil) tripChild igParent
+
+def ig0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil (pr (go (suc 0) igTm (cons rho nil) nil nil nil))) nil)
+
+def ig1 : run Sys :=
+  sys tripH1
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (ignoreT (suc 0) 0 (pdone (suc 0))) (cons ph nil) nil nil nil)))
+    (cons (proc 1 ready nil nil (pr (go (suc 0) tripChild (cons rho nil) nil nil nil)))
+    nil))
+
+def ignore-spawn : evidence {spawn1 ig0 0 ≡ just ig1 : Maybe Sys} := refl
+
+def igArmed : run Sys :=
+  sys tripH1
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (flushT (suc 0) 0 (pdone (suc 0))) (cons ph nil) nil nil (cons 0 nil))))
+    (cons (proc 1 ready nil nil (pr (go (suc 0) tripChild (cons rho nil) nil nil nil)))
+    nil))
+
+def ignore-arm : evidence {arm1 ig1 0 ≡ just igArmed : Maybe Sys} := refl
+
+------------------------------------------------------------------------
+-- A dead tag drops the flight. A demo tag does not.
+------------------------------------------------------------------------
+
+def dead0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (pdone (suc 0)) nil (cons (flight 1 rho) nil) nil nil)))
+    (cons (proc 1 ready nil nil (pr (go 0 (pdone 0) nil nil (cons 0 nil) nil))) nil))
+
+def dead1 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil (pr (go (suc 0) (pdone (suc 0)) nil nil nil nil)))
+    (cons (proc 1 ready nil nil (pr (go 0 (pdone 0) nil nil (cons 0 nil) nil))) nil))
+
+def deliver-dead : evidence {deliver1 dead0 0 ≡ just dead1 : Maybe Sys} := refl
+
+def demo0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (pdone (suc 0)) nil (cons (flight 1 rho) nil) nil nil)))
+    (cons (proc 1 ready nil nil (pr (go 0 (pdone 0) nil nil nil (cons 0 nil)))) nil))
+
+def demo1 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil (pr (go (suc 0) (pdone (suc 0)) nil nil nil nil)))
+    (cons (proc 1 ready nil (cons (msg rho) nil)
+      (pr (go 0 (pdone 0) nil nil nil (cons 0 nil)))) nil))
+
+def deliver-demo : evidence {deliver1 demo0 0 ≡ just demo1 : Maybe Sys} := refl
+
+------------------------------------------------------------------------
+-- seq moves the ether onto one saved frame. done clears roots.
+------------------------------------------------------------------------
+
+def seq0 : run Sys :=
+  sys nil
+    (cons (proc 0 ready nil nil
+      (pr (go 0 (seq 0 (gze 0) (pdone (suc 0))) nil nil nil nil))) nil)
+
+def seqAfter : run Sys :=
+  sys nil
+    (cons (proc 0 ready nil nil
+      (ev 0 (gze 0) nil (cons (saved (go (suc 0) (pdone (suc 0)) nil nil nil nil)) nil))) nil)
+
+def seq-step : evidence {seq1 seq0 0 ≡ just seqAfter : Maybe Sys} := refl
+
+def done0 : run Sys :=
+  sys nil
+    (cons (proc 0 ready (cons rho nil) nil
+      (pr (go (suc 0) (pdone (suc 0)) (cons rho nil) nil nil nil))) nil)
+
+def doneAfter : run Sys :=
+  sys nil
+    (cons (proc 0 done nil nil (pr (go (suc 0) (pdone (suc 0)) nil nil nil nil))) nil)
+
+def done-step : evidence {done1 done0 0 ≡ just doneAfter : Maybe Sys} := refl
+
+-- One CEK step, lifted. The same step's trace is emit-ze.
+def lift-ze : evidence
+    {pstepOf emitZe (pop-lift (op-eval 0))
+      ≡ just (p-lift (step-eval emitZe emitZe1)) : Maybe PStep} :=
+  refl

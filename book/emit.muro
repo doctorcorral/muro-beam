@@ -1,0 +1,377 @@
+-- List Event from a run.
+--
+-- alloc, deref, sendRoot, reuse, eval1, collect, recvRoot, and the
+-- process steps stay as they are. These wrappers call them and pair
+-- the resulting system with the events of that one step. A refusal is
+-- nothing, not an empty trace. An accepted step with nothing to report
+-- (deliver, park, reuse, arm, seq, bind, done) is just and an empty list.
+--
+-- The g0 cell spawn and a move both snoc is handover, not tr-alloc.
+-- deliver emits no event. tr-step carries the pid only.
+-- tr-collect lists the unmarked indices in increasing order.
+--
+-- emitPops is structural on the Pop list, which is the first argument.
+
+import "sched.muro"
+import "trace.muro"
+
+data Run : Type where
+  ran : Sys → List Event → Run
+
+-- False bits, from index i upward. A true bit is kept.
+def freedIdx : run Π (bs : List Bool) → Π (+ i : Nat) → List Nat :=
+  λ (bs : List Bool) → λ (+ i : Nat) →
+    match bs motive (λ _ → List Nat)
+      | nil => nil
+      | cons b bs1 =>
+          (match b motive (λ _ → List Nat)
+            | true => freedIdx bs1 (suc i)
+            | false => cons i (freedIdx bs1 (suc i)))
+
+def emitCollect : run Π (s : Sys) → Run :=
+  λ (s : Sys) →
+    match s motive (λ _ → Run)
+      | sys h ps =>
+          ran (collect (sys h ps))
+            (cons (tr-collect (freedIdx (markVec (sys h ps)) 0)) nil)
+
+def emitDeref : run Π (+ s : Sys) → Π (+ i : Nat) → Π (+ j : Nat) → Maybe Run :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (+ j : Nat) →
+    match (rootAt s i j) motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just r =>
+          (match r motive (λ _ → Maybe Run)
+            | ref o c g k =>
+                (match (spendRef (ref o c g k)) motive (λ _ → Maybe Run)
+                  | nothing => nothing
+                  | just r2 =>
+                      (match r2 motive (λ _ → Maybe Run)
+                        | ref o2 c2 g2 k2 =>
+                            (match (deref s i j) motive (λ _ → Maybe Run)
+                              | nothing => nothing
+                              | just t => just (ran t (cons (tr-spend o g g2) nil))))))
+
+def emitAlloc : run Π (+ s : Sys) → Π (i : Nat) → Π (+ g : Grade) → Π (v : Nat) → Maybe Run :=
+  λ (+ s : Sys) → λ (i : Nat) → λ (+ g : Grade) → λ (v : Nat) →
+    match s motive (λ _ → Maybe Run)
+      | sys h ps =>
+          (match (alloc (sys h ps) i g v) motive (λ _ → Maybe Run)
+            | nothing => nothing
+            | just t => just (ran t (cons (tr-alloc (length Obj h) g) nil)))
+
+def emitSendRoot : run Π (+ s : Sys) → Π (+ si : Nat) → Π (+ sj : Nat) → Π (+ ri : Nat) → Maybe Run :=
+  λ (+ s : Sys) → λ (+ si : Nat) → λ (+ sj : Nat) → λ (+ ri : Nat) →
+    match (rootAt s si sj) motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just r =>
+          (match r motive (λ _ → Maybe Run)
+            | ref o c g k =>
+                (match (isZeroGrade g) motive (λ _ → Maybe Run)
+                  | true => nothing
+                  | false =>
+                      (match (kind c) motive (λ _ → Maybe Run)
+                        | nothing => nothing
+                        | just kd =>
+                            (match (sendRoot s si sj ri) motive (λ _ → Maybe Run)
+                              | nothing => nothing
+                              | just t =>
+                                  just (ran t (cons (tr-send si ri (ref o c g k) kd) nil))))))
+
+def emitReuse : run Π (+ s : Sys) → Π (+ i : Nat) → Π (+ j : Nat) → Π (+ g : Grade) → Π (+ v : Nat) → Maybe Run :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (+ j : Nat) → λ (+ g : Grade) → λ (+ v : Nat) →
+    match (reuse s i j g v) motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just t => just (ran t nil)
+
+def emitEval : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match (eval1 s i) motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just t => just (ran t (cons (tr-step i) nil))
+
+def emitRecv : run Π (+ s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (+ s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Run)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Run)
+            | nothing => nothing
+            | just p =>
+                (match p motive (λ _ → Maybe Run)
+                  | proc pid st rs mb c =>
+                      (match mb motive (λ _ → Maybe Run)
+                        | nil => nothing
+                        | cons m ms =>
+                            (match m motive (λ _ → Maybe Run)
+                              | msg r =>
+                                  (match (recvRoot (sys h ps) i) motive (λ _ → Maybe Run)
+                                    | nothing => nothing
+                                    | just t => just (ran t (cons (tr-recv i r) nil)))))))
+
+-- Child pid is the length of the process list before the append.
+-- The placeholder cell is not a tr-alloc.
+def emitSpawn : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Run)
+      | sys h ps =>
+          (match (spawn1 (sys h ps) i) motive (λ _ → Maybe Run)
+            | nothing => nothing
+            | just t => just (ran t (cons (tr-spawn i (length Proc ps)) nil)))
+
+data SendInfo : Type where
+  sent : Π (+ dst : Nat) → Ref → Kind → SendInfo
+
+def peekSlot : run Π (+ dst : Nat) → Π (ix : Nat) → Π (env : List Ref) → Maybe SendInfo :=
+  λ (+ dst : Nat) → λ (ix : Nat) → λ (env : List Ref) →
+    match (lookup Ref ix env) motive (λ _ → Maybe SendInfo)
+      | nothing => nothing
+      | just r =>
+          (match r motive (λ _ → Maybe SendInfo)
+            | ref o c g k =>
+                (match (isZeroGrade g) motive (λ _ → Maybe SendInfo)
+                  | true => nothing
+                  | false =>
+                      (match (kind c) motive (λ _ → Maybe SendInfo)
+                        | nothing => nothing
+                        | just kd => just (sent dst (ref o c g k) kd))))
+
+def peekTm : run Π (n : Nat) → Π (tm : PTm n) → Π (env : List Ref) → Maybe SendInfo :=
+  λ (n : Nat) → λ (tm : PTm n) → λ (env : List Ref) →
+    match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe SendInfo)
+      | pdone k => nothing
+      | send k dst x body => peekSlot dst (finToNat k x) env
+      | recv k c g body => nothing
+      | spawn k m th ch pa => nothing
+      | seq k e body => nothing
+      | await k x body => nothing
+      | ignore k x body => nothing
+      | nignore k x body => nothing
+      | awaitT k tag body => nothing
+      | ignoreT k tag body => nothing
+      | flushT k tag body => nothing
+      | ncheckT k tag body => nothing
+      | ndemonT k tag body => nothing
+
+-- n is the scope the match binds. The term carries its own.
+def peekCode : run Π (cd : Code) → Maybe SendInfo :=
+  λ (cd : Code) →
+    match cd motive (λ _ → Maybe SendInfo)
+      | go n tm env eth d dm => peekTm n tm env
+
+def peekSend : run Π (c : Ctl) → Maybe SendInfo :=
+  λ (c : Ctl) →
+    match c motive (λ _ → Maybe SendInfo)
+      | idle => nothing
+      | ev n t e ks => nothing
+      | rv r e ks => nothing
+      | pr cd => peekCode cd
+
+def emitEmit : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Run)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Run)
+            | nothing => nothing
+            | just p =>
+                (match p motive (λ _ → Maybe Run)
+                  | proc pid st rs mb c =>
+                      (match (emit1 (sys h ps) i) motive (λ _ → Maybe Run)
+                        | nothing => nothing
+                        | just t =>
+                            (match (peekSend c) motive (λ _ → Maybe Run)
+                              | nothing => nothing
+                              | just info =>
+                                  (match info motive (λ _ → Maybe Run)
+                                    | sent dst r kd =>
+                                        just (ran t (cons (tr-send i dst r kd) nil)))))))
+
+def emitDeliver : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match (deliver1 s i) motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just t => just (ran t nil)
+
+-- A bound message is tr-recv. Parking ready on an empty inbox is
+-- just and an empty list. waiting, done, and any other term are nothing.
+def emitRecv1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Run)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Run)
+            | nothing => nothing
+            | just p =>
+                (match p motive (λ _ → Maybe Run)
+                  | proc pid st rs mb c =>
+                      (match (recv1 (sys h ps) i) motive (λ _ → Maybe Run)
+                        | nothing => nothing
+                        | just t =>
+                            (match mb motive (λ _ → Maybe Run)
+                              | nil => just (ran t nil)
+                              | cons m ms =>
+                                  (match m motive (λ _ → Maybe Run)
+                                    | msg r => just (ran t (cons (tr-recv i r) nil)))))))
+
+def emitQuiet : run Π (m : Maybe Sys) → Maybe Run :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just t => just (ran t nil)
+
+def emitArm : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (arm1 s i)
+
+def emitSeq : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (seq1 s i)
+
+def emitBind : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (bind1 s i)
+
+def emitDone : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (done1 s i)
+
+def emitOp : run Π (+ s : Sys) → Π (op : Op) → Maybe Run :=
+  λ (+ s : Sys) → λ (op : Op) →
+    match op motive (λ _ → Maybe Run)
+      | op-deref i j => emitDeref s i j
+      | op-send si sj ri => emitSendRoot s si sj ri
+      | op-recv i => emitRecv s i
+      | op-alloc i g v => emitAlloc s i g v
+      | op-reuse i j g v => emitReuse s i j g v
+      | op-eval i => emitEval s i
+      | op-collect => just (emitCollect s)
+
+def emitPop : run Π (s : Sys) → Π (p : Pop) → Maybe Run :=
+  λ (s : Sys) → λ (p : Pop) →
+    match p motive (λ _ → Maybe Run)
+      | pop-spawn i => emitSpawn s i
+      | pop-emit i => emitEmit s i
+      | pop-deliver i => emitDeliver s i
+      | pop-recv i => emitRecv1 s i
+      | pop-arm i => emitArm s i
+      | pop-seq i => emitSeq s i
+      | pop-bind i => emitBind s i
+      | pop-done i => emitDone s i
+      | pop-lift op =>
+          (match s motive (λ _ → Maybe Run)
+            | sys h ps => emitOp (sys h ps) op)
+
+def joinRun : run Π (ev : List Event) → Π (m : Maybe Run) → Maybe Run :=
+  λ (ev : List Event) → λ (m : Maybe Run) →
+    match m motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just r =>
+          (match r motive (λ _ → Maybe Run)
+            | ran t ev2 => just (ran t (append Event ev ev2)))
+
+def emitPops : run Π (ps : List Pop) → Π (s : Sys) → Maybe Run :=
+  λ (ps : List Pop) → λ (s : Sys) →
+    match ps motive (λ _ → Maybe Run)
+      | nil => just (ran s nil)
+      | cons p rest =>
+          (match (emitPop s p) motive (λ _ → Maybe Run)
+            | nothing => nothing
+            | just r =>
+                (match r motive (λ _ → Maybe Run)
+                  | ran t ev => joinRun ev (emitPops rest t)))
+
+------------------------------------------------------------------------
+-- Small traces. A flip of a field or of the state fails the check.
+------------------------------------------------------------------------
+
+def lone : run Sys :=
+  sys (cons (cell (nat 0) live) nil) (cons (proc 0 ready nil nil idle) nil)
+
+def loneFree : run Sys :=
+  sys (cons (cell (nat 0) free) nil) (cons (proc 0 ready nil nil idle) nil)
+
+def emit-collect-free : evidence
+    {emitCollect lone ≡ ran loneFree (cons (tr-collect (cons 0 nil)) nil) : Run} :=
+  refl
+
+def held : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready (cons (ref 0 gradeOmega gradeOmega omega-kept) nil) nil idle) nil)
+
+def emit-collect-keep : evidence
+    {emitCollect held ≡ ran held (cons (tr-collect nil) nil) : Run} :=
+  refl
+
+def emit-collect-nil : evidence
+    {emitCollect (sys nil nil) ≡ ran (sys nil nil) (cons (tr-collect nil) nil) : Run} :=
+  refl
+
+def liveG1 : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) nil idle) nil)
+
+def spentG1sys : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready
+      (cons (ref 0 grade1 grade0 (fin-kept 0 (suc 0) (le-zero (suc 0)))) nil)
+      nil idle) nil)
+
+def emit-deref-g1 : evidence
+    {emitDeref liveG1 0 0
+      ≡ just (ran spentG1sys (cons (tr-spend 0 grade1 grade0) nil)) : Maybe Run} :=
+  refl
+
+def emit-deref-g0 : evidence
+    {emitDeref (sys (cons (cell (nat 0) live) nil)
+        (cons (proc 0 ready (cons (ref 0 grade1 grade0 (fin-kept 0 (suc 0) (le-zero (suc 0)))) nil) nil idle) nil))
+        0 0
+      ≡ nothing : Maybe Run} :=
+  refl
+
+def emit-alloc0 : evidence
+    {emitAlloc (sys nil (cons (proc 0 ready nil nil idle) nil)) 0 grade1 0
+      ≡ just (ran liveG1 (cons (tr-alloc 0 grade1) nil)) : Maybe Run} :=
+  refl
+
+def twoG1 : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) nil idle)
+    (cons (proc 1 ready nil nil idle) nil))
+
+def sentG1 : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready nil nil idle)
+    (cons (proc 1 ready nil (cons (msg (ref 0 grade1 grade1 (selfKept grade1))) nil) idle) nil))
+
+def emit-send-g1 : evidence
+    {emitSendRoot twoG1 0 0 1
+      ≡ just (ran sentG1 (cons (tr-send 0 1 (ref 0 grade1 grade1 (selfKept grade1)) Kmove) nil))
+      : Maybe Run} :=
+  refl
+
+def reused : run Sys :=
+  sys (cons (cell (nat 7) live) nil)
+    (cons (proc 0 ready (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) nil idle) nil)
+
+def emit-reuse : evidence
+    {emitReuse spentG1sys 0 0 grade1 7 ≡ just (ran reused nil) : Maybe Run} :=
+  refl
+
+def emit-reuse-live : evidence
+    {emitReuse liveG1 0 0 grade1 7 ≡ nothing : Maybe Run} :=
+  refl
+
+def emitZe : run Sys :=
+  sys nil (cons (proc 0 ready nil nil (ev 0 (gze 0) nil nil)) nil)
+
+def emitZe1 : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready nil nil (rv (ref 0 gradeOmega gradeOmega omega-kept) nil nil)) nil)
+
+def emit-ze : evidence
+    {emitEval emitZe 0 ≡ just (ran emitZe1 (cons (tr-step 0) nil)) : Maybe Run} :=
+  refl
+
+def emit-recv-one : evidence
+    {emitRecv (sys nil (cons (proc 0 ready nil (cons (msg (ref 0 grade1 grade1 (selfKept grade1))) nil) idle) nil)) 0
+      ≡ just (ran (sys nil (cons (proc 0 ready (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) nil idle) nil))
+            (cons (tr-recv 0 (ref 0 grade1 grade1 (selfKept grade1))) nil))
+      : Maybe Run} :=
+  refl
+
+def emit-recv-empty : evidence
+    {emitRecv (sys nil (cons (proc 0 ready nil nil idle) nil)) 0 ≡ nothing : Maybe Run} :=
+  refl
