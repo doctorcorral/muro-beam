@@ -1,0 +1,284 @@
+-- Printer for the conformance comparison.
+--
+-- scripts/book_show.exs loads this file and normalises show-trip,
+-- show-stuck, show-alloc, show-deref, show-send, show-step, and
+-- show-collect. Each one is a closed run String. The normal form is
+-- a string literal. CI diffs those literals against the MAlonzo
+-- binary. This is not a hand-copied expected list.
+--
+-- Encoding, one line each, trailing newline included:
+--   name ": " body
+--   body  = "nothing" | "just " events | "ran " events | "just"
+--   events = "[" event (", " event)* "]" or "[]"
+--   tr-collect wraps its indices in parentheses, separated by spaces.
+--   ref(obj,checked,residual,kept)
+--   grade is pt(fin(n)) | pt(inf) | iv(point,point)
+--   kept is fin-kept(k,n,le) | omega-kept | iv-kept(point,point)
+--   le is le-zero(n) | le-suc(m,n,le)
+--   kind is Kmove | Kcopy
+--   nat is decimal with no leading zeros, fuel 8
+-- stuck is the Maybe Sys from eval1, so just carries no events.
+-- collect is a Run, so the word is ran.
+-- A refusal is nothing. An empty event list is [].
+--
+-- smoke.muro is not changed, and it does not import this file.
+-- make book still checks smoke.muro only.
+
+import "smoke.muro"
+
+data ShPair : Type where
+  sh-pair : Π (+ q : Nat) → Π (+ r : Nat) → ShPair
+
+def shFuel : run Nat := suc (suc (suc (suc (suc (suc (suc (suc 0)))))))
+
+def shDigit : run Π (n : Nat) → String :=
+  λ (n : Nat) →
+    match n motive (λ _ → String)
+      | 0 => "0"
+      | suc n1 =>
+          (match n1 motive (λ _ → String)
+            | 0 => "1"
+            | suc n2 =>
+                (match n2 motive (λ _ → String)
+                  | 0 => "2"
+                  | suc n3 =>
+                      (match n3 motive (λ _ → String)
+                        | 0 => "3"
+                        | suc n4 =>
+                            (match n4 motive (λ _ → String)
+                              | 0 => "4"
+                              | suc n5 =>
+                                  (match n5 motive (λ _ → String)
+                                    | 0 => "5"
+                                    | suc n6 =>
+                                        (match n6 motive (λ _ → String)
+                                          | 0 => "6"
+                                          | suc n7 =>
+                                              (match n7 motive (λ _ → String)
+                                                | 0 => "7"
+                                                | suc n8 =>
+                                                    (match n8 motive (λ _ → String)
+                                                      | 0 => "8"
+                                                      | suc n9 =>
+                                                          (match n9 motive (λ _ → String)
+                                                            | 0 => "9"
+                                                            | suc n10 => "bad")))))))))
+
+def shBump : run Π (+ q : Nat) → Π (+ r : Nat) → ShPair :=
+  λ (+ q : Nat) → λ (+ r : Nat) →
+    match r motive (λ _ → ShPair)
+      | 0 => sh-pair q (suc 0)
+      | suc a =>
+          (match a motive (λ _ → ShPair)
+            | 0 => sh-pair q (suc (suc 0))
+            | suc b =>
+                (match b motive (λ _ → ShPair)
+                  | 0 => sh-pair q (suc (suc (suc 0)))
+                  | suc c =>
+                      (match c motive (λ _ → ShPair)
+                        | 0 => sh-pair q (suc (suc (suc (suc 0))))
+                        | suc d =>
+                            (match d motive (λ _ → ShPair)
+                              | 0 => sh-pair q (suc (suc (suc (suc (suc 0)))))
+                              | suc e =>
+                                  (match e motive (λ _ → ShPair)
+                                    | 0 => sh-pair q (suc (suc (suc (suc (suc (suc 0))))))
+                                    | suc f =>
+                                        (match f motive (λ _ → ShPair)
+                                          | 0 => sh-pair q (suc (suc (suc (suc (suc (suc (suc 0)))))))
+                                          | suc g =>
+                                              (match g motive (λ _ → ShPair)
+                                                | 0 => sh-pair q (suc (suc (suc (suc (suc (suc (suc (suc 0))))))))
+                                                | suc h =>
+                                                    (match h motive (λ _ → ShPair)
+                                                      | 0 => sh-pair q (suc (suc (suc (suc (suc (suc (suc (suc (suc 0)))))))))
+                                                      | suc i =>
+                                                          (match i motive (λ _ → ShPair)
+                                                            | 0 => sh-pair (suc q) 0
+                                                            | suc j => sh-pair q 0)))))))))
+
+def shBumpOf : run Π (p : ShPair) → ShPair :=
+  λ (p : ShPair) →
+    match p motive (λ _ → ShPair)
+      | sh-pair q r => shBump q r
+
+def shDiv10 : run Π (n : Nat) → ShPair :=
+  λ (n : Nat) →
+    match n motive (λ _ → ShPair)
+      | 0 => sh-pair 0 0
+      | suc k => shBumpOf (shDiv10 k)
+
+def shDigits : run Π (fuel : Nat) → Π (n : Nat) → List Nat :=
+  λ (fuel : Nat) → λ (n : Nat) →
+    match fuel motive (λ _ → List Nat)
+      | 0 => nil
+      | suc f =>
+          (match (shDiv10 n) motive (λ _ → List Nat)
+            | sh-pair q r =>
+                (match q motive (λ (qq : Nat) → List Nat)
+                  | 0 => cons r nil
+                  | suc k => cons r (shDigits f (suc k))))
+
+def shRev : run Π (xs : List Nat) → String :=
+  λ (xs : List Nat) →
+    match xs motive (λ _ → String)
+      | nil => ""
+      | cons d rest => strCat (shRev rest) (shDigit d)
+
+def shNat : run Π (n : Nat) → String :=
+  λ (n : Nat) → shRev (shDigits shFuel n)
+
+def shPoint : run Π (p : Point) → String :=
+  λ (p : Point) →
+    match p motive (λ _ → String)
+      | fin k => strCat "fin(" (strCat (shNat k) ")")
+      | inf => "inf"
+
+def shGrade : run Π (g : Grade) → String :=
+  λ (g : Grade) →
+    match g motive (λ _ → String)
+      | pt p => strCat "pt(" (strCat (shPoint p) ")")
+      | iv a b => strCat "iv(" (strCat (shPoint a) (strCat "," (strCat (shPoint b) ")")))
+
+def shLe : run Π (-m : Nat) → Π (-n : Nat) → Π (p : Le m n) → String :=
+  λ (-m : Nat) → λ (-n : Nat) → λ (p : Le m n) →
+    match p motive (λ (a : Nat) → λ (b : Nat) → λ (_ : Le a b) → String)
+      | le-zero b => strCat "le-zero(" (strCat (shNat b) ")")
+      | le-suc a b q =>
+          strCat "le-suc("
+            (strCat (shNat a)
+              (strCat ","
+                (strCat (shNat b)
+                  (strCat "," (strCat (shLe a b q) ")")))))
+
+def shKept : run Π (-r : Grade) → Π (-c : Grade) → Π (k : Kept r c) → String :=
+  λ (-r : Grade) → λ (-c : Grade) → λ (k : Kept r c) →
+    match k motive (λ (rr : Grade) → λ (cc : Grade) → λ (_ : Kept rr cc) → String)
+      | fin-kept k n p =>
+          strCat "fin-kept("
+            (strCat (shNat k)
+              (strCat ","
+                (strCat (shNat n)
+                  (strCat "," (strCat (shLe k n p) ")")))))
+      | omega-kept => "omega-kept"
+      | iv-kept a b =>
+          strCat "iv-kept(" (strCat (shPoint a) (strCat "," (strCat (shPoint b) ")")))
+
+def shKind : run Π (k : Kind) → String :=
+  λ (k : Kind) →
+    match k motive (λ _ → String)
+      | Kmove => "Kmove"
+      | Kcopy => "Kcopy"
+
+def shRef : run Π (r : Ref) → String :=
+  λ (r : Ref) →
+    match r motive (λ _ → String)
+      | ref o c g k =>
+          strCat "ref("
+            (strCat (shNat o)
+              (strCat ","
+                (strCat (shGrade c)
+                  (strCat ","
+                    (strCat (shGrade g)
+                      (strCat "," (strCat (shKept g c k) ")")))))))
+
+def shNatBody : run Π (ns : List Nat) → String :=
+  λ (ns : List Nat) →
+    match ns motive (λ _ → String)
+      | nil => ""
+      | cons n rest => strCat (shNat n) (shNatTail rest)
+
+def shNatTail : run Π (ns : List Nat) → String :=
+  λ (ns : List Nat) →
+    match ns motive (λ _ → String)
+      | nil => ""
+      | cons n rest => strCat " " (strCat (shNat n) (shNatTail rest))
+
+def shEvent : run Π (e : Event) → String :=
+  λ (e : Event) →
+    match e motive (λ _ → String)
+      | tr-alloc i g =>
+          strCat "tr-alloc " (strCat (shNat i) (strCat " " (shGrade g)))
+      | tr-spend i b a =>
+          strCat "tr-spend "
+            (strCat (shNat i) (strCat " " (strCat (shGrade b) (strCat " " (shGrade a)))))
+      | tr-send s d r kd =>
+          strCat "tr-send "
+            (strCat (shNat s)
+              (strCat " "
+                (strCat (shNat d)
+                  (strCat " " (strCat (shRef r) (strCat " " (shKind kd)))))))
+      | tr-recv i r =>
+          strCat "tr-recv " (strCat (shNat i) (strCat " " (shRef r)))
+      | tr-spawn p c =>
+          strCat "tr-spawn " (strCat (shNat p) (strCat " " (shNat c)))
+      | tr-step i => strCat "tr-step " (shNat i)
+      | tr-collect ns => strCat "tr-collect(" (strCat (shNatBody ns) ")")
+
+def shBody : run Π (ev : List Event) → String :=
+  λ (ev : List Event) →
+    match ev motive (λ _ → String)
+      | nil => ""
+      | cons e rest => strCat (shEvent e) (shTail rest)
+
+def shTail : run Π (ev : List Event) → String :=
+  λ (ev : List Event) →
+    match ev motive (λ _ → String)
+      | nil => ""
+      | cons e rest => strCat ", " (strCat (shEvent e) (shTail rest))
+
+def shEvents : run Π (ev : List Event) → String :=
+  λ (ev : List Event) → strCat "[" (strCat (shBody ev) "]")
+
+-- The system is not part of the line. Erasing it keeps the string.
+def shErase2 : run Π (-h : List Obj) → Π (-ps : List Proc) → String :=
+  λ (-h : List Obj) → λ (-ps : List Proc) → ""
+
+def shTouch : run Π (s : Sys) → String :=
+  λ (s : Sys) →
+    match s motive (λ _ → String)
+      | sys h ps => shErase2 h ps
+
+def shMaybe : run Π (m : Maybe Run) → String :=
+  λ (m : Maybe Run) →
+    match m motive (λ _ → String)
+      | nothing => "nothing"
+      | just r =>
+          (match r motive (λ _ → String)
+            | ran s ev => strCat (strCat "just " (shEvents ev)) (shTouch s))
+
+def shRan : run Π (r : Run) → String :=
+  λ (r : Run) →
+    match r motive (λ _ → String)
+      | ran s ev => strCat (strCat "ran " (shEvents ev)) (shTouch s)
+
+def shStuck : run Π (m : Maybe Sys) → String :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → String)
+      | nothing => "nothing"
+      | just s => strCat "just" (shTouch s)
+
+def fuel6 : run Nat := suc (suc (suc (suc (suc (suc 0)))))
+
+def show-trip : run String :=
+  strCat "trip: " (strCat (shMaybe (emitPops tripPops s0)) "\n")
+
+def show-stuck : run String :=
+  strCat "stuck: "
+    (strCat (shStuck (eval1 (runFor fuel6 (lowerTm 0 cexApp)) 0)) "\n")
+
+def show-alloc : run String :=
+  strCat "alloc: "
+    (strCat (shMaybe (emitAlloc (sys nil (cons (proc 0 ready nil nil idle) nil)) 0 grade1 0)) "\n")
+
+def show-deref : run String :=
+  strCat "deref: " (strCat (shMaybe (emitDeref liveG1 0 0)) "\n")
+
+def show-send : run String :=
+  strCat "send: " (strCat (shMaybe (emitSendRoot twoG1 0 0 1)) "\n")
+
+def show-step : run String :=
+  strCat "step: " (strCat (shMaybe (emitEval emitZe 0)) "\n")
+
+def show-collect : run String :=
+  strCat "collect: " (strCat (shRan (emitCollect lone)) "\n")
