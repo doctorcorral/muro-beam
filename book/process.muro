@@ -1,5 +1,6 @@
--- Process, mailbox, and CEK shapes. recv, spawn, and the stepper
--- are later parts. alloc, deref, sendRoot, and reuse are book/ops.muro.
+-- Process, mailbox, and CEK shapes. recv and spawn are a later part.
+-- The one-step evaluator is book/step.muro. collect is book/collect.muro.
+-- alloc, deref, sendRoot, and reuse are book/ops.muro.
 -- The mailbox is the inbox field, a List Msg.
 -- Agda's PTm constructor done is pdone here: the constructor namespace
 -- is one flat scope, and PState already uses done.

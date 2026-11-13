@@ -1,0 +1,277 @@
+-- Total ordered collection.
+--
+-- Marks are seeded from liveRefs (control, roots, and mailbox messages)
+-- whose residual is not the point g0. One structural pass then walks
+-- from the highest index down. markGo is Agda's go: the constructor
+-- go is already the Code constructor, so the walker is renamed.
+-- The tail is processed first. Its mark list is passed to markIfAt,
+-- which reads the parent bit and the list again. A computed list is
+-- affine, and let only splits a pair, so the reuse sits on that
+-- parameter. The recursion is still one structural call on the tail.
+--
+-- A child is marked only when the parent bit is set, the child index
+-- is lower, and the child's residual is not g0. apply frees a slot
+-- whose bit is false, or whose mark list has already run out, and
+-- clears the payload to nat 0. clean drops a g0 residual from roots
+-- and messages. Environment and frame slots stay, so indices do not move.
+--
+-- collect : Sys → Sys. It is not Maybe. It does not emit tr-collect.
+-- recv, spawn, and the Step relation are a later part.
+
+import "ops.muro"
+
+def liveRefsPs : run Π (ps : List Proc) → List Ref :=
+  λ (ps : List Proc) →
+    let (cs, rs) = refsBundle ps in
+    append Ref cs rs
+
+def liveRefs : run Π (s : Sys) → List Ref :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Ref)
+      | sys h ps => liveRefsPs ps
+
+-- A keeper is a reference to this index whose residual is not g0.
+def anyKeeper : run Π (+ i : Nat) → Π (rs : List Ref) → Bool :=
+  λ (+ i : Nat) → λ (rs : List Ref) →
+    match rs motive (λ _ → Bool)
+      | nil => false
+      | cons r rs1 =>
+          (match r motive (λ _ → Bool)
+            | ref o c g k =>
+                orB (andB (natEq o i) (notB (isZeroGrade g))) (anyKeeper i rs1))
+
+def lookupB : run Π (bs : List Bool) → Π (i : Nat) → Bool :=
+  λ (bs : List Bool) → λ (i : Nat) →
+    match bs motive (λ _ → Bool)
+      | nil => false
+      | cons b bs1 =>
+          (match i motive (λ _ → Bool)
+            | 0 => b
+            | suc i1 => lookupB bs1 i1)
+
+def setBit : run Π (j : Nat) → Π (bs : List Bool) → List Bool :=
+  λ (j : Nat) → λ (bs : List Bool) →
+    match bs motive (λ _ → List Bool)
+      | nil => nil
+      | cons b bs1 =>
+          (match j motive (λ _ → List Bool)
+            | 0 => cons true bs1
+            | suc j1 => cons b (setBit j1 bs1))
+
+def markOn : run Π (bit : Bool) → Π (j : Nat) → Π (bs : List Bool) → List Bool :=
+  λ (bit : Bool) → λ (j : Nat) → λ (bs : List Bool) →
+    match bit motive (λ _ → List Bool)
+      | true => setBit j bs
+      | false => bs
+
+def markOne : run Π (p : Nat) → Π (r : Ref) → Π (bs : List Bool) → List Bool :=
+  λ (p : Nat) → λ (r : Ref) → λ (bs : List Bool) →
+    match r motive (λ _ → List Bool)
+      | ref o c g k => markOn (andB (lt o p) (notB (isZeroGrade g))) o bs
+
+def markKids : run Π (+ p : Nat) → Π (rs : List Ref) → Π (bs : List Bool) → List Bool :=
+  λ (+ p : Nat) → λ (rs : List Ref) → λ (bs : List Bool) →
+    match rs motive (λ _ → List Bool)
+      | nil => bs
+      | cons r rs1 => markKids p rs1 (markOne p r bs)
+
+def markIf : run Π (bit : Bool) → Π (i : Nat) → Π (rs : List Ref) →
+    Π (bs : List Bool) → List Bool :=
+  λ (bit : Bool) → λ (i : Nat) → λ (rs : List Ref) → λ (bs : List Bool) →
+    match bit motive (λ _ → List Bool)
+      | true => markKids i rs bs
+      | false => bs
+
+def markIfAt : run Π (+ bs : List Bool) → Π (+ i : Nat) → Π (rs : List Ref) → List Bool :=
+  λ (+ bs : List Bool) → λ (+ i : Nat) → λ (rs : List Ref) →
+    markIf (lookupB bs i) i rs bs
+
+-- Downward pass. The tail (higher indices) is processed first.
+def markGo : run Π (os : List Obj) → Π (+ i : Nat) → Π (bs : List Bool) → List Bool :=
+  λ (os : List Obj) → λ (+ i : Nat) → λ (bs : List Bool) →
+    match os motive (λ _ → List Bool)
+      | nil => bs
+      | cons o os1 => markIfAt (markGo os1 (suc i) bs) i (kids (payload o))
+
+def seedFrom : run Π (+ rs : List Ref) → Π (+ i : Nat) → Π (n : Nat) → List Bool :=
+  λ (+ rs : List Ref) → λ (+ i : Nat) → λ (n : Nat) →
+    match n motive (λ _ → List Bool)
+      | 0 => nil
+      | suc n1 => cons (anyKeeper i rs) (seedFrom rs (suc i) n1)
+
+def seed : run Π (rs : List Ref) → Π (n : Nat) → List Bool :=
+  λ (rs : List Ref) → λ (n : Nat) → seedFrom rs 0 n
+
+def markVec : run Π (s : Sys) → List Bool :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Bool)
+      | sys h ps => markGo h 0 (seed (liveRefsPs ps) (length Obj h))
+
+-- A true bit keeps the payload and sets live. A false bit, and a mark
+-- list that has run out, clears the slot.
+def apply : run Π (bs : List Bool) → Π (os : List Obj) → List Obj :=
+  λ (bs : List Bool) → λ (os : List Obj) →
+    match os motive (λ _ → List Obj)
+      | nil => nil
+      | cons hd os1 =>
+          (match bs motive (λ _ → List Obj)
+            | nil => cons (cell (nat 0) free) (apply nil os1)
+            | cons b bs1 =>
+                (match b motive (λ _ → List Obj)
+                  | true => cons (cell (payload hd) live) (apply bs1 os1)
+                  | false => cons (cell (nat 0) free) (apply bs1 os1)))
+
+def keepRef : run Π (z : Bool) → Π (r : Ref) → Π (rs : List Ref) → List Ref :=
+  λ (z : Bool) → λ (r : Ref) → λ (rs : List Ref) →
+    match z motive (λ _ → List Ref)
+      | true => rs
+      | false => cons r rs
+
+def filterKeep : run Π (rs : List Ref) → List Ref :=
+  λ (rs : List Ref) →
+    match rs motive (λ _ → List Ref)
+      | nil => nil
+      | cons r rs1 =>
+          (match r motive (λ _ → List Ref)
+            | ref o c g k => keepRef (isZeroGrade g) (ref o c g k) (filterKeep rs1))
+
+def keepMsg : run Π (z : Bool) → Π (r : Ref) → Π (ms : List Msg) → List Msg :=
+  λ (z : Bool) → λ (r : Ref) → λ (ms : List Msg) →
+    match z motive (λ _ → List Msg)
+      | true => ms
+      | false => cons (msg r) ms
+
+def filterMsg : run Π (ms : List Msg) → List Msg :=
+  λ (ms : List Msg) →
+    match ms motive (λ _ → List Msg)
+      | nil => nil
+      | cons m ms1 =>
+          (match m motive (λ _ → List Msg)
+            | msg r =>
+                (match r motive (λ _ → List Msg)
+                  | ref o c g k =>
+                      keepMsg (isZeroGrade g) (ref o c g k) (filterMsg ms1)))
+
+def clean : run Π (p : Proc) → Proc :=
+  λ (p : Proc) →
+    match p motive (λ _ → Proc)
+      | proc i st rs mb c => proc i st (filterKeep rs) (filterMsg mb) c
+
+def mapClean : run Π (ps : List Proc) → List Proc :=
+  λ (ps : List Proc) →
+    match ps motive (λ _ → List Proc)
+      | nil => nil
+      | cons p ps1 => cons (clean p) (mapClean ps1)
+
+def collect : run Π (s : Sys) → Sys :=
+  λ (s : Sys) →
+    match s motive (λ _ → Sys)
+      | sys h ps =>
+          sys (apply (markGo h 0 (seed (liveRefsPs ps) (length Obj h))) h)
+              (mapClean ps)
+
+-- Agda's collect-total packages t ≡ collect s. The type of collect is
+-- that result: Sys, not Maybe. This wrapper is the same function.
+def collect-total : evidence Π (s : Sys) → Sys :=
+  λ (s : Sys) → collect s
+
+def collect-nil : evidence {collect (sys nil nil) ≡ sys nil nil : Sys} := refl
+
+def anyKeeper-nil : evidence Π (i : Nat) → {anyKeeper i nil ≡ false : Bool} :=
+  λ (i : Nat) → refl
+
+def anyKeeper-g0 : evidence Π (o : Nat) → Π (c : Grade) → Π (k : Kept grade0 c) →
+    {anyKeeper o (cons (ref o c grade0 k) nil) ≡ false : Bool} :=
+  λ (o : Nat) → λ (c : Grade) → λ (k : Kept grade0 c) →
+    rewrite natEq-refl o motive (λ z → {orB (andB z (notB (isZeroGrade grade0))) false ≡ false : Bool}) in
+    refl
+
+def anyKeeper-omega : evidence Π (o : Nat) →
+    {anyKeeper o (cons (ref o gradeOmega gradeOmega (selfKept gradeOmega)) nil) ≡ true : Bool} :=
+  λ (o : Nat) →
+    rewrite natEq-refl o motive (λ z → {orB (andB z (notB (isZeroGrade gradeOmega))) false ≡ true : Bool}) in
+    refl
+
+def anyKeeper-aff : evidence Π (o : Nat) →
+    {anyKeeper o (cons (ref o aff aff (selfKept aff)) nil) ≡ true : Bool} :=
+  λ (o : Nat) →
+    rewrite natEq-refl o motive (λ z → {orB (andB z (notB (isZeroGrade aff))) false ≡ true : Bool}) in
+    refl
+
+def anyKeeper-other : evidence
+    {anyKeeper (suc 0) (cons (ref 0 gradeOmega gradeOmega (selfKept gradeOmega)) nil) ≡ false : Bool} :=
+  refl
+
+-- Index 0. lookupB does not compute at a variable index, so the seed
+-- equations are the shapes that reduce. anyKeeper-omega is the general
+-- keeper fact.
+def seed-g0 : evidence Π (c : Grade) → Π (k : Kept grade0 c) →
+    {lookupB (seed (cons (ref 0 c grade0 k) nil) (suc 0)) 0 ≡ false : Bool} :=
+  λ (c : Grade) → λ (k : Kept grade0 c) → refl
+
+def seed-omega-0 : evidence
+    {lookupB (seed (cons (ref 0 gradeOmega gradeOmega (selfKept gradeOmega)) nil) (suc 0)) 0 ≡ true : Bool} :=
+  refl
+
+def seed-aff-0 : evidence
+    {lookupB (seed (cons (ref 0 aff aff (selfKept aff)) nil) (suc 0)) 0 ≡ true : Bool} :=
+  refl
+
+def seed-len : evidence {length Bool (seed nil (suc (suc 0))) ≡ suc (suc 0) : Nat} := refl
+
+-- A false parent bit does not mark children.
+def markIf-false : evidence Π (i : Nat) → Π (r : Ref) → Π (bs : List Bool) →
+    {markIf false i (cons r nil) bs ≡ bs : List Bool} :=
+  λ (i : Nat) → λ (r : Ref) → λ (bs : List Bool) → refl
+
+-- A g0 residual is not marked, even from a higher parent. lt is not
+-- needed: the concrete index reduces, and not (isZeroGrade g0) is false.
+def markOne-g0 : evidence Π (c : Grade) → Π (k : Kept grade0 c) →
+    {markOne (suc 0) (ref 0 c grade0 k) (cons false nil) ≡ cons false nil : List Bool} :=
+  λ (c : Grade) → λ (k : Kept grade0 c) → refl
+
+-- A non-g0 child whose index is not lower is not marked.
+def markOne-not-lower : evidence
+    {markOne 0 (ref 0 gradeOmega gradeOmega (selfKept gradeOmega)) (cons false nil)
+      ≡ cons false nil : List Bool} :=
+  refl
+
+def markOne-child : evidence
+    {markOne (suc 0) (ref 0 gradeOmega gradeOmega (selfKept gradeOmega)) (cons false nil)
+      ≡ cons true nil : List Bool} :=
+  refl
+
+def apply-keep-head : evidence Π (v : Val) → Π (st : Status) → Π (os : List Obj) →
+    Π (bs : List Bool) →
+    {lookup Obj 0 (apply (cons true bs) (cons (cell v st) os))
+      ≡ just (cell v live) : Maybe Obj} :=
+  λ (v : Val) → λ (st : Status) → λ (os : List Obj) → λ (bs : List Bool) → refl
+
+def apply-drop-head : evidence Π (v : Val) → Π (st : Status) → Π (os : List Obj) →
+    Π (bs : List Bool) →
+    {lookup Obj 0 (apply (cons false bs) (cons (cell v st) os))
+      ≡ just (cell (nat 0) free) : Maybe Obj} :=
+  λ (v : Val) → λ (st : Status) → λ (os : List Obj) → λ (bs : List Bool) → refl
+
+def apply-drop-short : evidence Π (v : Val) → Π (st : Status) → Π (os : List Obj) →
+    {lookup Obj 0 (apply nil (cons (cell v st) os))
+      ≡ just (cell (nat 0) free) : Maybe Obj} :=
+  λ (v : Val) → λ (st : Status) → λ (os : List Obj) → refl
+
+def filter-g0 : evidence Π (o : Nat) → Π (c : Grade) → Π (k : Kept grade0 c) →
+    {filterKeep (cons (ref o c grade0 k) nil) ≡ nil : List Ref} :=
+  λ (o : Nat) → λ (c : Grade) → λ (k : Kept grade0 c) → refl
+
+def filter-omega : evidence Π (o : Nat) →
+    {filterKeep (cons (ref o gradeOmega gradeOmega (selfKept gradeOmega)) nil)
+      ≡ cons (ref o gradeOmega gradeOmega (selfKept gradeOmega)) nil : List Ref} :=
+  λ (o : Nat) → refl
+
+def filter-aff : evidence Π (o : Nat) →
+    {filterKeep (cons (ref o aff aff (selfKept aff)) nil)
+      ≡ cons (ref o aff aff (selfKept aff)) nil : List Ref} :=
+  λ (o : Nat) → refl
+
+def filterMsg-g0 : evidence Π (o : Nat) → Π (c : Grade) → Π (k : Kept grade0 c) →
+    {filterMsg (cons (msg (ref o c grade0 k)) nil) ≡ nil : List Msg} :=
+  λ (o : Nat) → λ (c : Grade) → λ (k : Kept grade0 c) → refl
