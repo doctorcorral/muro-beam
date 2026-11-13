@@ -1,0 +1,61 @@
+-- Closed and open terms. The Nat index is the scope.
+-- Constructor fields that a walker reads more than once are marked `+`.
+-- That mark is host reuse, not a grade.
+
+import "grade.muro"
+
+data GTm : Nat → Type where
+  gvar : Π (+ n : Nat) → Fin n → GTm n
+  gtyp : Π (+ n : Nat) → Fin n → GTm n
+  gze : Π (+ n : Nat) → GTm n
+  gsu : Π (+ n : Nat) → GTm n → GTm n
+  gapp : Π (+ n : Nat) → GTm n → GTm n → GTm n
+  gpi : Π (+ n : Nat) → Π (+ c : Grade) → Grade → GTm suc(n) → GTm n
+  glam : Π (+ n : Nat) → Π (+ c : Grade) → Grade → GTm suc(n) → GTm n
+  gmatch : Π (+ n : Nat) → Π (+ e : GTm n) → GTm n → GTm suc(n) → GTm n
+
+-- Agda's Σ ℕ (λ n → GTm n). muro 0.20.33 has no dependent pair in this
+-- position that keeps the index, so the pair is a constructor.
+data Scoped : Type where
+  scoped : Π (n : Nat) → GTm n → Scoped
+
+-- predG in MuroBeam.Source. A variable inherits its binder.
+-- Anything else is aff, which is not g1.
+def predGrade : run Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) → Grade :=
+  λ (n : Nat) → λ (ctx : Vec Grade n) → λ (e : GTm n) →
+    (match e motive (λ (k : Nat) → λ (_ : GTm k) → Vec Grade k → Grade)
+      | gvar m x => λ (d : Vec Grade m) → vlookup Grade m x d
+      | gtyp m x => λ (d : Vec Grade m) → aff
+      | gze m => λ (d : Vec Grade m) → aff
+      | gsu m e1 => λ (d : Vec Grade m) → aff
+      | gapp m f a => λ (d : Vec Grade m) → aff
+      | gpi m c ty b => λ (d : Vec Grade m) → aff
+      | glam m c ty b => λ (d : Vec Grade m) → aff
+      | gmatch m e1 z s => λ (d : Vec Grade m) → aff) ctx
+
+-- predGrade as a relation. The run function is recursive, so InB cannot
+-- store a call to it in an index.
+data PredIx : Type where
+  prix : Π (n : Nat) → Vec Grade n → GTm n → Grade → PredIx
+
+data Pred : PredIx → Type where
+  pr-var : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (x : Fin n) → Π (g : Grade) →
+           At (atix n x ctx g) →
+           Pred (prix n ctx (gvar n x) g)
+  pr-typ : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (x : Fin n) →
+           Pred (prix n ctx (gtyp n x) aff)
+  pr-ze : Π (n : Nat) → Π (ctx : Vec Grade n) →
+          Pred (prix n ctx (gze n) aff)
+  pr-su : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+          Pred (prix n ctx (gsu n e) aff)
+  pr-app : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (f : GTm n) → Π (a : GTm n) →
+           Pred (prix n ctx (gapp n f a) aff)
+  pr-pi : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) → Π (ty : Grade) →
+          Π (b : GTm suc(n)) →
+          Pred (prix n ctx (gpi n c ty b) aff)
+  pr-lam : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) → Π (ty : Grade) →
+          Π (b : GTm suc(n)) →
+          Pred (prix n ctx (glam n c ty b) aff)
+  pr-mat : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+           Π (z : GTm n) → Π (s : GTm suc(n)) →
+           Pred (prix n ctx (gmatch n e z s) aff)

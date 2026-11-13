@@ -1,0 +1,107 @@
+-- Process, mailbox, and CEK shapes. recv, spawn, and the stepper
+-- are later parts. The mailbox is the inbox field, a List Msg.
+-- Agda's PTm constructor done is pdone here: the constructor namespace
+-- is one flat scope, and PState already uses done.
+
+import "heap.muro"
+
+data PState : Type where
+  ready : PState
+  waiting : PState
+  done : PState
+
+data Msg : Type where
+  msg : Ref → Msg
+
+data Thin : Nat → Nat → Type where
+  tnil : Thin 0 0
+  keep : Π (m : Nat) → Π (n : Nat) → Thin m n → Thin suc(m) suc(n)
+  skip : Π (m : Nat) → Π (n : Nat) → Thin m n → Thin m suc(n)
+
+data PTm : Nat → Type where
+  pdone : Π (n : Nat) → PTm n
+  send : Π (n : Nat) → Nat → Fin n → PTm n → PTm n
+  recv : Π (n : Nat) → Grade → Grade → PTm suc(n) → PTm n
+  spawn : Π (n : Nat) → Π (m : Nat) → Thin m n → PTm m → PTm n → PTm n
+  seq : Π (n : Nat) → GTm n → PTm suc(n) → PTm n
+  await : Π (n : Nat) → Fin n → PTm n → PTm n
+  ignore : Π (n : Nat) → Fin n → PTm n → PTm n
+  nignore : Π (n : Nat) → Fin n → PTm n → PTm n
+  awaitT : Π (n : Nat) → Nat → PTm n → PTm n
+  ignoreT : Π (n : Nat) → Nat → PTm n → PTm n
+  flushT : Π (n : Nat) → Nat → PTm n → PTm n
+  ncheckT : Π (n : Nat) → Nat → PTm n → PTm n
+  ndemonT : Π (n : Nat) → Nat → PTm n → PTm n
+
+data Flight : Type where
+  flight : Nat → Ref → Flight
+
+data Code : Type where
+  go : Π (n : Nat) → PTm n → List Ref → List Flight → List Nat → List Nat → Code
+
+data Frame : Type where
+  ar : Π (n : Nat) → GTm n → Frame
+  fn : Ref → Frame
+  su : Frame
+  mt : Π (n : Nat) → GTm n → GTm n → GTm suc(n) → Frame
+  bd : List Ref → Frame
+  saved : Code → Frame
+
+data Ctl : Type where
+  idle : Ctl
+  ev : Π (n : Nat) → GTm n → List Ref → List Frame → Ctl
+  rv : Ref → List Ref → List Frame → Ctl
+  pr : Code → Ctl
+
+data Proc : Type where
+  proc : Π (pid : Nat) → PState → List Ref → List Msg → Ctl → Proc
+
+data Sys : Type where
+  sys : List Obj → List Proc → Sys
+
+def pid : run Π (p : Proc) → Nat :=
+  λ (p : Proc) →
+    match p motive (λ _ → Nat)
+      | proc i st rs mb c => i
+
+def state : run Π (p : Proc) → PState :=
+  λ (p : Proc) →
+    match p motive (λ _ → PState)
+      | proc i st rs mb c => st
+
+def roots : run Π (p : Proc) → List Ref :=
+  λ (p : Proc) →
+    match p motive (λ _ → List Ref)
+      | proc i st rs mb c => rs
+
+def inbox : run Π (p : Proc) → List Msg :=
+  λ (p : Proc) →
+    match p motive (λ _ → List Msg)
+      | proc i st rs mb c => mb
+
+def ctl : run Π (p : Proc) → Ctl :=
+  λ (p : Proc) →
+    match p motive (λ _ → Ctl)
+      | proc i st rs mb c => c
+
+def heap : run Π (s : Sys) → List Obj :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Obj)
+      | sys h ps => h
+
+def procs : run Π (s : Sys) → List Proc :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Proc)
+      | sys h ps => ps
+
+-- The constructors parse as terms. send and recv are not session forms here.
+def pdone-shape : run PTm 0 := pdone 0
+
+def send-shape : run PTm (suc 0) :=
+  send (suc 0) 0 (fzero 0) (pdone (suc 0))
+
+def recv-shape : run PTm 0 :=
+  recv 0 grade0 grade0 (pdone (suc 0))
+
+def spawn-shape : run PTm 0 :=
+  spawn 0 0 tnil (pdone 0) (pdone 0)

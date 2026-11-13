@@ -1,0 +1,110 @@
+-- Heap cells. alloc, deref, spend, and send are later parts.
+-- Ordered is every child index strictly below its parent.
+
+import "term.muro"
+
+data Status : Type where
+  live : Status
+  free : Status
+
+data Ref : Type where
+  ref : Π (o : Nat) → Π (c : Grade) → Π (r : Grade) → Π (k : Kept r c) → Ref
+
+def obj : run Π (r : Ref) → Nat :=
+  λ (r : Ref) →
+    match r motive (λ _ → Nat)
+      | ref o c g k => o
+
+def checked : run Π (r : Ref) → Grade :=
+  λ (r : Ref) →
+    match r motive (λ _ → Grade)
+      | ref o c g k => c
+
+def residual : run Π (r : Ref) → Grade :=
+  λ (r : Ref) →
+    match r motive (λ _ → Grade)
+      | ref o c g k => g
+
+data Val : Type where
+  nat : Nat → Val
+  suc-up : Ref → Val
+  clo : List Ref → Scoped → Val
+
+def kids : run Π (v : Val) → List Ref :=
+  λ (v : Val) →
+    match v motive (λ _ → List Ref)
+      | nat k => nil
+      | suc-up r => cons r nil
+      | clo rs tm => rs
+
+def refsBelow : run Π (rs : List Ref) → Π (+ n : Nat) → Bool :=
+  λ (rs : List Ref) → λ (+ n : Nat) →
+    match rs motive (λ _ → Bool)
+      | nil => true
+      | cons r rs1 => andB (lt (obj r) n) (refsBelow rs1 n)
+
+def childrenBelow : run Π (n : Nat) → Π (v : Val) → Bool :=
+  λ (n : Nat) → λ (v : Val) →
+    match v motive (λ _ → Bool)
+      | nat k => true
+      | suc-up r => lt (obj r) n
+      | clo rs tm => refsBelow rs n
+
+data Obj : Type where
+  cell : Val → Status → Obj
+
+def payload : run Π (o : Obj) → Val :=
+  λ (o : Obj) →
+    match o motive (λ _ → Val)
+      | cell v st => v
+
+def status : run Π (o : Obj) → Status :=
+  λ (o : Obj) →
+    match o motive (λ _ → Status)
+      | cell v st => st
+
+-- Boolean check. Walk the heap from index i.
+def orderedFrom : run Π (os : List Obj) → Π (+ i : Nat) → Bool :=
+  λ (os : List Obj) → λ (+ i : Nat) →
+    match os motive (λ _ → Bool)
+      | nil => true
+      | cons o os1 => andB (childrenBelow i (payload o)) (orderedFrom os1 (suc i))
+
+def ordered : run Π (h : List Obj) → Bool :=
+  λ (h : List Obj) → orderedFrom h 0
+
+-- Proof-carrying form. The second index does not depend on the first,
+-- so this telescope is one muro can check. obj r < n is Le (suc (obj r)) n.
+data AllBelow : Nat → List Ref → Type where
+  abnil : Π (n : Nat) → AllBelow n nil
+  abcons : Π (n : Nat) → Π (r : Ref) → Π (rs : List Ref) →
+           Le (suc (obj r)) n →
+           AllBelow n rs →
+           AllBelow n (cons r rs)
+
+data Below : Nat → Val → Type where
+  b-nat : Π (n : Nat) → Π (k : Nat) → Below n (nat k)
+  b-suc : Π (n : Nat) → Π (r : Ref) → Le (suc (obj r)) n → Below n (suc-up r)
+  b-clo : Π (n : Nat) → Π (rs : List Ref) → Π (tm : Scoped) →
+          AllBelow n rs →
+          Below n (clo rs tm)
+
+data OrdAt : Nat → List Obj → Type where
+  oa-nil : Π (i : Nat) → OrdAt i nil
+  oa-cons : Π (i : Nat) → Π (v : Val) → Π (st : Status) → Π (os : List Obj) →
+            Below i v →
+            OrdAt (suc i) os →
+            OrdAt i (cons (cell v st) os)
+
+def ordered-nil : evidence OrdAt 0 nil := oa-nil 0
+
+def ordered-nat : evidence OrdAt 0 (cons (cell (nat 0) live) nil) :=
+  oa-cons 0 (nat 0) live nil (b-nat 0 0) (oa-nil (suc 0))
+
+def heap-nil : evidence {ordered nil ≡ true : Bool} := refl
+
+def heap-nat : evidence {ordered (cons (cell (nat 0) live) nil) ≡ true : Bool} := refl
+
+def heap-bad : evidence {ordered (cons (cell (suc-up (ref 0 grade0 grade0 (selfKept grade0))) live) nil) ≡ false : Bool} := refl
+
+def heap-link : evidence {ordered (cons (cell (nat 0) live) (cons (cell (suc-up (ref 0 grade0 grade0 (selfKept grade0))) live) nil)) ≡ true : Bool} := refl

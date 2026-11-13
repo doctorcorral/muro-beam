@@ -69,3 +69,26 @@ jobs:
 
       - name: Run make audit
         run: make audit
+
+  book:
+    name: muro 0.20.33
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "27"
+
+      - name: Install muro 0.20.33
+        run: |
+          mix local.hex --force
+          mix archive.install hex muro 0.20.33 --force
+          mix muro --version | grep -F 0.20.33
+
+      - name: Check the book
+        run: make book

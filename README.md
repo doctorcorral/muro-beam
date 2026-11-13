@@ -25,7 +25,7 @@ import beam "muro-beam-boundary"
 def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
 ```
 
-That import is not a muro term in this repository. A pure Muro mirror of the boundary comes later.
+That import is not a muro term in this repository. The pure Muro mirror of the boundary is the book in [`book/`](book/). It is checked with muro 0.20.33. It defines the grades, the terms, the boundary check, and the runtime data. It does not yet run an example, and it is not yet compared with the Agda model. The plan is [docs/RUNTIME-BOOK.md](docs/RUNTIME-BOOK.md).
 
 See [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -40,6 +40,8 @@ make agda
 ```
 
 `make agda` checks `agda/MuroBeam.agda` with `--safe` and `--no-libraries`. `make audit` rejects `postulate`, termination pragmas, holes, and an `OPTIONS` line without `--safe`. `vendor/agda-stdlib` is gitignored.
+
+`make book` checks the Muro book with `mix muro.check`. The archive is muro 0.20.33 from Hex, not the Agda pin above. [`docs/RUNTIME-BOOK.md`](docs/RUNTIME-BOOK.md) records both pins.
 
 ## Related
 

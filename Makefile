@@ -10,9 +10,14 @@ AFLAGS := --no-libraries \
 	-i vendor/agda-stdlib/src \
 	--warning=noUnsupportedIndexedMatch
 
-.PHONY: agda audit
+.PHONY: agda audit book
 agda:
 	$(AGDA) $(RTS) $(AFLAGS) --safe agda/MuroBeam.agda
+
+# The Muro book. smoke.muro imports the rest, and muro flattens imports,
+# so this one check covers book/. The archive is Hex muro 0.20.33.
+book:
+	mix muro.check book/smoke.muro
 
 # Refuse holes, postulated code, and a module that is not --safe.
 audit:

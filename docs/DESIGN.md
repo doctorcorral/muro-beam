@@ -528,7 +528,11 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **`decide-sound` is binder discharge.** The counts are the uses `decide` computed for the body. It is not the false free-variable reading recorded in the v1c section.
 - **`lower-sim` is not a theorem.** The grade-free machine takes the β that `badG1` refuses. Backward simulation and determinacy are not in this book.
 - **`bind1` resumes one frame.** `seq` produces that shape. A nested `saved` stack is not resumed.
-- **Not in this book.** No executable runtime, no extraction, no bytecode. No pure Muro mirror of the boundary. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
+- **Not in this book.** No executable runtime, no extraction, no bytecode. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
+
+## Runtime book
+
+`book/` is a Muro mirror of this boundary and of the runtime data. muro 0.20.33 checks it. The Agda development above is unchanged and remains the proof. The plan, the totality rule, and what the mirror does not claim are in [RUNTIME-BOOK.md](RUNTIME-BOOK.md).
 
 ## Goals beyond v0
 

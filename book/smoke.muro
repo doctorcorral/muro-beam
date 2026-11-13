@@ -1,0 +1,60 @@
+-- Shared examples. Both terms are well-typed data. Acceptance and
+-- refusal are results of inBoundary and noEscape, not muro type errors.
+--
+-- once is muro's grade-once: glam g1 g0 (gvar 0), scope made explicit.
+--   Agda: glam g1 g0 (gvar fzero)
+--   book: glam 0 grade1 grade0 (gvar (suc 0) (fzero 0))
+--
+-- cex is Example.cex, the §2B counterexample.
+--   Agda: glam g1 g0 (gapp (glam gω g0 (gapp (gvar fzero) (gvar fzero)))
+--                          (glam aff g0 (gvar (fsuc fzero))))
+--   The inner variables sit at scope 2. fsuc (fzero) is de Bruijn 1,
+--   the outer g1 binder.
+--
+-- ghost is glam g0 g0 (gvar 0). inBoundary refuses it and noEscape
+-- accepts it. The converse of inBoundary-to-noEscape is not claimed.
+
+import "boundary.muro"
+import "heap.muro"
+import "process.muro"
+import "trace.muro"
+
+def once : run GTm 0 :=
+  glam 0 grade1 grade0 (gvar (suc 0) (fzero 0))
+
+def cex : run GTm 0 :=
+  glam 0 grade1 grade0
+    (gapp (suc 0)
+      (glam (suc 0) gradeOmega grade0
+        (gapp (suc (suc 0))
+          (gvar (suc (suc 0)) (fzero (suc 0)))
+          (gvar (suc (suc 0)) (fzero (suc 0)))))
+      (glam (suc 0) aff grade0
+        (gvar (suc (suc 0)) (fsuc (suc 0) (fzero 0)))))
+
+def ghost : run GTm 0 :=
+  glam 0 grade0 grade0 (gvar (suc 0) (fzero 0))
+
+def boundary-accept : evidence {inBoundary once ≡ yes : Answer} := refl
+def boundary-refuse : evidence {inBoundary cex ≡ no : Answer} := refl
+def once-esc : evidence {noEscape once ≡ yes : Answer} := refl
+def cex-esc : evidence {noEscape cex ≡ no : Answer} := refl
+def ghost-in : evidence {inBoundary ghost ≡ no : Answer} := refl
+def ghost-esc : evidence {noEscape ghost ≡ yes : Answer} := refl
+
+-- The same once term inhabits InB, and the implication sends it to NoEsc.
+def once-inb : evidence InB (ix 0 vnil once) :=
+  ib-lam 0 vnil grade1 grade0 (gvar (suc 0) (fzero 0))
+    ng-nil
+    (ib-var (suc 0) (vcons 0 grade1 vnil) (fzero 0) grade1
+      (at-zero 0 grade1 vnil)
+      (nz-suc 0))
+
+def once-noesc : evidence NoEsc (ix 0 vnil once) :=
+  inBoundary-to-noEscape once once-inb
+
+-- ghost is outside InB and inside NoEsc. Hand-built, not via the implication.
+def ghost-noesc : evidence NoEsc (ix 0 vnil ghost) :=
+  ne-lam 0 vnil grade0 grade0 (gvar (suc 0) (fzero 0))
+    ng-nil
+    (ne-var (suc 0) (vcons 0 grade0 vnil) (fzero 0))
