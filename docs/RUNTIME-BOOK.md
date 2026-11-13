@@ -1,14 +1,14 @@
 # Runtime as a Muro book
 
-The Agda model in `agda/` is the proof. The book in `book/` is the artefact the muro wall checks, and the artefact later parts will emit. This document is the plan for that book.
+The Agda model in `agda/` is the proof. The book in `book/` is the artefact the muro wall checks. This document is the plan for that book.
 
-Part 1, merged as PR #6, is the boundary mirror, the runtime data, this plan, the smoke, and the CI job. Part 2, merged as PR #7, runs `alloc`, `deref` / `spend`, `send`, and `reuse`. Part 3 is this book. It runs one CEK step (`eval1` and its helpers, plus fuel-bounded `runFor`) and total ordered `collect`. The smoke pins both the accepted steps and the refusals. It does not emit events, it does not schedule, and it does not compare traces with Agda.
+Part 1, merged as PR #6, is the boundary mirror, the runtime data, this plan, the smoke, and the CI job. Part 2, merged as PR #7, runs `alloc`, `deref` / `spend`, `send`, and `reuse`. Part 3, merged as PR #8, runs one CEK step (`eval1` and its helpers, plus fuel-bounded `runFor`) and total ordered `collect`. Part 4 is this book. It runs v0 `recv` (`recvRoot`), the process steps `spawn1`, `emit1`, `deliver1`, `recv1`, `arm1`, `seq1`, `bind1`, and `done1`, one scheduling step (`tryStep` / `tryPStep`), and `List Event` emission. The in-boundary `trip` runs spawn, emit a grade-1 reference, deliver, and recv. `cex`, already refused by `inBoundary`, is also refused when lowered and run (`ex-cex-stuck`). The smoke pins the accepted steps and the refusals.
 
-Ricardo approved the plan on 2026-11-12, with the four amendments below, and approved part 2 the same day after PR #6 merged. Part 2 merged as PR #7 later that day.
+Ricardo approved the plan on 2026-11-12, with the four amendments below, and approved part 2 the same day after PR #6 merged. Part 2 merged as PR #7 later that day. Part 3 merged as PR #8. Part 4 followed.
 
 ## What this part does not claim
 
-This book is not the executable image of the proved specification. That phrase waits on a conformance test that does not exist yet. The test will run this book and the Agda model, compiled with the MAlonzo / GHC backend, on the same `InBoundary` examples and compare traces event by event. Part 1 records the shared examples and the event format. This part does not build MAlonzo, it does not emit a runner, and it does not add a GHC job. `eval1` returns `Maybe Sys`. `collect` returns `Sys`. Neither emits `Event`. `tr-step` and `tr-collect` stay constructors in `book/trace.muro`.
+This book is not the executable image of the proved specification. That phrase waits on a conformance test that compares traces event by event and finds that they match. The book now emits `List Event`. The Agda model has no `Event` type and no emitter, and `agda/` is unchanged in this part, so compiling the current modules with MAlonzo cannot produce a trace to compare. This part does not add a GHC job. `eval1` still returns `Maybe Sys`. `collect` still returns `Sys`. The events are built by the wrappers in `book/emit.muro`.
 
 The boolean checks and the proof predicate are not proved equivalent in general. `once` is accepted by `inBoundary` and inhabits `InB`, and `inBoundary-to-noEscape` sends that proof to `NoEsc`. `cex` is refused by the boolean check. A theorem that `inBoundary t ≡ yes` if and only if an `InB` proof exists is not in this book.
 
@@ -30,7 +30,18 @@ Part 3 is weaker than Agda in the same way. The Agda text is unchanged.
 - Agda's `capture-check-clear` takes an in-boundary lambda, an `EnvGrades` realisation, and concludes `anyG1 env ≡ false`. The book realises the context by canonical refs: `eg-cons` stores `ref o g r k`, so the checked grade is the context entry and the constructor does not call `checked`. `sharp-env`, `lam-clear`, `glamSharp`, `capture-check-clear`, and `closed-lam-clear` are checked. A motive on indexed `GTm` cannot return the literal `Type` (`Type has no type`). `isLam` returns a `Bool`, and `CapRes` / `packLam` / `fromCap` are the small family that extracts the `NoG1` stored on `ib-lam`. Carrying `EnvGrades` through every `eval1` step is not this part.
 - There is no inversion of `{eval1 s i ≡ just t}`. `fresh-kept` says a `freshRef` is `selfKept`. The spend shapes are the part-2 lemmas. `step-ze`, `step-copy`, and `step-move` are the residual facts on the systems that reduce. `runFor` matches Agda: structural on the fuel, process 0, stop when `eval1` returns `nothing`. It is not a scheduler.
 
-A book lemma that shares an Agda name is a shape or an example the wall can check, not the Agda theorem. See the weaker-than-Agda lists above.
+Part 4 is weaker than Agda in the same way. The Agda text is unchanged.
+
+- Agda's `Step` and `PStep` store `{op ≡ just t}`. A book constructor cannot store that equation: the positivity walk unfolds `recvRoot` and `lookup`. `Step` and `PStep` are unindexed and hold the two systems. A hand-built value is well-typed. `tryStep`, `stepOf`, `pstepOf`, and `runPops` are the check, and the smoke pins their `just` and `nothing` results. `step-collect-always` says `tryStep s op-collect ≡ just (collect s)` for an arbitrary `s`. That is the book form of "collect is always a step". It is not Agda's constructor.
+- `PStep` has `p-lift`, `p-spawn`, `p-emit`, `p-deliver`, `p-recv`, `p-arm`, `p-seq`, `p-bind`, and `p-done`. It does not have `p-await`, `p-flush`, `p-npeek`, or `p-ndemon`. `await1`, `flush1`, `npeek1`, and `ndemon1` are not ported. `flush1` blanks heap edges. `no-stray-reply` is not a book theorem. `ignore-spawn` and `ignore-arm` pin the spawn that rewrites `ignore` to `ignoreT`, and the `arm1` that turns `ignoreT` into `flushT` and records the tag. The proper-ignore flush and the naive-ignore leak are not in this book.
+- `PStepStar` (`pstop`, `pmore`) does not store the `just`-proof. `tripStar` is the four constructors. `trip-p-spawn`, `trip-p-emit`, `trip-p-deliver`, `trip-p-recv`, and `trip-run` are the check that those constructors are the runs. `runPops` and `emitPops` take the `Pop` list first, so the structural call's decreasing argument is that tail.
+- The placeholder cell a spawn snocs, and the cell a move snocs, are not `tr-alloc`. `deliver1` emits no event. `recv1` on an empty inbox and `ready` returns `just` and an empty event list. A refusal is `nothing`, not an empty trace. `tr-step` is the pid. Control before and after is still absent.
+- The wrappers call the operations. There is no quantified equation that an emitting wrapper agrees with the operation for every system: a neutral `Maybe` does not match, so that equation is not `refl`. The pins are the systems that reduce (`trip-trace`, `emit-deref-g1`, `emit-alloc0`, `emit-send-g1`, `emit-reuse`, `emit-ze`, `emit-collect-free`, `emit-recv-one`, and the copy and refusal traces).
+- `spawn-preserves-grade1`, `lowerP-safe`, and `residual-inv-step` are not restated. Every `Ref` still stores `Kept`.
+
+The conformance comparison is the follow-up, not this part. The book side of `trip` emits `[tr-spawn 0 1, tr-send 1 0 ρ Kmove, tr-recv 0 ρ]`. A later change adds an Agda emitter for that list and for one alloc, deref, send, eval, and collect example, compiles it with `agda --ghc --safe` under `+RTS -M3G -A64M -RTS`, and compares the lists. The driver should import `PRun`, not `PExample`, because `PExample` imports `Stray`. Local `agda` is 2.8.0 and local `ghc` is 9.12.2. This part did not ask either to compile the model. Until that comparison is in CI, or in a script CI runs, and the lists match, the book is not an executable image.
+
+A book lemma that shares an Agda name is a shape or an example the wall can check, not the Agda theorem, unless the equation really is the same closed statement. `trip-spawn` is `spawn1 s0 0 ≡ just s1` on the `trip` systems. `ex-cex-stuck` is `eval1 (runFor 6 (lowerTm 0 cexApp)) 0 ≡ nothing`. See the weaker-than-Agda lists above.
 
 ## Four amendments
 
@@ -44,7 +55,7 @@ Shared examples, encoded in `book/smoke.muro`:
 - `cex` is the §2B term from `MuroBeam.Example`. Agda writes `glam g1 g0 (gapp (glam gω g0 (gapp (gvar fzero) (gvar fzero))) (glam aff g0 (gvar (fsuc fzero))))`. The inner application sits at scope 2. `fzero (suc 0)` is the inner binder. `fsuc (suc 0) (fzero 0)` is de Bruijn 1, the outer grade-1 binder.
 - `ghost`, `glam g0 g0 (gvar 0)`, is the witness that the converse fails. `inBoundary` returns `no` and `noEscape` returns `yes`. Agda does not claim the converse either.
 
-`book/trace.muro` fixes the event datatype. A later part emits `List Event` from both sides.
+`book/trace.muro` fixes the event datatype. This part emits `List Event` from the book. The Agda side does not emit it yet.
 
 | Event | Fields |
 | --- | --- |
@@ -56,7 +67,7 @@ Shared examples, encoded in `book/smoke.muro`:
 | `tr-step` | pid. One CEK step. Control before and after is a later field. |
 | `tr-collect` | freed object indices, in increasing order |
 
-`tr-` keeps these names off the process-term constructors. The heap operations, `eval1`, and `collect` do not build a trace. Emission is part 4.
+`tr-` keeps these names off the process-term constructors. The heap operations, `eval1`, and `collect` do not build a trace. `book/emit.muro` does, by calling those operations and pairing the resulting system with the events. A placeholder cell is not `tr-alloc`. `deliver1` adds no event.
 
 ### 2. Two kinds of grade
 
@@ -76,6 +87,8 @@ The same rule covers the heap. A refused `deref` of a `g0` residual, a refused `
 
 The same rule covers the stepper. `eval1` on `idle` and on `pr`, a return against an empty stack or a `saved` frame, a `glam` whose env has a `g1`, a `gvar` of a missing slot or of a `g0` residual, a second spend of an already-spent `g1`, a `beta` that fails `badG1` or whose captured env has a `g1`, and a match on a `clo` or on `nat (suc _)` are `nothing`. `book/cek.muro` witnesses the results. The terms and heaps are well-typed data.
 
+The same rule covers receive, spawn, and a schedule step. An empty v0 mailbox, a missing process, an `idle` control, a `pr` of `pdone`, a `keep` of a `g0` reference, a thinning that does not match the environment, a residual `g0` on `emit1`, a control that is not `send`, a missing destination, an empty ether, `recv1` on an empty inbox in `waiting` or `done`, and a control that is not `recv` are `nothing`. `recv1` on an empty inbox in `ready` is `just`: it parks `waiting`. `book/recv.muro` and `book/trip.muro` witness the results. `ex-cex-stuck` is the running refusal of `cex` beyond `inBoundary`: `lowerTm` of `cexApp`, six steps of `runFor`, then `eval1` returns `nothing`. The term stays a well-typed `GTm 0`.
+
 ### 4. Totality, decided here
 
 Later parts follow this rule.
@@ -85,7 +98,7 @@ Later parts follow this rule.
 - Multi-step evaluation is driven from outside. Either an explicit fuel argument, `runFor fuel state`, or an external scheduler that applies one process step at a time, in the style of Agda's `PStep`.
 - No internal unbounded loop.
 
-`inBoundary` and `noEscape` follow the rule: they recurse on the term, and they take no fuel. `alloc`, `deref`, `sendRoot`, and `reuse` follow it too. `eval1` does not call itself. Its helpers are one `run` each. `runFor` recurses on the fuel and stops when `eval1` returns `nothing`. `collect` is one `run` from `Sys` to `Sys`, structural on the heap and the process list, with no internal loop. `recv` and `spawn` are part 4.
+`inBoundary` and `noEscape` follow the rule: they recurse on the term, and they take no fuel. `alloc`, `deref`, `sendRoot`, and `reuse` follow it too. `eval1` does not call itself. Its helpers are one `run` each. `runFor` recurses on the fuel and stops when `eval1` returns `nothing`. `collect` is one `run` from `Sys` to `Sys`, structural on the heap and the process list, with no internal loop. `recvRoot` walks one mailbox. `spawn1` walks one thinning. `emit1`, `deliver1`, `recv1`, `seq1`, `bind1`, `done1`, and `arm1` each walk one process list or one stack. `finRebuild` walks one `Fin`, with the bound erased so the `Fin` is the argument it descends on. `runPops` and `emitPops` walk one `Pop` list and apply one step, then the tail. None of them is an internal unbounded loop.
 
 ## Four parts
 
@@ -93,12 +106,12 @@ Later parts follow this rule.
 | --- | --- |
 | 1 (merged, PR #6) | Boundary mirror, runtime data, this plan, smoke, CI. |
 | 2 (merged, PR #7) | `alloc`, `deref` / `spend`, `send` that moves a finite grade and copies `omega` and every `iv`, and `reuse`. Residual and grade-1 evidence the checker can express. Smoke for the accepted steps and the refusals. |
-| 3 (this book) | One CEK step (`eval1`, `runFor`), and total ordered `collect`. |
-| 4 | `recv`, `spawn`, scheduling. An in-boundary example that runs. The out-of-boundary example refused by this book's check. Emission. The conformance comparison, when the MAlonzo build is ready. |
+| 3 (merged, PR #8) | One CEK step (`eval1`, `runFor`), and total ordered `collect`. |
+| 4 (this book) | `recv`, `spawn`, scheduling. The in-boundary `trip`. The out-of-boundary term refused by `runFor` / `eval1`. Emission of `List Event`. The MAlonzo comparison is the follow-up named above. |
 
 ## Two pins
 
-The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b262f6225c989eb6818`). That pin is not bumped. The book is checked with muro 0.20.33 from Hex. 0.20.33 adds CSHRL synthesis on top of 0.20.32. This book does not use CSHRL. Part 2 stayed on 0.20.33. Part 3 stays there too: the evidence in this book, including `capture-check-clear` via `CapRes`, was expressible on that pin. The published releases 0.20.34 through 0.20.36 add synthesis and kernel `Bytes` / `Slice`, which this book does not use.
+The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b262f6225c989eb6818`). That pin is not bumped. The book is checked with muro 0.20.33 from Hex. 0.20.33 adds CSHRL synthesis on top of 0.20.32. This book does not use CSHRL. Parts 2, 3, and 4 stayed on 0.20.33: the evidence in this book, including `trip-trace` and `ex-cex-stuck`, was expressible on that pin. Later published releases are not, by themselves, a reason to move.
 
 `make book` runs `mix muro.check book/smoke.muro`. That file imports the rest, and the checker flattens imports, so one check covers the book. CI installs the pinned archive. It does not fetch the Agda standard library.
 
@@ -115,10 +128,15 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 | `book/ops.muro` | `alloc`, `deref`, `sendRoot`, `reuse`, `refsOf`. |
 | `book/trace.muro` | `Event`, `Trace`. The operations, the stepper, and `collect` do not emit these. |
 | `book/run.muro` | Checked alloc, deref, send, and reuse examples, including the refusals. |
-| `book/step.muro` | `eval1`, `evalTm`, `evalRet`, `beta`, `onMatch`, `useVar`, `anyG1`, `regrade`, `badG1`, `runFor`, and `capture-check-clear`. |
+| `book/step.muro` | `eval1`, `evalTm`, `evalRet`, `beta`, `onMatch`, `useVar`, `anyG1`, `regrade`, `badG1`, `runFor`, `lowerTm`, and `capture-check-clear`. |
 | `book/collect.muro` | `liveRefs`, `anyKeeper`, `markGo`, `collect`. `collect` returns `Sys`. |
 | `book/cek.muro` | Accepted and refused CEK steps, and the collect examples. |
-| `book/smoke.muro` | `once`, `cex`, `ghost`, the part-1 results, and the imports of `run.muro` and `cek.muro`. |
+| `book/recv.muro` | v0 `recvRoot`. Empty mailbox is `nothing`. A message is dequeued onto the roots. |
+| `book/prun.muro` | `spawn1`, `emit1`, `deliver1`, `recv1`, `arm1`, `seq1`, `bind1`, `done1`. |
+| `book/sched.muro` | `Op`, `Pop`, `Step`, `PStep`, `PStepStar`, `tryStep`, `tryPStep`, `stepOf`, `pstepOf`, `runPops`. |
+| `book/emit.muro` | Emitting wrappers and `emitPops`. A run is `ran : Sys → List Event → Run`. |
+| `book/trip.muro` | The `trip` schedule, the copy and ignore pins, and the refusals. |
+| `book/smoke.muro` | `once`, `cex`, `ghost`, `cexApp`, `ex-cex-stuck`, and the import of `trip.muro`. |
 
 `beamGrade` reads `pt (fin 0)` as `g0`, `pt (fin 1)` as `g1`, `pt inf` as `omega`, and every `iv`, including `aff`, as `omega`. `pt (fin n)` for `n ≥ 2` is `nothing`. The checked equations are `beam-g0`, `beam-g1`, `beam-omega`, `beam-iv`, and `beam-fin2`. `kind` is the same three send behaviours: `g0-not-sent`, `g1-moved`, `omega-copied`, `iv-copied`.
 
@@ -126,13 +144,19 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 
 `Ref` stores an object index, a checked grade, a residual grade, and a `Kept` proof. `selfKept` builds the reflexive proof. `Val` is `nat`, `suc-up`, or `clo` of a captured `List Ref` and a `Scoped` term. `Obj` is a payload and `live` or `free`. `ordered` is the boolean walk. `OrdAt` is the proof-carrying spine: the cell at index `i` has children below `i`. Agda states `Ordered` as a function of `lookup`. The list induction is the form muro indexes directly. `heap-nil`, `heap-nat`, `heap-bad`, and `heap-link` pin the boolean. A successor that points at its own cell is `false`. A successor that points at a lower cell is `true`. `ordered-nil` and `ordered-nat` inhabit `OrdAt`.
 
-`Proc` is pid, state, roots, inbox, control. The inbox is the mailbox. `Msg` holds a `Ref`. `PState` is `ready`, `waiting`, `done`. `Ctl` is `idle`, `ev`, `rv`, or `pr`. `Frame` is `ar`, `fn`, `su`, `mt`, `bd`, or `saved`. `PTm` has the Agda constructors, with `done` spelled `pdone`.
+`Proc` is pid, state, roots, inbox, control. The inbox is the mailbox. `Msg` holds a `Ref`. `PState` is `ready`, `waiting`, `done`. `Ctl` is `idle`, `ev`, `rv`, or `pr`. `Frame` is `ar`, `fn`, `su`, `mt`, `bd`, or `saved`. `PTm` has the Agda constructors, with `done` spelled `pdone`. A `+` on a scope, on `send`'s destination, on a protocol tag, and on `Code`'s scope, environment, and dead-tag list is host reuse, so a step can read the field and write it back. `Proc`'s control stays affine. `waiting` is written only by `recv1`.
 
 `spend` steps a `Kept`. A finite residual `pt (fin (suc k))` becomes `pt (fin k)` by `le-lower`, and the checked grade stays. `g0` is `nothing`. `omega` and every `iv` stay. `spendRef` rebuilds the `Ref`. `alloc` appends a live `nat` cell. The fresh index is `length` of the heap, and the new root is `selfKept`. `deref` is Agda's run-mode deref: look up the root, `spendRef` it, write it back. `sendRoot` is Agda's `send`. `kind` of the checked grade decides. `isZeroGrade` of the residual refuses. A finite point, including `g1` and `pt (fin n)` for `n ≥ 2`, moves: the root leaves the sender and is enqueued on the receiver. A self-send posts on that same process after the drop. `omega` and every `iv` copy: the sender keeps the root and the mailbox receives the same `Ref`. The heap is unchanged. `reuse` overwrites a spent grade-1 slot in place when `count` of that object in `refsOf` is 1. `refsOf` counts roots, mailbox messages, heap edges, and control references, so an in-flight message counts.
 
 `eval1` looks up process `i` and steps its control. `idle` and `pr` are `nothing`. `ev` is `evalTm`. `rv` is `evalRet`. Syntax stays on frames. Values are `Ref`s. A `g1` pointer whose `count` in `refsOf` is 1 is moved: the env slot becomes a fresh `g0` ref and a dummy `nat 0` is appended. A `g1` whose count is not 1 is `nothing`, not an alias. A nat is copied onto a fresh `omega` ref. An `omega` or interval pointer is written back. `glam` is refused when `anyG1` of the env is true. `beta` opens a `clo` of a `glam` and refuses `badG1` or a captured `g1`. `saved` is not resumed here. `runFor` applies `eval1` at process 0, structural on the fuel.
 
-`collect` seeds marks from `liveRefs` (control, roots, and mailbox messages) whose residual is not the point `g0`. `markGo` walks from the highest index down and marks a child only when the parent bit is set, the child index is lower, and the child's residual is not `g0`. `apply` keeps a marked object and sets `live`. An unmarked slot becomes `cell (nat 0) free`. `clean` drops a `g0` residual from roots and messages. Environment and frame slots stay, so indices do not move. `recv`, `spawn`, and the scheduling relation are not in this book.
+`collect` seeds marks from `liveRefs` (control, roots, and mailbox messages) whose residual is not the point `g0`. `markGo` walks from the highest index down and marks a child only when the parent bit is set, the child index is lower, and the child's residual is not `g0`. `apply` keeps a marked object and sets `live`. An unmarked slot becomes `cell (nat 0) free`. `clean` drops a `g0` residual from roots and messages. Environment and frame slots stay, so indices do not move.
+
+`recvRoot` is v0 `recv`. An empty mailbox is `nothing`. A message is appended to the roots and the inbox becomes the tail. `recv1` is the process-layer step: a message is bound on the front of the environment and the process stays `ready`; an empty inbox in `ready` parks `waiting`; `waiting`, `done`, and any term other than `recv` are `nothing`. `spawn1` appends a child at `length` of the old process list, thins the environment, and follows `kind`. A finite point moves and the parent slot becomes one fresh `g0` reference, shared by every moved slot. `omega` and every `iv` are copied. `g0` is `nothing`. The placeholder cell is allocated whenever the split succeeds, including when every slot was copied. `emit1` refuses a residual `g0`, a missing destination, and a dead or demo tag of the object. A move snocs the same kind of placeholder and parks the reference in the ether. A copy keeps the heap and the environment. `deliver1` takes one flight from `pr` or from a `saved` frame, updates the sender first, drops the flight when the destination's dead list contains the object index, and enqueues it otherwise. A demo tag does not drop it. `waiting` wakes. A missing destination is `nothing`, and the sender update is not returned. `seq1` moves the ether onto one `saved` frame. `bind1` resumes when that frame is the whole stack. `done1` sets `done` and clears the roots and the environment. `arm1` turns `ignoreT` into `flushT` and records the tag. `await1` and `flush1` are not in this book.
+
+`tryStep` is one v0 operation: `deref`, `sendRoot`, `recvRoot`, `alloc`, `reuse`, `eval1`, or `collect`. `tryPStep` is one process step, or `tryStep` under `pop-lift`. `runPops` applies a list of those steps from the outside. `Step` and `PStep` name the two systems. `stepOf` and `pstepOf` build them only from a `just` result.
+
+`emitDeref` reports `tr-spend` with the object index and the residual before and after `spendRef`, and the state from `deref`. `emitAlloc` reports `tr-alloc` at `length` of the old heap. `emitSendRoot` and `emitEmit` report `tr-send` with the source pid, the destination pid, the reference, and `Kmove` or `Kcopy`. `emitSpawn` reports `tr-spawn` of the parent index and the old process-list length. `emitRecv` and a binding `emitRecv1` report `tr-recv`. `emitEval` reports `tr-step`. `emitCollect` reports `tr-collect` of the unmarked indices, increasing. `emitReuse`, `emitDeliver`, a parking `emitRecv1`, `emitArm`, `emitSeq`, `emitBind`, and `emitDone` report an empty list when the operation returns `just`. `trip` is spawn at process 0, emit at the child, deliver, recv. The trace is `[tr-spawn 0 1, tr-send 1 0 ρ Kmove, tr-recv 0 ρ]`.
 
 ## Names
 
@@ -151,10 +175,14 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 | `deref` at mode `run` | `deref` | The book has no `Mode`. Spec and evidence are not operations. |
 | `spend-ω` | `spend-omega` | ASCII. |
 | `lower` | `le-lower` | ASCII. `≤-step` is `le-step`. |
+| `Lower.lower` | `lowerTm` | `le-lower` already binds the `Le` step. |
 | `≡ᵇ` | `natEq` | ASCII. The 0/1 addend in `count` is `bump`. |
 | `Spent` parameter | index of `Spent` | A data parameter is elaborated as `Type`. |
 | `go` | `markGo` | `Code` already binds `go`. |
 | tail used twice in `go` | `markIfAt` | A computed list is affine. The `+` is on the parameter that reads the list again. |
+| `recv` | `recvRoot` | `PTm` already binds `recv`. `recv1` is the process-layer step. |
+| `PStep*`'s `pdone` | `pstop` | `PTm` already binds `pdone`. |
+| protocol tag | `tag` | ASCII binder. The `+` is host reuse, not a `BeamGrade`. |
 
 ## Where 0.20.33 stops
 
@@ -169,4 +197,4 @@ These are checker limits. The Agda statements are not weakened to fit them, and 
 - There is no inversion of `Maybe`. A premise `{spendRef r ≡ just r'}`, `{rootAt s i j ≡ just r}`, or `{reuse s i j g v ≡ just t}` does not refine `r` or `t`. The book states the shapes that reduce, and it states `alloc-ordered` and `reuse-ordered` for the heap operations those steps perform.
 - A `match` motive that ignores its argument leaves a `poke` or an `append` stuck on a variable index, so the branch type does not convert. The motive has to mention the index, as `pokeOrd` does. This is how the ordered proofs are written. It is not a missing lemma.
 
-`recv`, `spawn`, scheduling, an in-boundary example that runs, the out-of-boundary running refusal beyond `inBoundary`, emission, and the MAlonzo comparison are part 4, under the totality rule above.
+Part 4 is the receive, spawn, scheduling, `trip`, running refusal, and emission above. The MAlonzo comparison is the follow-up named under "What this part does not claim". The totality rule is unchanged.
