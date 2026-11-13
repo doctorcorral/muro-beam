@@ -46,3 +46,7 @@ open import MuroBeam.Stray public
 open import MuroBeam.PWf public using
   ( lowerP-safe; spawn-preserves-grade1; pstep-wf; psteps )
 open import MuroBeam.PExample public hiding (take)
+-- The trace comparison. Not opened: the names stay off the v1c API.
+import MuroBeam.Event
+import MuroBeam.Emit
+import MuroBeam.Conform
