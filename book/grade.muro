@@ -111,9 +111,9 @@ def iv-copied : evidence Π (a : Point) → Π (b : Point) → {kind (iv a b) �
 -- Residual ≤ checked. fin-kept steps a finite point down.
 -- omega-kept and iv-kept stay put. This is data, not a spec Le.
 data Kept : Grade → Grade → Type where
-  fin-kept : Π (+ k : Nat) → Π (n : Nat) → Le k n → Kept (pt (fin k)) (pt (fin n))
+  fin-kept : Π (+ k : Nat) → Π (+ n : Nat) → Le k n → Kept (pt (fin k)) (pt (fin n))
   omega-kept : Kept gradeOmega gradeOmega
-  iv-kept : Π (a : Point) → Π (b : Point) → Kept (iv a b) (iv a b)
+  iv-kept : Π (+ a : Point) → Π (+ b : Point) → Kept (iv a b) (iv a b)
 
 def selfKept : run Π (g : Grade) → Kept g g :=
   λ (g : Grade) →
@@ -191,3 +191,47 @@ def noG1-sound : evidence Π (-n : Nat) → Π (-ctx : Vec Grade n) → Π (p : 
           rewrite notG1-sound g q motive (λ z → {orB z (g1InScope m gs) ≡ false : Bool}) in
           rewrite noG1-sound m gs rest motive (λ z → {orB false z ≡ false : Bool}) in
           refl
+
+-- One computational use. The new residual still satisfies Kept.
+-- Agda's Spent is parameterised by the checked grade. A muro data
+-- parameter is elaborated as Type, and Grade is not Type, so the
+-- checked grade is an index. The constructor still stores Kept r c.
+data Spent : Grade → Type where
+  spent : Π (c : Grade) → Π (r : Grade) → Π (k : Kept r c) → Spent c
+
+-- Finite successor: step the point down and lower the Le proof.
+-- The Nat match returns a function of the Le at that index, the same
+-- alignment vlookup uses, so the successor arm sees Le (suc k1) n.
+def spendFin : run Π (+ k : Nat) → Π (+ n : Nat) → Π (le : Le k n) → Maybe (Spent (pt (fin n))) :=
+  λ (+ k : Nat) → λ (+ n : Nat) → λ (le : Le k n) →
+    (match k motive (λ (kk : Nat) → Le kk n → Maybe (Spent (pt (fin n))))
+      | 0 => λ (p : Le 0 n) → nothing
+      | suc k1 => λ (p : Le (suc k1) n) →
+          just (spent (pt (fin n)) (pt (fin k1)) (fin-kept k1 n (le-lower k1 n p)))) le
+
+-- Agda's spend. A g0 residual is nothing. omega and every iv stay.
+def spend : run Π (r : Grade) → Π (c : Grade) → Π (k : Kept r c) → Maybe (Spent c) :=
+  λ (r : Grade) → λ (c : Grade) → λ (k : Kept r c) →
+    match k motive (λ (rr : Grade) → λ (cc : Grade) → λ (_ : Kept rr cc) → Maybe (Spent cc))
+      | fin-kept m n le => spendFin m n le
+      | omega-kept => just (spent gradeOmega gradeOmega omega-kept)
+      | iv-kept a b => just (spent (iv a b) (iv a b) (iv-kept a b))
+
+-- The only Kept of a g0 residual is fin-kept of 0. The other Kept
+-- constructors are different grades, so this is the case spend-zero uses.
+def spend-zero : evidence Π (n : Nat) → Π (le : Le 0 n) →
+    {spend (pt (fin 0)) (pt (fin n)) (fin-kept 0 n le) ≡ nothing : Maybe (Spent (pt (fin n)))} :=
+  λ (n : Nat) → λ (le : Le 0 n) → refl
+
+def spend-finite : evidence Π (k : Nat) → Π (n : Nat) → Π (le : Le (suc k) n) →
+    {spend (pt (fin (suc k))) (pt (fin n)) (fin-kept (suc k) n le)
+      ≡ just (spent (pt (fin n)) (pt (fin k)) (fin-kept k n (le-lower k n le)))
+      : Maybe (Spent (pt (fin n)))} :=
+  λ (k : Nat) → λ (n : Nat) → λ (le : Le (suc k) n) → refl
+
+def spend-omega : evidence {spend gradeOmega gradeOmega omega-kept ≡ just (spent gradeOmega gradeOmega omega-kept) : Maybe (Spent gradeOmega)} :=
+  refl
+
+def spend-iv : evidence Π (a : Point) → Π (b : Point) →
+    {spend (iv a b) (iv a b) (iv-kept a b) ≡ just (spent (iv a b) (iv a b) (iv-kept a b)) : Maybe (Spent (iv a b))} :=
+  λ (a : Point) → λ (b : Point) → refl

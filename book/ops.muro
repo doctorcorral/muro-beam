@@ -1,0 +1,326 @@
+-- Heap operations. Each one is a single run, structurally recursive
+-- on a list or on a grade proof. No fuel, no termination pragma.
+--
+-- deref is Agda's run-mode deref. The book has no Mode; spec and
+-- evidence are not operations here.
+-- sendRoot is Agda's send. PTm already binds the name send.
+-- A finite checked grade moves. omega and every iv copy. A g0
+-- residual is not sent, and a g0 checked grade is not sent.
+
+import "process.muro"
+
+def mapSys : run Π (h : List Obj) → Π (mp : Maybe (List Proc)) → Maybe Sys :=
+  λ (h : List Obj) → λ (mp : Maybe (List Proc)) →
+    match mp motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just ps => just (sys h ps)
+
+def pass : run Π (-A : Type) → Π (b : Bool) → Π (m : Maybe A) → Maybe A :=
+  λ (-A : Type) → λ (b : Bool) → λ (m : Maybe A) →
+    match b motive (λ _ → Maybe A)
+      | true => m
+      | false => nothing
+
+-- Reference collection. Edges, parked control, roots, and mailboxes.
+-- An in-flight message counts. Agda's refsOf.
+
+def flightRefs : run Π (fs : List Flight) → List Ref :=
+  λ (fs : List Flight) →
+    match fs motive (λ _ → List Ref)
+      | nil => nil
+      | cons f fs1 =>
+          (match f motive (λ _ → List Ref)
+            | flight d r => cons r (flightRefs fs1))
+
+def codeRefs : run Π (cd : Code) → List Ref :=
+  λ (cd : Code) →
+    match cd motive (λ _ → List Ref)
+      | go n tm env eth dead demo => append Ref env (flightRefs eth)
+
+def frameRefs : run Π (f : Frame) → List Ref :=
+  λ (f : Frame) →
+    match f motive (λ _ → List Ref)
+      | ar n tm => nil
+      | fn r => cons r nil
+      | su => nil
+      | mt n a b s => nil
+      | bd env => env
+      | saved cd => codeRefs cd
+
+def framesRefs : run Π (fs : List Frame) → List Ref :=
+  λ (fs : List Frame) →
+    match fs motive (λ _ → List Ref)
+      | nil => nil
+      | cons f fs1 => append Ref (frameRefs f) (framesRefs fs1)
+
+def ctlRefs : run Π (c : Ctl) → List Ref :=
+  λ (c : Ctl) →
+    match c motive (λ _ → List Ref)
+      | idle => nil
+      | ev n tm env ks => append Ref env (framesRefs ks)
+      | rv r env ks => cons r (append Ref env (framesRefs ks))
+      | pr cd => codeRefs cd
+
+def mapRef : run Π (ms : List Msg) → List Ref :=
+  λ (ms : List Msg) →
+    match ms motive (λ _ → List Ref)
+      | nil => nil
+      | cons m ms1 =>
+          (match m motive (λ _ → List Ref)
+            | msg r => cons r (mapRef ms1))
+
+def refsP : run Π (p : Proc) → List Ref :=
+  λ (p : Proc) →
+    match p motive (λ _ → List Ref)
+      | proc i st rs mb c => append Ref rs (mapRef mb)
+
+-- One walk. The first component is control, the second is roots and mailboxes.
+def refsBundle : run Π (ps : List Proc) → (List Ref × List Ref) :=
+  λ (ps : List Proc) →
+    match ps motive (λ _ → (List Ref × List Ref))
+      | nil => (nil, nil)
+      | cons p ps1 =>
+          (match p motive (λ _ → (List Ref × List Ref))
+            | proc i st rs mb c =>
+                let (cs, rs2) = refsBundle ps1 in
+                (append Ref (ctlRefs c) cs, append Ref (append Ref rs (mapRef mb)) rs2))
+
+def refsOfH : run Π (h : List Obj) → Π (ps : List Proc) → List Ref :=
+  λ (h : List Obj) → λ (ps : List Proc) →
+    let (cs, rs) = refsBundle ps in
+    append Ref (append Ref (edgeRefs h) cs) rs
+
+def refsOf : run Π (s : Sys) → List Ref :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Ref)
+      | sys h ps => refsOfH h ps
+
+def refs-nil : evidence {refsOf (sys nil nil) ≡ nil : List Ref} := refl
+
+def refs-idle : evidence {refsOf (sys nil (cons (proc 0 ready nil nil idle) nil)) ≡ nil : List Ref} := refl
+
+def refs-root : evidence {refsOf (sys nil (cons (proc 0 ready (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) nil idle) nil)) ≡ cons (ref 0 grade1 grade1 (selfKept grade1)) nil : List Ref} := refl
+
+def refs-msg : evidence {refsOf (sys nil (cons (proc 0 ready nil (cons (msg (ref 0 grade1 grade1 (selfKept grade1))) nil) idle) nil)) ≡ cons (ref 0 grade1 grade1 (selfKept grade1)) nil : List Ref} := refl
+
+def rootAtPs : run Π (ps : List Proc) → Π (i : Nat) → Π (j : Nat) → Maybe Ref :=
+  λ (ps : List Proc) → λ (i : Nat) → λ (j : Nat) →
+    match (lookup Proc i ps) motive (λ _ → Maybe Ref)
+      | nothing => nothing
+      | just p =>
+          (match p motive (λ _ → Maybe Ref)
+            | proc pid st rs mb c => lookup Ref j rs)
+
+def rootAt : run Π (s : Sys) → Π (i : Nat) → Π (j : Nat) → Maybe Ref :=
+  λ (s : Sys) → λ (i : Nat) → λ (j : Nat) →
+    match s motive (λ _ → Maybe Ref)
+      | sys h ps => rootAtPs ps i j
+
+-- Write a root back. Missing process or missing root is nothing.
+def putHeadOf : run Π (i : Nat) → Π (st : PState) → Π (mb : List Msg) → Π (c : Ctl) → Π (ps : List Proc) → Π (mrs : Maybe (List Ref)) → Maybe (List Proc) :=
+  λ (i : Nat) → λ (st : PState) → λ (mb : List Msg) → λ (c : Ctl) → λ (ps : List Proc) → λ (mrs : Maybe (List Ref)) →
+    match mrs motive (λ _ → Maybe (List Proc))
+      | nothing => nothing
+      | just rs => just (cons (proc i st rs mb c) ps)
+
+def putHead : run Π (p : Proc) → Π (j : Nat) → Π (r : Ref) → Π (ps : List Proc) → Maybe (List Proc) :=
+  λ (p : Proc) → λ (j : Nat) → λ (r : Ref) → λ (ps : List Proc) →
+    match p motive (λ _ → Maybe (List Proc))
+      | proc i st rs mb c => putHeadOf i st mb c ps (update Ref j r rs)
+
+def putRoot : run Π (ps : List Proc) → Π (i : Nat) → Π (j : Nat) → Π (r : Ref) → Maybe (List Proc) :=
+  λ (ps : List Proc) → λ (i : Nat) → λ (j : Nat) → λ (r : Ref) →
+    match ps motive (λ _ → Maybe (List Proc))
+      | nil => nothing
+      | cons p ps1 =>
+          (match i motive (λ _ → Maybe (List Proc))
+            | 0 => putHead p j r ps1
+            | suc i1 => mapCons Proc p (putRoot ps1 i1 j r))
+
+def derefWrite : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) → Π (j : Nat) → Π (mr : Maybe Ref) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (j : Nat) → λ (mr : Maybe Ref) →
+    match mr motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just r2 => mapSys h (putRoot ps i j r2)
+
+def derefGo : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) → Π (j : Nat) → Π (mr : Maybe Ref) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (j : Nat) → λ (mr : Maybe Ref) →
+    match mr motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just r => derefWrite h ps i j (spendRef r)
+
+-- Run-mode dereference. A g0 residual spends to nothing.
+-- i and j are read by the lookup and again by the write. The mark is
+-- host reuse, not a BeamGrade.
+def deref : run Π (+ s : Sys) → Π (+ i : Nat) → Π (+ j : Nat) → Maybe Sys :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (+ j : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps => derefGo h ps i j (rootAtPs ps i j)
+
+-- Process 0, root 0, residual fin 0. spendRef-zero makes the step nothing.
+-- The checked grade is the Kept index pt (fin n). An arbitrary rootAt
+-- equation is not inverted; this shape reduces.
+def grade0-not-dereferenced : evidence
+    Π (h : List Obj) → Π (pid : Nat) → Π (st : PState) → Π (mb : List Msg) → Π (c : Ctl) →
+    Π (rest : List Proc) → Π (o : Nat) → Π (n : Nat) → Π (le : Le 0 n) →
+    {deref (sys h (cons (proc pid st (cons (ref o (pt (fin n)) (pt (fin 0)) (fin-kept 0 n le)) nil) mb c) rest)) 0 0
+      ≡ nothing : Maybe Sys} :=
+  λ (h : List Obj) → λ (pid : Nat) → λ (st : PState) → λ (mb : List Msg) → λ (c : Ctl) →
+  λ (rest : List Proc) → λ (o : Nat) → λ (n : Nat) → λ (le : Le 0 n) →
+  refl
+
+-- Append a root. One walk, so the process list is used once.
+def addRootProc : run Π (p : Proc) → Π (r : Ref) → Proc :=
+  λ (p : Proc) → λ (r : Ref) →
+    match p motive (λ _ → Proc)
+      | proc i st rs mb c => proc i st (append Ref rs (cons r nil)) mb c
+
+def addRoot : run Π (ps : List Proc) → Π (i : Nat) → Π (r : Ref) → Maybe (List Proc) :=
+  λ (ps : List Proc) → λ (i : Nat) → λ (r : Ref) →
+    match ps motive (λ _ → Maybe (List Proc))
+      | nil => nothing
+      | cons p ps1 =>
+          (match i motive (λ _ → Maybe (List Proc))
+            | 0 => just (cons (addRootProc p r) ps1)
+            | suc i1 => mapCons Proc p (addRoot ps1 i1 r))
+
+-- Fresh cell at index length h. Residual equals the checked grade.
+def alloc : run Π (+ s : Sys) → Π (i : Nat) → Π (+ g : Grade) → Π (v : Nat) → Maybe Sys :=
+  λ (+ s : Sys) → λ (i : Nat) → λ (+ g : Grade) → λ (v : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps =>
+          mapSys (append Obj h (cons (cell (nat v) live) nil))
+                 (addRoot ps i (ref (length Obj h) g g (selfKept g)))
+
+-- Send. post appends one message. postAt walks once.
+def post : run Π (p : Proc) → Π (r : Ref) → Proc :=
+  λ (p : Proc) → λ (r : Ref) →
+    match p motive (λ _ → Proc)
+      | proc i st rs mb c => proc i st rs (append Msg mb (cons (msg r) nil)) c
+
+def postAt : run Π (ps : List Proc) → Π (i : Nat) → Π (r : Ref) → Maybe (List Proc) :=
+  λ (ps : List Proc) → λ (i : Nat) → λ (r : Ref) →
+    match ps motive (λ _ → Maybe (List Proc))
+      | nil => nothing
+      | cons p ps1 =>
+          (match i motive (λ _ → Maybe (List Proc))
+            | 0 => just (cons (post p r) ps1)
+            | suc i1 => mapCons Proc p (postAt ps1 i1 r))
+
+def copyTo : run Π (r : Ref) → Π (ri : Nat) → Π (h : List Obj) → Π (ps : List Proc) → Maybe Sys :=
+  λ (r : Ref) → λ (ri : Nat) → λ (h : List Obj) → λ (ps : List Proc) →
+    mapSys h (postAt ps ri r)
+
+-- The sender has already been replaced. si is not read again.
+def moveOther : run Π (r : Ref) → Π (ri : Nat) → Π (h : List Obj) → Π (mps : Maybe (List Proc)) → Maybe Sys :=
+  λ (r : Ref) → λ (ri : Nat) → λ (h : List Obj) → λ (mps : Maybe (List Proc)) →
+    match mps motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just ps1 => mapSys h (postAt ps1 ri r)
+
+-- Self-send posts on the dropped process. A different receiver is posted
+-- after that process replaces the sender.
+def moveTo : run Π (r : Ref) → Π (sp : Proc) → Π (+ si : Nat) → Π (+ ri : Nat) → Π (h : List Obj) → Π (ps : List Proc) → Maybe Sys :=
+  λ (r : Ref) → λ (sp : Proc) → λ (+ si : Nat) → λ (+ ri : Nat) → λ (h : List Obj) → λ (ps : List Proc) →
+    match (natEq si ri) motive (λ _ → Maybe Sys)
+      | true => mapSys h (update Proc si (post sp r) ps)
+      | false => moveOther r ri h (update Proc si sp ps)
+
+def dispatch : run Π (h : List Obj) → Π (ps : List Proc) → Π (+ si : Nat) → Π (+ ri : Nat) →
+                  Π (+ o : Nat) → Π (+ c : Grade) → Π (+ g : Grade) → Π (k : Kept g c) →
+                  Π (sp : Proc) → Π (z : Bool) → Π (kd : Maybe Kind) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (+ si : Nat) → λ (+ ri : Nat) →
+  λ (+ o : Nat) → λ (+ c : Grade) → λ (+ g : Grade) → λ (k : Kept g c) →
+  λ (sp : Proc) → λ (z : Bool) → λ (kd : Maybe Kind) →
+    match z motive (λ _ → Maybe Sys)
+      | true => nothing
+      | false =>
+          (match kd motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just kk =>
+                (match kk motive (λ _ → Maybe Sys)
+                  | Kmove => moveTo (ref o c g k) sp si ri h ps
+                  | Kcopy => copyTo (ref o c g k) ri h ps))
+
+def takeDrop : run Π (i : Nat) → Π (st : PState) → Π (mb : List Msg) → Π (c : Ctl) → Π (m : Maybe (Ref × List Ref)) → Maybe (Ref × Proc) :=
+  λ (i : Nat) → λ (st : PState) → λ (mb : List Msg) → λ (c : Ctl) → λ (m : Maybe (Ref × List Ref)) →
+    match m motive (λ _ → Maybe (Ref × Proc))
+      | nothing => nothing
+      | just pair =>
+          let (r, rs) = pair in just (r, proc i st rs mb c)
+
+def takeRoot : run Π (p : Proc) → Π (j : Nat) → Maybe (Ref × Proc) :=
+  λ (p : Proc) → λ (j : Nat) →
+    match p motive (λ _ → Maybe (Ref × Proc))
+      | proc i st rs mb c => takeDrop i st mb c (removeAt Ref j rs)
+
+def sendTaken : run Π (h : List Obj) → Π (ps : List Proc) → Π (+ si : Nat) → Π (+ ri : Nat) → Π (taken : Maybe (Ref × Proc)) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (+ si : Nat) → λ (+ ri : Nat) → λ (taken : Maybe (Ref × Proc)) →
+    match taken motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just pair =>
+          let (r, sp) = pair in
+          (match r motive (λ _ → Maybe Sys)
+            | ref o c g k =>
+                dispatch h ps si ri o c g k sp (isZeroGrade g) (kind c))
+
+def sendFrom : run Π (h : List Obj) → Π (+ ps : List Proc) → Π (+ si : Nat) → Π (sj : Nat) → Π (+ ri : Nat) → Π (mp : Maybe Proc) → Maybe Sys :=
+  λ (h : List Obj) → λ (+ ps : List Proc) → λ (+ si : Nat) → λ (sj : Nat) → λ (+ ri : Nat) → λ (mp : Maybe Proc) →
+    match mp motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just p => sendTaken h ps si ri (takeRoot p sj)
+
+-- si is the sender, sj the root, ri the receiver.
+def sendRoot : run Π (+ s : Sys) → Π (+ si : Nat) → Π (sj : Nat) → Π (+ ri : Nat) → Maybe Sys :=
+  λ (+ s : Sys) → λ (+ si : Nat) → λ (sj : Nat) → λ (+ ri : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps => sendFrom h ps si sj ri (lookup Proc si ps)
+
+-- A checked g1 root of process 0, sent to process 1, is the move:
+-- the root leaves the sender and is enqueued on the receiver.
+-- The heap is the same h. Count preservation for an arbitrary index
+-- is not this equation; the smoke pins the count on the example.
+def send-g1-moves : evidence
+    Π (h : List Obj) → Π (o : Nat) → Π (mb0 : List Msg) → Π (rs1 : List Ref) → Π (mb1 : List Msg) →
+    {sendRoot (sys h (cons (proc 0 ready (cons (ref o grade1 grade1 (selfKept grade1)) nil) mb0 idle) (cons (proc 1 ready rs1 mb1 idle) nil))) 0 0 1
+      ≡ just (sys h (cons (proc 0 ready nil mb0 idle) (cons (proc 1 ready rs1 (append Msg mb1 (cons (msg (ref o grade1 grade1 (selfKept grade1))) nil)) idle) nil)))
+      : Maybe Sys} :=
+  λ (h : List Obj) → λ (o : Nat) → λ (mb0 : List Msg) → λ (rs1 : List Ref) → λ (mb1 : List Msg) → refl
+
+-- Reuse a spent grade-1 cell in place when it is the only reference.
+def reuseOk : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) → Π (j : Nat) →
+                 Π (+ g : Grade) → Π (+ v : Nat) → Π (+ o : Nat) →
+                 Π (a : Bool) → Π (b : Bool) → Π (c : Bool) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (j : Nat) →
+  λ (+ g : Grade) → λ (+ v : Nat) → λ (+ o : Nat) →
+  λ (a : Bool) → λ (b : Bool) → λ (c : Bool) →
+    match a motive (λ _ → Maybe Sys)
+      | true =>
+          (match b motive (λ _ → Maybe Sys)
+            | true =>
+                (match c motive (λ _ → Maybe Sys)
+                  | true =>
+                      pass Sys (childrenBelow o (nat v))
+                        (mapSys (poke h o v) (putRoot ps i j (ref o g g (selfKept g))))
+                  | false => nothing)
+            | false => nothing)
+      | false => nothing
+
+def reuseFrom : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) → Π (j : Nat) →
+                   Π (+ g : Grade) → Π (+ v : Nat) → Π (mr : Maybe Ref) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (i : Nat) → λ (j : Nat) →
+  λ (+ g : Grade) → λ (+ v : Nat) → λ (mr : Maybe Ref) →
+    match mr motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just r =>
+          (match r motive (λ _ → Maybe Sys)
+            | ref o c g0 k =>
+                reuseOk h ps i j g v o
+                  (isG1 c) (isZeroGrade g0)
+                  (natEq (count o (refsOfH h ps)) (suc 0)))
+
+-- i and j are read by the lookup and again by the write.
+def reuse : run Π (+ s : Sys) → Π (+ i : Nat) → Π (+ j : Nat) → Π (+ g : Grade) → Π (+ v : Nat) → Maybe Sys :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (+ j : Nat) → λ (+ g : Grade) → λ (+ v : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps => reuseFrom h ps i j g v (rootAtPs ps i j)

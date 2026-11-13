@@ -1,0 +1,253 @@
+-- Heap-operation smoke. Accepted and refused steps are both well-typed
+-- data. Refusal is nothing from the run function, not a muro type error.
+-- The projections keep a Le proof out of the equations that only care
+-- about a grade, a count, or a boolean.
+
+import "ops.muro"
+
+def idleAt : run Π (i : Nat) → Proc :=
+  λ (i : Nat) → proc i ready nil nil idle
+
+def twoIdle : run Sys :=
+  sys nil (cons (idleAt 0) (cons (idleAt 1) nil))
+
+def grade2 : run Grade := pt (fin (suc (suc 0)))
+
+def spentG1 : run Ref :=
+  ref 0 grade1 grade0 (fin-kept 0 (suc 0) (le-zero (suc 0)))
+
+def mbHeap : run Π (m : Maybe Sys) → List Obj :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → List Obj)
+      | nothing => nil
+      | just s =>
+          (match s motive (λ _ → List Obj)
+            | sys h ps => h)
+
+def mbOrdered : run Π (m : Maybe Sys) → Bool :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → Bool)
+      | nothing => false
+      | just s =>
+          (match s motive (λ _ → Bool)
+            | sys h ps => ordered h)
+
+def mbCount : run Π (m : Maybe Sys) → Π (+ i : Nat) → Nat :=
+  λ (m : Maybe Sys) → λ (+ i : Nat) →
+    match m motive (λ _ → Nat)
+      | nothing => 0
+      | just s => count i (refsOf s)
+
+def mbHas : run Π (m : Maybe Sys) → Π (+ i : Nat) → Bool :=
+  λ (m : Maybe Sys) → λ (+ i : Nat) →
+    match m motive (λ _ → Bool)
+      | nothing => false
+      | just s => hasG1 i (refsOf s)
+
+def roots0 : run Π (s : Sys) → List Ref :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Ref)
+      | sys h ps =>
+          (match (lookup Proc 0 ps) motive (λ _ → List Ref)
+            | nothing => nil
+            | just p =>
+                (match p motive (λ _ → List Ref)
+                  | proc i st rs mb c => rs))
+
+def mbRoots0 : run Π (m : Maybe Sys) → List Ref :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → List Ref)
+      | nothing => nil
+      | just s => roots0 s
+
+def inbox0 : run Π (s : Sys) → List Msg :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Msg)
+      | sys h ps =>
+          (match (lookup Proc 0 ps) motive (λ _ → List Msg)
+            | nothing => nil
+            | just p =>
+                (match p motive (λ _ → List Msg)
+                  | proc i st rs mb c => mb))
+
+def mbInbox0 : run Π (m : Maybe Sys) → List Msg :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → List Msg)
+      | nothing => nil
+      | just s => inbox0 s
+
+def inbox1 : run Π (s : Sys) → List Msg :=
+  λ (s : Sys) →
+    match s motive (λ _ → List Msg)
+      | sys h ps =>
+          (match ps motive (λ _ → List Msg)
+            | nil => nil
+            | cons p ps1 =>
+                (match ps1 motive (λ _ → List Msg)
+                  | nil => nil
+                  | cons q qs =>
+                      (match q motive (λ _ → List Msg)
+                        | proc i st rs mb c => mb)))
+
+def mbInbox1 : run Π (m : Maybe Sys) → List Msg :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → List Msg)
+      | nothing => nil
+      | just s => inbox1 s
+
+def mbRootGrade : run Π (m : Maybe Sys) → Maybe Grade :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → Maybe Grade)
+      | nothing => nothing
+      | just s =>
+          (match (rootAt s 0 0) motive (λ _ → Maybe Grade)
+            | nothing => nothing
+            | just r => just (residual r))
+
+def mbChecked : run Π (m : Maybe Sys) → Maybe Grade :=
+  λ (m : Maybe Sys) →
+    match m motive (λ _ → Maybe Grade)
+      | nothing => nothing
+      | just s =>
+          (match (rootAt s 0 0) motive (λ _ → Maybe Grade)
+            | nothing => nothing
+            | just r => just (checked r))
+
+def mbRootObj : run Π (m : Maybe Sys) → Π (j : Nat) → Maybe Nat :=
+  λ (m : Maybe Sys) → λ (j : Nat) →
+    match m motive (λ _ → Maybe Nat)
+      | nothing => nothing
+      | just s =>
+          (match (rootAt s 0 j) motive (λ _ → Maybe Nat)
+            | nothing => nothing
+            | just r => just (obj r))
+
+def g1Ref : run Ref := ref 0 grade1 grade1 (selfKept grade1)
+
+def cell0 : run Obj := cell (nat 0) live
+
+def allocG1 : run Maybe Sys := alloc twoIdle 0 grade1 0
+
+def derefG1 : run Maybe Sys :=
+  andThen Sys Sys allocG1 (λ (s : Sys) → deref s 0 0)
+
+def derefG1twice : run Maybe Sys :=
+  andThen Sys Sys derefG1 (λ (s : Sys) → deref s 0 0)
+
+def allocG0 : run Maybe Sys := alloc twoIdle 0 grade0 0
+
+def derefG0 : run Maybe Sys :=
+  andThen Sys Sys allocG0 (λ (s : Sys) → deref s 0 0)
+
+def allocW : run Maybe Sys := alloc twoIdle 0 gradeOmega 0
+
+def derefW : run Maybe Sys :=
+  andThen Sys Sys allocW (λ (s : Sys) → deref s 0 0)
+
+def allocAff : run Maybe Sys := alloc twoIdle 0 aff 0
+
+def derefAff : run Maybe Sys :=
+  andThen Sys Sys allocAff (λ (s : Sys) → deref s 0 0)
+
+def sendG1 : run Maybe Sys :=
+  andThen Sys Sys allocG1 (λ (s : Sys) → sendRoot s 0 0 1)
+
+def sendW : run Maybe Sys :=
+  andThen Sys Sys allocW (λ (s : Sys) → sendRoot s 0 0 1)
+
+def sendG0 : run Maybe Sys :=
+  andThen Sys Sys allocG0 (λ (s : Sys) → sendRoot s 0 0 1)
+
+def sendAff : run Maybe Sys :=
+  andThen Sys Sys allocAff (λ (s : Sys) → sendRoot s 0 0 1)
+
+def sendSelf : run Maybe Sys :=
+  andThen Sys Sys allocG1 (λ (s : Sys) → sendRoot s 0 0 0)
+
+def sendG2 : run Maybe Sys :=
+  andThen Sys Sys (alloc twoIdle 0 grade2 0) (λ (s : Sys) → sendRoot s 0 0 1)
+
+def allocAgain : run Maybe Sys :=
+  andThen Sys Sys allocG1 (λ (s : Sys) → alloc s 0 grade1 1)
+
+def reuseSpent : run Maybe Sys :=
+  andThen Sys Sys derefG1 (λ (s : Sys) → reuse s 0 0 grade1 7)
+
+def reuseLive : run Maybe Sys :=
+  andThen Sys Sys allocG1 (λ (s : Sys) → reuse s 0 0 grade1 7)
+
+def twoSpent : run Sys :=
+  sys (cons cell0 nil)
+      (cons (proc 0 ready (cons spentG1 (cons spentG1 nil)) nil idle) nil)
+
+def wRef : run Ref := ref 0 gradeOmega gradeOmega omega-kept
+
+def affRef : run Ref := ref 0 aff aff (selfKept aff)
+
+def g2Ref : run Ref := ref 0 grade2 grade2 (selfKept grade2)
+
+-- Alloc g1, then one deref: the residual is g0. A second deref is nothing.
+def deref-g1-grade : evidence {mbRootGrade derefG1 ≡ just grade0 : Maybe Grade} := refl
+def deref-g1-checked : evidence {mbChecked derefG1 ≡ just grade1 : Maybe Grade} := refl
+def deref-g1-again : evidence {derefG1twice ≡ nothing : Maybe Sys} := refl
+def deref-g1-count : evidence {mbCount derefG1 0 ≡ suc 0 : Nat} := refl
+def deref-g1-has : evidence {mbHas derefG1 0 ≡ true : Bool} := refl
+
+-- A fresh g0 root is refused in run mode.
+def deref-g0 : evidence {derefG0 ≡ nothing : Maybe Sys} := refl
+def alloc-g0-kept : evidence {mbRootGrade allocG0 ≡ just grade0 : Maybe Grade} := refl
+
+-- omega and an interval stay where they are.
+def deref-omega : evidence {mbRootGrade derefW ≡ just gradeOmega : Maybe Grade} := refl
+def deref-aff : evidence {mbRootGrade derefAff ≡ just aff : Maybe Grade} := refl
+
+-- A second spend of a spent g1 root is nothing.
+def spend-spent : evidence {spendRef spentG1 ≡ nothing : Maybe Ref} := refl
+
+-- Send of g1 moves. The sender's roots lose it, the receiver's mailbox
+-- gains it, the heap is the allocated cell, and the object still has one
+-- reference.
+def send-g1-roots : evidence {mbRoots0 sendG1 ≡ nil : List Ref} := refl
+def send-g1-inbox : evidence {mbInbox1 sendG1 ≡ cons (msg g1Ref) nil : List Msg} := refl
+def send-g1-heap : evidence {mbHeap sendG1 ≡ cons cell0 nil : List Obj} := refl
+def send-g1-count : evidence {mbCount sendG1 0 ≡ suc 0 : Nat} := refl
+def send-g1-has : evidence {mbHas sendG1 0 ≡ true : Bool} := refl
+
+-- omega is copied. The sender keeps the root.
+def send-omega-roots : evidence {mbRoots0 sendW ≡ cons wRef nil : List Ref} := refl
+def send-omega-inbox : evidence {mbInbox1 sendW ≡ cons (msg wRef) nil : List Msg} := refl
+def send-omega-count : evidence {mbCount sendW 0 ≡ suc (suc 0) : Nat} := refl
+
+-- An interval is copied the same way.
+def send-aff-roots : evidence {mbRoots0 sendAff ≡ cons affRef nil : List Ref} := refl
+def send-aff-inbox : evidence {mbInbox1 sendAff ≡ cons (msg affRef) nil : List Msg} := refl
+
+-- A g0 checked grade is not sent.
+def send-g0 : evidence {sendG0 ≡ nothing : Maybe Sys} := refl
+
+-- A finite point above 1 moves.
+def send-g2-roots : evidence {mbRoots0 sendG2 ≡ nil : List Ref} := refl
+def send-g2-inbox : evidence {mbInbox1 sendG2 ≡ cons (msg g2Ref) nil : List Msg} := refl
+
+-- A self-send drops the root and posts it on the same process.
+def send-self-roots : evidence {mbRoots0 sendSelf ≡ nil : List Ref} := refl
+def send-self-inbox : evidence {mbInbox0 sendSelf ≡ cons (msg g1Ref) nil : List Msg} := refl
+def send-self-count : evidence {mbCount sendSelf 0 ≡ suc 0 : Nat} := refl
+
+-- The fresh index is the length of the heap. A second alloc is index 1.
+def alloc-index0 : evidence {mbRootObj allocG1 0 ≡ just 0 : Maybe Nat} := refl
+def alloc-index1 : evidence {mbRootObj allocAgain 1 ≡ just 1 : Maybe Nat} := refl
+def alloc-ordered-bool : evidence {mbOrdered allocG1 ≡ true : Bool} := refl
+def alloc-count : evidence {mbCount allocG1 0 ≡ suc 0 : Nat} := refl
+def alloc-has : evidence {mbHas allocG1 0 ≡ true : Bool} := refl
+
+-- A spent unique g1 slot is reused in place. The ordered boolean stays true.
+def reuse-heap : evidence {mbHeap reuseSpent ≡ cons (cell (nat 7) live) nil : List Obj} := refl
+def reuse-grade : evidence {mbRootGrade reuseSpent ≡ just grade1 : Maybe Grade} := refl
+def reuse-checked : evidence {mbChecked reuseSpent ≡ just grade1 : Maybe Grade} := refl
+def reuse-ordered-bool : evidence {mbOrdered reuseSpent ≡ true : Bool} := refl
+def reuse-count : evidence {mbCount reuseSpent 0 ≡ suc 0 : Nat} := refl
+
+-- An unspent g1 root is not reused. Two spent references are not reused.
+def reuse-live : evidence {reuseLive ≡ nothing : Maybe Sys} := refl
+def reuse-two : evidence {reuse twoSpent 0 0 grade1 7 ≡ nothing : Maybe Sys} := refl

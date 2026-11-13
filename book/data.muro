@@ -27,8 +27,8 @@ data Vec (A : Type) : Nat → Type where
   vcons : Π (n : Nat) → A → Vec A n → Vec A suc(n)
 
 data Le : Nat → Nat → Type where
-  le-zero : Π (n : Nat) → Le 0 n
-  le-suc : Π (m : Nat) → Π (n : Nat) → Le m n → Le suc(m) suc(n)
+  le-zero : Π (+ n : Nat) → Le 0 n
+  le-suc : Π (+ m : Nat) → Π (+ n : Nat) → Le m n → Le suc(m) suc(n)
 
 def orB : run Π (a : Bool) → Π (b : Bool) → Bool :=
   λ (a : Bool) → λ (b : Bool) →
@@ -86,3 +86,113 @@ def vlookup : run Π (-A : Type) → Π (-n : Nat) → Π (i : Fin n) → Π (xs
     (match i motive (λ (k : Nat) → λ (_ : Fin k) → Vec A k → A)
       | fzero m => λ (ys : Vec A suc(m)) → vhead A m ys
       | fsuc m j => λ (ys : Vec A suc(m)) → vlookup A m j (vtail A m ys)) xs
+
+-- Agda's ≤-step. A reusable index is read by the recursive call and by le-suc.
+def le-step : run Π (m : Nat) → Π (n : Nat) → Π (p : Le m n) → Le m (suc n) :=
+  λ (m : Nat) → λ (n : Nat) → λ (p : Le m n) →
+    match p motive (λ (a : Nat) → λ (b : Nat) → λ (_ : Le a b) → Le a (suc b))
+      | le-zero b => le-zero (suc b)
+      | le-suc a b q => le-suc a (suc b) (le-step a b q)
+
+-- Agda's lower. suc k ≤ n gives k ≤ n. The le-zero arm cannot fire:
+-- its index is 0 and the scrutinee's index starts with suc.
+def le-lower : run Π (k : Nat) → Π (n : Nat) → Π (p : Le (suc k) n) → Le k n :=
+  λ (k : Nat) → λ (n : Nat) → λ (p : Le (suc k) n) →
+    match p motive (λ (a : Nat) → λ (b : Nat) → λ (_ : Le a b) → Le (pred a) b)
+      | le-zero b => le-zero 0
+      | le-suc a b q => le-step a b q
+
+-- Agda's ≡ᵇ on Nat.
+def natEq : run Π (a : Nat) → Π (b : Nat) → Bool :=
+  λ (a : Nat) → λ (b : Nat) →
+    match a motive (λ _ → Bool)
+      | 0 =>
+          (match b motive (λ _ → Bool)
+            | 0 => true
+            | suc b1 => false)
+      | suc a1 =>
+          (match b motive (λ _ → Bool)
+            | 0 => false
+            | suc b1 => natEq a1 b1)
+
+-- 1 if the flag is true, 0 if it is false. count adds this.
+def bump : run Π (b : Bool) → Π (n : Nat) → Nat :=
+  λ (b : Bool) → λ (n : Nat) →
+    match b motive (λ _ → Nat)
+      | true => suc n
+      | false => n
+
+def length : run Π (-A : Type) → Π (xs : List A) → Nat :=
+  λ (-A : Type) → λ (xs : List A) →
+    match xs motive (λ _ → Nat)
+      | nil => 0
+      | cons y ys => suc (length A ys)
+
+def append : run Π (-A : Type) → Π (xs : List A) → Π (ys : List A) → List A :=
+  λ (-A : Type) → λ (xs : List A) → λ (ys : List A) →
+    match xs motive (λ _ → List A)
+      | nil => ys
+      | cons y ys1 => cons y (append A ys1 ys)
+
+def lookup : run Π (-A : Type) → Π (n : Nat) → Π (xs : List A) → Maybe A :=
+  λ (-A : Type) → λ (n : Nat) → λ (xs : List A) →
+    match xs motive (λ _ → Maybe A)
+      | nil => nothing
+      | cons y ys =>
+          (match n motive (λ _ → Maybe A)
+            | 0 => just y
+            | suc n1 => lookup A n1 ys)
+
+def mapCons : run Π (-A : Type) → Π (x : A) → Π (m : Maybe (List A)) → Maybe (List A) :=
+  λ (-A : Type) → λ (x : A) → λ (m : Maybe (List A)) →
+    match m motive (λ _ → Maybe (List A))
+      | nothing => nothing
+      | just xs => just (cons x xs)
+
+def update : run Π (-A : Type) → Π (n : Nat) → Π (a : A) → Π (xs : List A) → Maybe (List A) :=
+  λ (-A : Type) → λ (n : Nat) → λ (a : A) → λ (xs : List A) →
+    match xs motive (λ _ → Maybe (List A))
+      | nil => nothing
+      | cons y ys =>
+          (match n motive (λ _ → Maybe (List A))
+            | 0 => just (cons a ys)
+            | suc n1 => mapCons A y (update A n1 a ys))
+
+def mapRem : run Π (-A : Type) → Π (x : A) → Π (m : Maybe (A × List A)) → Maybe (A × List A) :=
+  λ (-A : Type) → λ (x : A) → λ (m : Maybe (A × List A)) →
+    match m motive (λ _ → Maybe (A × List A))
+      | nothing => nothing
+      | just p => let (y, ys) = p in just (y, cons x ys)
+
+def removeAt : run Π (-A : Type) → Π (n : Nat) → Π (xs : List A) → Maybe (A × List A) :=
+  λ (-A : Type) → λ (n : Nat) → λ (xs : List A) →
+    match xs motive (λ _ → Maybe (A × List A))
+      | nil => nothing
+      | cons y ys =>
+          (match n motive (λ _ → Maybe (A × List A))
+            | 0 => just (y, ys)
+            | suc n1 => mapRem A y (removeAt A n1 ys))
+
+def andThen : run Π (-A : Type) → Π (-B : Type) → Π (m : Maybe A) → Π (k : Π (_ : A) → Maybe B) → Maybe B :=
+  λ (-A : Type) → λ (-B : Type) → λ (m : Maybe A) → λ (k : Π (_ : A) → Maybe B) →
+    match m motive (λ _ → Maybe B)
+      | nothing => nothing
+      | just a => k a
+
+def natEq-00 : evidence {natEq 0 0 ≡ true : Bool} := refl
+def natEq-01 : evidence {natEq 0 (suc 0) ≡ false : Bool} := refl
+def natEq-11 : evidence {natEq (suc 0) (suc 0) ≡ true : Bool} := refl
+
+def natEq-refl : evidence Π (n : Nat) → {natEq n n ≡ true : Bool} :=
+  λ (n : Nat) →
+    match n motive (λ (x : Nat) → {natEq x x ≡ true : Bool})
+      | 0 => refl
+      | suc m => natEq-refl m
+
+def le-lower-one : evidence {le-lower 0 (suc 0) (le-suc 0 0 (le-zero 0)) ≡ le-zero (suc 0) : Le 0 (suc 0)} := refl
+
+def remove-zero : evidence {removeAt Nat 0 (cons (suc 0) (cons 0 nil)) ≡ just (suc 0, cons 0 nil) : Maybe (Nat × List Nat)} := refl
+
+def remove-one : evidence {removeAt Nat (suc 0) (cons (suc 0) (cons 0 nil)) ≡ just (0, cons (suc 0) nil) : Maybe (Nat × List Nat)} := refl
+
+def update-zero : evidence {update Nat 0 7 (cons 1 (cons 2 nil)) ≡ just (cons 7 (cons 2 nil)) : Maybe (List Nat)} := refl

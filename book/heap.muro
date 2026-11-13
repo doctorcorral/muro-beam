@@ -1,5 +1,8 @@
--- Heap cells. alloc, deref, spend, and send are later parts.
+-- Heap cells. alloc, deref, send, and reuse are book/ops.muro.
+-- spendRef, count, and the ordered walk live here.
 -- Ordered is every child index strictly below its parent.
+-- A `+` on an index or a grade is host reuse, so a walker can read it
+-- again. It is not a BeamGrade.
 
 import "term.muro"
 
@@ -8,7 +11,7 @@ data Status : Type where
   free : Status
 
 data Ref : Type where
-  ref : Π (o : Nat) → Π (c : Grade) → Π (r : Grade) → Π (k : Kept r c) → Ref
+  ref : Π (+ o : Nat) → Π (+ c : Grade) → Π (+ r : Grade) → Π (k : Kept r c) → Ref
 
 def obj : run Π (r : Ref) → Nat :=
   λ (r : Ref) →
@@ -90,8 +93,8 @@ data Below : Nat → Val → Type where
           Below n (clo rs tm)
 
 data OrdAt : Nat → List Obj → Type where
-  oa-nil : Π (i : Nat) → OrdAt i nil
-  oa-cons : Π (i : Nat) → Π (v : Val) → Π (st : Status) → Π (os : List Obj) →
+  oa-nil : Π (+ i : Nat) → OrdAt i nil
+  oa-cons : Π (+ i : Nat) → Π (v : Val) → Π (st : Status) → Π (+ os : List Obj) →
             Below i v →
             OrdAt (suc i) os →
             OrdAt i (cons (cell v st) os)
@@ -108,3 +111,146 @@ def heap-nat : evidence {ordered (cons (cell (nat 0) live) nil) ≡ true : Bool}
 def heap-bad : evidence {ordered (cons (cell (suc-up (ref 0 grade0 grade0 (selfKept grade0))) live) nil) ≡ false : Bool} := refl
 
 def heap-link : evidence {ordered (cons (cell (nat 0) live) (cons (cell (suc-up (ref 0 grade0 grade0 (selfKept grade0))) live) nil)) ≡ true : Bool} := refl
+
+-- Every Ref stores a Kept of its own residual and checked grades.
+-- That is the book's residual-inv. Agda's ref-inv sends it through ≤ᵍ.
+data KeptAt : Type where
+  kept-at : Π (r : Grade) → Π (c : Grade) → Kept r c → KeptAt
+
+def keptOf : run Π (rf : Ref) → KeptAt :=
+  λ (rf : Ref) →
+    match rf motive (λ _ → KeptAt)
+      | ref o c g k => kept-at g c k
+
+def ref-inv : evidence Π (o : Nat) → Π (c : Grade) → Π (g : Grade) → Π (k : Kept g c) →
+    {keptOf (ref o c g k) ≡ kept-at g c k : KeptAt} :=
+  λ (o : Nat) → λ (c : Grade) → λ (g : Grade) → λ (k : Kept g c) → refl
+
+-- Allocation stores residual = checked, by selfKept.
+def alloc-kept : evidence Π (o : Nat) → Π (g : Grade) →
+    {residual (ref o g g (selfKept g)) ≡ checked (ref o g g (selfKept g)) : Grade} :=
+  λ (o : Nat) → λ (g : Grade) → refl
+
+def applySpend : run Π (o : Nat) → Π (c : Grade) → Π (m : Maybe (Spent c)) → Maybe Ref :=
+  λ (o : Nat) → λ (c : Grade) → λ (m : Maybe (Spent c)) →
+    match m motive (λ _ → Maybe Ref)
+      | nothing => nothing
+      | just s =>
+          (match s motive (λ (cc : Grade) → λ (_ : Spent cc) → Maybe Ref)
+            | spent cc r k => just (ref o cc r k))
+
+def spendRef : run Π (rf : Ref) → Maybe Ref :=
+  λ (rf : Ref) →
+    match rf motive (λ _ → Maybe Ref)
+      | ref o c g k => applySpend o c (spend g c k)
+
+def spendRef-zero : evidence Π (o : Nat) → Π (n : Nat) → Π (le : Le 0 n) →
+    {spendRef (ref o (pt (fin n)) (pt (fin 0)) (fin-kept 0 n le)) ≡ nothing : Maybe Ref} :=
+  λ (o : Nat) → λ (n : Nat) → λ (le : Le 0 n) → refl
+
+-- Object index and checked grade stay. The residual steps down.
+-- This is spendRef-obj and spendRef-checked for a finite point.
+def spendRef-finite : evidence Π (o : Nat) → Π (k : Nat) → Π (n : Nat) → Π (le : Le (suc k) n) →
+    {spendRef (ref o (pt (fin n)) (pt (fin (suc k))) (fin-kept (suc k) n le))
+      ≡ just (ref o (pt (fin n)) (pt (fin k)) (fin-kept k n (le-lower k n le)))
+      : Maybe Ref} :=
+  λ (o : Nat) → λ (k : Nat) → λ (n : Nat) → λ (le : Le (suc k) n) → refl
+
+def spendRef-omega : evidence Π (o : Nat) →
+    {spendRef (ref o gradeOmega gradeOmega omega-kept)
+      ≡ just (ref o gradeOmega gradeOmega omega-kept) : Maybe Ref} :=
+  λ (o : Nat) → refl
+
+def spendRef-iv : evidence Π (o : Nat) → Π (a : Point) → Π (b : Point) →
+    {spendRef (ref o (iv a b) (iv a b) (iv-kept a b))
+      ≡ just (ref o (iv a b) (iv a b) (iv-kept a b)) : Maybe Ref} :=
+  λ (o : Nat) → λ (a : Point) → λ (b : Point) → refl
+
+-- How many references point at an object, and whether one of them is g1.
+def count : run Π (+ i : Nat) → Π (rs : List Ref) → Nat :=
+  λ (+ i : Nat) → λ (rs : List Ref) →
+    match rs motive (λ _ → Nat)
+      | nil => 0
+      | cons rf rs1 =>
+          (match rf motive (λ _ → Nat)
+            | ref o c g k => bump (natEq o i) (count i rs1))
+
+def hasG1 : run Π (+ i : Nat) → Π (rs : List Ref) → Bool :=
+  λ (+ i : Nat) → λ (rs : List Ref) →
+    match rs motive (λ _ → Bool)
+      | nil => false
+      | cons rf rs1 =>
+          (match rf motive (λ _ → Bool)
+            | ref o c g k => orB (andB (natEq o i) (isG1 c)) (hasG1 i rs1))
+
+def count-nil : evidence Π (i : Nat) → {count i nil ≡ 0 : Nat} :=
+  λ (i : Nat) → refl
+
+def count-one : evidence Π (o : Nat) → Π (c : Grade) → Π (g : Grade) → Π (k : Kept g c) →
+    {count o (cons (ref o c g k) nil) ≡ suc 0 : Nat} :=
+  λ (o : Nat) → λ (c : Grade) → λ (g : Grade) → λ (k : Kept g c) →
+    rewrite natEq-refl o motive (λ z → {bump z 0 ≡ suc 0 : Nat}) in
+    refl
+
+def has-one : evidence Π (o : Nat) → Π (g : Grade) → Π (k : Kept g grade1) →
+    {hasG1 o (cons (ref o grade1 g k) nil) ≡ true : Bool} :=
+  λ (o : Nat) → λ (g : Grade) → λ (k : Kept g grade1) →
+    rewrite natEq-refl o motive (λ z → {orB (andB z (isG1 grade1)) false ≡ true : Bool}) in
+    refl
+
+-- Child references of a heap, in order. A nat has none.
+def edgeRefs : run Π (os : List Obj) → List Ref :=
+  λ (os : List Obj) →
+    match os motive (λ _ → List Ref)
+      | nil => nil
+      | cons o os1 => append Ref (kids (payload o)) (edgeRefs os1)
+
+def edge-nil : evidence {edgeRefs nil ≡ nil : List Ref} := refl
+
+def edge-nat : evidence {edgeRefs (cons (cell (nat 0) live) nil) ≡ nil : List Ref} := refl
+
+-- Overwrite one cell with a nat. An index past the end leaves the heap.
+def poke : run Π (os : List Obj) → Π (k : Nat) → Π (v : Nat) → List Obj :=
+  λ (os : List Obj) → λ (k : Nat) → λ (v : Nat) →
+    match os motive (λ _ → List Obj)
+      | nil => nil
+      | cons o os1 =>
+          (match k motive (λ _ → List Obj)
+            | 0 => cons (cell (nat v) live) os1
+            | suc k1 => cons o (poke os1 k1 v))
+
+def poke-head : evidence Π (v : Nat) → Π (os : List Obj) →
+    {poke (cons (cell (nat 0) live) os) 0 v ≡ cons (cell (nat v) live) os : List Obj} :=
+  λ (v : Nat) → λ (os : List Obj) → refl
+
+-- Appending a nat keeps OrdAt. alloc's heap is this append.
+-- i and the tail are host-reuse so the cons can mention them and the
+-- recursive call can read them again.
+def ordAppendNat : evidence Π (i : Nat) → Π (os : List Obj) → Π (+ v : Nat) → Π (p : OrdAt i os) →
+    OrdAt i (append Obj os (cons (cell (nat v) live) nil)) :=
+  λ (i : Nat) → λ (os : List Obj) → λ (+ v : Nat) → λ (p : OrdAt i os) →
+    match p motive (λ (j : Nat) → λ (xs : List Obj) → λ (_ : OrdAt j xs) →
+        OrdAt j (append Obj xs (cons (cell (nat v) live) nil)))
+      | oa-nil j => oa-cons j (nat v) live nil (b-nat j v) (oa-nil (suc j))
+      | oa-cons j val st xs bel rest =>
+          oa-cons j val st (append Obj xs (cons (cell (nat v) live) nil)) bel
+            (ordAppendNat (suc j) xs v rest)
+
+def alloc-ordered : evidence Π (h : List Obj) → Π (v : Nat) → Π (p : OrdAt 0 h) →
+    OrdAt 0 (append Obj h (cons (cell (nat v) live) nil)) :=
+  λ (h : List Obj) → λ (v : Nat) → λ (p : OrdAt 0 h) → ordAppendNat 0 h v p
+
+-- Overwriting a slot with a nat keeps OrdAt. reuse's heap is this poke.
+def pokeOrd : evidence Π (+ i : Nat) → Π (os : List Obj) → Π (+ k : Nat) → Π (+ v : Nat) →
+    Π (p : OrdAt i os) → OrdAt i (poke os k v) :=
+  λ (+ i : Nat) → λ (os : List Obj) → λ (+ k : Nat) → λ (+ v : Nat) → λ (p : OrdAt i os) →
+    match p motive (λ (j : Nat) → λ (xs : List Obj) → λ (_ : OrdAt j xs) → OrdAt j (poke xs k v))
+      | oa-nil j => oa-nil j
+      | oa-cons j val st xs bel rest =>
+          (match k motive (λ (n : Nat) → OrdAt j (poke (cons (cell val st) xs) n v))
+            | 0 => oa-cons j (nat v) live xs (b-nat j v) rest
+            | suc k1 => oa-cons j val st (poke xs k1 v) bel (pokeOrd (suc j) xs k1 v rest))
+
+def reuse-ordered : evidence Π (h : List Obj) → Π (k : Nat) → Π (v : Nat) → Π (p : OrdAt 0 h) →
+    OrdAt 0 (poke h k v) :=
+  λ (h : List Obj) → λ (k : Nat) → λ (v : Nat) → λ (p : OrdAt 0 h) → pokeOrd 0 h k v p

@@ -1,7 +1,8 @@
 -- Trace events both sides of the conformance test will emit.
--- Nothing in this part produces a trace. A later part compiles the Agda
--- model with MAlonzo and compares event lists. Names are prefixed so
--- they do not clash with PTm constructors in the one constructor scope.
+-- The heap operations return Maybe Sys, as the Agda steps do. They do
+-- not emit Event. Emission and the MAlonzo comparison are a later part.
+-- Names are prefixed so they do not clash with PTm constructors in the
+-- one constructor scope.
 --
 -- tr-alloc    object index, checked grade
 -- tr-spend    object index, residual before, residual after
