@@ -10,8 +10,10 @@
 -- tr-recv     pid, reference
 -- tr-spawn    parent pid, child pid
 -- tr-step     pid. One CEK step. The control before and after is a
---             later field; this part fixes the event, not the stepper.
--- tr-collect  freed object indices, in increasing index order
+--             later field. book/step.muro runs the step and does not
+--             emit this event.
+-- tr-collect  freed object indices, in increasing index order.
+--             book/collect.muro runs collect and does not emit this event.
 
 import "heap.muro"
 

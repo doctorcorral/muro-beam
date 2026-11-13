@@ -1,0 +1,353 @@
+-- Accepted and refused CEK steps, and total collect, as checked
+-- equations. The systems are built by hand. Refusal is nothing from
+-- eval1. collect returns a Sys.
+
+import "step.muro"
+import "collect.muro"
+import "run.muro"
+
+def at0 : run Π (h : List Obj) → Π (c : Ctl) → Sys :=
+  λ (h : List Obj) → λ (c : Ctl) →
+    sys h (cons (proc 0 ready nil nil c) nil)
+
+def om : run Π (i : Nat) → Ref :=
+  λ (i : Nat) → ref i gradeOmega gradeOmega omega-kept
+
+def var0 : run GTm (suc 0) := gvar (suc 0) (fzero 0)
+
+def lamW : run GTm 0 := glam 0 gradeOmega grade0 (gze 1)
+
+def clo0 : run Obj := cell (clo nil (scoped 0 (gze 0))) live
+
+def parked : run Code := go 0 (pdone 0) nil nil nil nil
+
+def g0at : run Π (i : Nat) → Ref :=
+  λ (i : Nat) → ref i grade0 grade0 (fin-kept 0 0 (le-zero 0))
+
+-- gze, gtyp, and gpi each append nat 0 and return a fresh omega ref.
+def zeStep : run Sys :=
+  at0 (cons (cell (nat 0) live) nil) (rv (om 0) nil nil)
+
+def step-ze : evidence {eval1 (at0 nil (ev 0 (gze 0) nil nil)) 0 ≡ just zeStep : Maybe Sys} := refl
+
+def step-typ : evidence
+    {eval1 (at0 nil (ev (suc 0) (gtyp (suc 0) (fzero 0)) nil nil)) 0 ≡ just zeStep : Maybe Sys} :=
+  refl
+
+def step-pi : evidence
+    {eval1 (at0 nil (ev 0 (gpi 0 grade0 grade0 (gze 1)) nil nil)) 0 ≡ just zeStep : Maybe Sys} :=
+  refl
+
+-- gapp, gsu, and gmatch push a frame and do not allocate.
+def step-app : evidence
+    {eval1 (at0 nil (ev 0 (gapp 0 (gze 0) (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil (cons (ar 0 (gze 0)) nil))) : Maybe Sys} :=
+  refl
+
+def step-su : evidence
+    {eval1 (at0 nil (ev 0 (gsu 0 (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil (cons su nil))) : Maybe Sys} :=
+  refl
+
+def step-mt : evidence
+    {eval1 (at0 nil (ev 0 (gmatch 0 (gze 0) (gze 0) (gze 1)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) : Maybe Sys} :=
+  refl
+
+-- glam with an empty env appends a clo and returns a fresh omega ref.
+def lamStep : run Sys :=
+  at0 (cons (cell (clo nil (scoped 0 lamW)) live) nil) (rv (om 0) nil nil)
+
+def step-lam : evidence
+    {eval1 (at0 nil (ev 0 lamW nil nil)) 0 ≡ just lamStep : Maybe Sys} :=
+  refl
+
+-- A g1 in the env refuses the closure.
+def step-lam-g1 : evidence
+    {eval1 (at0 (cons cell0 nil) (ev 0 lamW (cons g1Ref nil) nil)) 0 ≡ nothing : Maybe Sys} :=
+  refl
+
+-- A nat is copied. The env slot is spent. The fresh ref is omega.
+def copyStep : run Sys :=
+  at0 (cons (cell (nat 5) live) (cons (cell (nat 5) live) nil))
+      (rv (om 1) (cons spentG1 nil) nil)
+
+def step-copy : evidence
+    {eval1 (at0 (cons (cell (nat 5) live) nil) (ev (suc 0) var0 (cons g1Ref nil) nil)) 0
+      ≡ just copyStep : Maybe Sys} :=
+  refl
+
+-- The spent slot is a g0 residual. A second gvar of it is nothing.
+def step-spent : evidence
+    {eval1 (at0 (cons (cell (nat 5) live) (cons (cell (nat 5) live) nil))
+              (ev (suc 0) var0 (cons spentG1 nil) nil)) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+-- A unique g1 clo is moved. The env slot becomes a fresh g0 ref, and a
+-- dummy nat is appended. The object is not aliased: its count stays 1.
+def moveStep : run Sys :=
+  at0 (cons clo0 (cons (cell (nat 0) live) nil))
+      (rv spentG1 (cons (g0at 1) nil) nil)
+
+def step-move : evidence
+    {eval1 (at0 (cons clo0 nil) (ev (suc 0) var0 (cons g1Ref nil) nil)) 0
+      ≡ just moveStep : Maybe Sys} :=
+  refl
+
+def move-count : evidence {mbCount (just moveStep) 0 ≡ suc 0 : Nat} := refl
+
+-- A unique g1 suc-up moves the same way. The child index stays below.
+def upObj : run Obj := cell (suc-up (om 0)) live
+
+def upStep : run Sys :=
+  at0 (cons (cell (nat 0) live) (cons upObj (cons (cell (nat 0) live) nil)))
+      (rv (ref 1 grade1 grade0 (fin-kept 0 (suc 0) (le-zero (suc 0))))
+          (cons (g0at 2) nil) nil)
+
+def step-up : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) (cons upObj nil))
+              (ev (suc 0) var0 (cons (ref 1 grade1 grade1 (selfKept grade1)) nil) nil)) 0
+      ≡ just upStep : Maybe Sys} :=
+  refl
+
+def up-ordered : evidence {mbOrdered (just upStep) ≡ true : Bool} := refl
+
+-- A g1 whose count is not one is not aliased. pass returns nothing.
+def step-g1-alias : evidence
+    {eval1 (at0 (cons clo0 nil) (ev (suc 0) var0 (cons g1Ref (cons g1Ref nil)) nil)) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+-- An omega pointer is not g1, so the spent ref is written back. The
+-- heap does not grow. The count becomes 2.
+def aliasStep : run Sys :=
+  at0 (cons clo0 nil) (rv (om 0) (cons (om 0) nil) nil)
+
+def step-omega-alias : evidence
+    {eval1 (at0 (cons clo0 nil) (ev (suc 0) var0 (cons (om 0) nil) nil)) 0
+      ≡ just aliasStep : Maybe Sys} :=
+  refl
+
+def alias-count : evidence {mbCount (just aliasStep) 0 ≡ suc (suc 0) : Nat} := refl
+
+-- rv against ar pushes fn and evaluates the argument. No allocation.
+def step-ar : evidence
+    {eval1 (at0 nil (rv (om 0) nil (cons (ar 0 (gze 0)) nil))) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil (cons (fn (om 0)) nil))) : Maybe Sys} :=
+  refl
+
+-- beta of a clo of a glam. The body runs under regrade of the argument,
+-- and the caller's env is saved on bd.
+def funW : run Obj := cell (clo nil (scoped 0 lamW)) live
+
+def betaStep : run Sys :=
+  at0 (cons (cell (nat 0) live) (cons funW nil))
+      (ev (suc 0) (gze 1) (cons (om 0) nil) (cons (bd nil) nil))
+
+def step-beta : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) (cons funW nil))
+              (rv (om 0) nil (cons (fn (om 1)) nil))) 0
+      ≡ just betaStep : Maybe Sys} :=
+  refl
+
+-- badG1: the argument is g1 and it also sits in the env, so the count
+-- is not one. The captured env is empty, so the refusal is badG1.
+def funG1 : run Obj := cell (clo nil (scoped 0 (glam 0 grade1 grade0 (gze 1)))) live
+
+def step-beta-bad : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) (cons funG1 nil))
+              (rv g1Ref (cons g1Ref nil) (cons (fn (om 1)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+-- The checked grade is omega, so badG1 is false. A g1 in the captured
+-- env refuses the call.
+def funCap : run Obj := cell (clo (cons g1Ref nil) (scoped 0 lamW)) live
+
+def step-beta-cap : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) (cons funCap nil))
+              (rv (om 0) nil (cons (fn (om 1)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+-- su appends suc-up of the returned ref and yields a fresh omega ref.
+def suStep : run Sys :=
+  at0 (cons (cell (nat 7) live) (cons (cell (suc-up (om 0)) live) nil))
+      (rv (om 1) nil nil)
+
+def step-ret-su : evidence
+    {eval1 (at0 (cons (cell (nat 7) live) nil) (rv (om 0) nil (cons su nil))) 0
+      ≡ just suStep : Maybe Sys} :=
+  refl
+
+def su-ordered : evidence {mbOrdered (just suStep) ≡ true : Bool} := refl
+
+-- nat 0 takes the zero branch. suc-up takes the successor branch and
+-- clears the scrutinee cell. A successor nat and a clo are nothing.
+def step-match-ze : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) nil)
+              (rv (om 0) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) 0
+      ≡ just (at0 (cons (cell (nat 0) live) nil) (ev 0 (gze 0) nil nil)) : Maybe Sys} :=
+  refl
+
+def matchSStep : run Sys :=
+  at0 (cons (cell (nat 4) live) (cons (cell (nat 0) live) nil))
+      (ev (suc 0) (gze 1) (cons (ref 0 aff aff (iv-kept (fin 0) (fin (suc 0)))) nil) nil)
+
+def step-match-su : evidence
+    {eval1 (at0 (cons (cell (nat 4) live) (cons (cell (suc-up (om 0)) live) nil))
+              (rv (om 1) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) 0
+      ≡ just matchSStep : Maybe Sys} :=
+  refl
+
+def step-match-nat : evidence
+    {eval1 (at0 (cons (cell (nat (suc 0)) live) nil)
+              (rv (om 0) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+def step-match-clo : evidence
+    {eval1 (at0 (cons clo0 nil)
+              (rv (om 0) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+-- bd restores the saved env.
+def step-bd : evidence
+    {eval1 (at0 nil (rv (om 0) nil (cons (bd (cons (om 0) nil)) nil))) 0
+      ≡ just (at0 nil (rv (om 0) (cons (om 0) nil) nil)) : Maybe Sys} :=
+  refl
+
+-- Refusals. Each system is well-typed data.
+def step-idle : evidence {eval1 (at0 nil idle) 0 ≡ nothing : Maybe Sys} := refl
+
+def step-pr : evidence {eval1 (at0 nil (pr parked)) 0 ≡ nothing : Maybe Sys} := refl
+
+def step-empty : evidence {eval1 (at0 nil (rv (om 0) nil nil)) 0 ≡ nothing : Maybe Sys} := refl
+
+def step-saved : evidence
+    {eval1 (at0 nil (rv (om 0) nil (cons (saved parked) nil))) 0 ≡ nothing : Maybe Sys} :=
+  refl
+
+def step-noslot : evidence
+    {eval1 (at0 nil (ev (suc 0) var0 nil nil)) 0 ≡ nothing : Maybe Sys} :=
+  refl
+
+def step-g0var : evidence
+    {eval1 (at0 (cons cell0 nil) (ev (suc 0) var0 (cons spentG1 nil) nil)) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+def step-nopay : evidence
+    {eval1 (at0 nil (ev (suc 0) var0 (cons (om 0) nil) nil)) 0 ≡ nothing : Maybe Sys} :=
+  refl
+
+def step-noproc : evidence {eval1 (sys nil nil) 0 ≡ nothing : Maybe Sys} := refl
+
+-- runFor is structural on the fuel and steps process 0 only.
+def zeSys : run Sys := at0 nil (ev 0 (gze 0) nil nil)
+
+def run-zero : evidence {runFor 0 zeSys ≡ zeSys : Sys} := refl
+
+def run-one : evidence {runFor (suc 0) zeSys ≡ zeStep : Sys} := refl
+
+def run-two : evidence {runFor (suc (suc 0)) zeSys ≡ zeStep : Sys} := refl
+
+def idleOther : run Sys :=
+  sys nil (cons (proc 0 ready nil nil idle)
+                (cons (proc 1 ready nil nil (ev 0 (gze 0) nil nil)) nil))
+
+def run-other : evidence {runFor (suc 0) idleOther ≡ idleOther : Sys} := refl
+
+-- collect. A live omega root keeps the cell. No keeper frees it.
+def nat3 : run Obj := cell (nat 3) live
+
+def liveRoot : run Sys :=
+  sys (cons nat3 nil) (cons (proc 0 ready (cons (om 0) nil) nil idle) nil)
+
+def collect-live : evidence {collect liveRoot ≡ liveRoot : Sys} := refl
+
+def noKeep : run Sys :=
+  sys (cons nat3 nil) (cons (proc 0 ready nil nil idle) nil)
+
+def freed1 : run Sys :=
+  sys (cons (cell (nat 0) free) nil) (cons (proc 0 ready nil nil idle) nil)
+
+def collect-free : evidence {collect noKeep ≡ freed1 : Sys} := refl
+
+def collect-free-keeper : evidence {anyKeeper 0 (refsOf noKeep) ≡ false : Bool} := refl
+
+-- A g0 root does not seed, and clean drops it.
+def g0root : run Sys :=
+  sys (cons nat3 nil) (cons (proc 0 ready (cons (g0at 0) nil) nil idle) nil)
+
+def collect-g0root : evidence {collect g0root ≡ freed1 : Sys} := refl
+
+-- A child of a reached higher index stays live. The same heap with no
+-- keeper frees both cells: an unmarked parent does not keep the child.
+def edgeH : run List Obj :=
+  cons (cell (nat 9) live) (cons (cell (suc-up (om 0)) live) nil)
+
+def edgeSys : run Sys :=
+  sys edgeH (cons (proc 0 ready (cons (om 1) nil) nil idle) nil)
+
+def collect-edge : evidence {collect edgeSys ≡ edgeSys : Sys} := refl
+
+def edge-ordered : evidence {ordered edgeH ≡ true : Bool} := refl
+
+def collect-edge-ordered : evidence {ordered (heap (collect edgeSys)) ≡ true : Bool} := refl
+
+def edgeGone : run Sys :=
+  sys edgeH (cons (proc 0 ready nil nil idle) nil)
+
+def freed2 : run List Obj :=
+  cons (cell (nat 0) free) (cons (cell (nat 0) free) nil)
+
+def collect-unmarked : evidence
+    {collect edgeGone ≡ sys freed2 (cons (proc 0 ready nil nil idle) nil) : Sys} :=
+  refl
+
+-- omega and an interval seed and stay. A point g0 does not.
+def three : run Sys :=
+  sys (cons (cell (nat 1) live) (cons (cell (nat 2) live) (cons (cell (nat 3) live) nil)))
+      (cons (proc 0 ready
+              (cons (om 0) (cons (ref 1 aff aff (selfKept aff)) (cons (g0at 2) nil)))
+              nil idle) nil)
+
+def threeOut : run Sys :=
+  sys (cons (cell (nat 1) live) (cons (cell (nat 2) live) (cons (cell (nat 0) free) nil)))
+      (cons (proc 0 ready
+              (cons (om 0) (cons (ref 1 aff aff (selfKept aff)) nil))
+              nil idle) nil)
+
+def collect-grades : evidence {collect three ≡ threeOut : Sys} := refl
+
+-- A g0 residual in an env slot stays there, so the index does not move,
+-- and the object is freed.
+def envG0 : run Sys :=
+  at0 (cons nat3 nil) (ev 0 (gze 0) (cons (g0at 0) nil) nil)
+
+def collect-env : evidence
+    {collect envG0 ≡ at0 (cons (cell (nat 0) free) nil)
+                        (ev 0 (gze 0) (cons (g0at 0) nil) nil) : Sys} :=
+  refl
+
+-- A control ref seeds and keeps the object.
+def ctlKeep : run Sys := at0 (cons nat3 nil) (rv (om 0) nil nil)
+
+def collect-ctl : evidence {collect ctlKeep ≡ ctlKeep : Sys} := refl
+
+-- A non-g0 message stays. A g0 message is dropped and its cell is freed.
+def boxed : run Sys :=
+  sys (cons nat3 (cons (cell (nat 8) live) nil))
+      (cons (proc 0 ready nil
+              (cons (msg (om 0)) (cons (msg (g0at 1)) nil)) idle) nil)
+
+def boxedOut : run Sys :=
+  sys (cons nat3 (cons (cell (nat 0) free) nil))
+      (cons (proc 0 ready nil (cons (msg (om 0)) nil) idle) nil)
+
+def collect-mbox : evidence {collect boxed ≡ boxedOut : Sys} := refl
+
+def collect-empty : evidence {collect (sys nil nil) ≡ sys nil nil : Sys} := refl

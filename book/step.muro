@@ -1,0 +1,514 @@
+-- One CBV step. Syntax stays on frames; values are Refs.
+-- A g1 pointer is moved, never aliased. A nat is copied.
+--
+-- Every helper is one run. eval1 does not call itself. runFor is the
+-- only recursion, and it is structural on the fuel: it stops when
+-- eval1 returns nothing. No termination pragma. No scheduler.
+-- Refusal is nothing. The terms and heaps are well-typed data.
+-- This file does not emit tr-step.
+
+import "ops.muro"
+import "boundary.muro"
+
+def finToNat : run Π (-n : Nat) → Π (i : Fin n) → Nat :=
+  λ (-n : Nat) → λ (i : Fin n) →
+    match i motive (λ (k : Nat) → λ (_ : Fin k) → Nat)
+      | fzero m => 0
+      | fsuc m j => suc (finToNat m j)
+
+def anyG1 : run Π (rs : List Ref) → Bool :=
+  λ (rs : List Ref) →
+    match rs motive (λ _ → Bool)
+      | nil => false
+      | cons r rs1 => orB (isG1 (checked r)) (anyG1 rs1)
+
+def regrade : run Π (r : Ref) → Π (+ g : Grade) → Ref :=
+  λ (r : Ref) → λ (+ g : Grade) →
+    match r motive (λ _ → Ref)
+      | ref o c old kp => ref o g g (selfKept g)
+
+def badG1 : run Π (c : Grade) → Π (o : Nat) → Π (rs : List Ref) → Bool :=
+  λ (c : Grade) → λ (o : Nat) → λ (rs : List Ref) →
+    andB (isG1 c) (notB (natEq (count o rs) (suc 0)))
+
+def gradeAt : run Π (m : Maybe Ref) → Grade :=
+  λ (m : Maybe Ref) →
+    match m motive (λ _ → Grade)
+      | nothing => aff
+      | just r => checked r
+
+-- Agda's predComp. A variable inherits the checked grade of that env
+-- slot. A missing slot, and every other term, is aff.
+def predComp : run Π (env : List Ref) → Π (-n : Nat) → Π (e : GTm n) → Grade :=
+  λ (env : List Ref) → λ (-n : Nat) → λ (e : GTm n) →
+    match e motive (λ (k : Nat) → λ (_ : GTm k) → Grade)
+      | gvar m x => gradeAt (lookup Ref (finToNat m x) env)
+      | gtyp m x => aff
+      | gze m => aff
+      | gsu m e1 => aff
+      | gapp m f a => aff
+      | gpi m c ty b => aff
+      | glam m c ty b => aff
+      | gmatch m e1 z s => aff
+
+def payloadAt : run Π (os : List Obj) → Π (n : Nat) → Maybe Val :=
+  λ (os : List Obj) → λ (n : Nat) →
+    match os motive (λ _ → Maybe Val)
+      | nil => nothing
+      | cons hd os1 =>
+          (match n motive (λ _ → Maybe Val)
+            | 0 => just (payload hd)
+            | suc n1 => payloadAt os1 n1)
+
+def setPayload : run Π (os : List Obj) → Π (n : Nat) → Π (v : Val) → List Obj :=
+  λ (os : List Obj) → λ (n : Nat) → λ (v : Val) →
+    match os motive (λ _ → List Obj)
+      | nil => nil
+      | cons hd os1 =>
+          (match n motive (λ _ → List Obj)
+            | 0 => cons (cell v (status hd)) os1
+            | suc n1 => cons hd (setPayload os1 n1 v))
+
+def setCtl : run Π (p : Proc) → Π (c : Ctl) → Proc :=
+  λ (p : Proc) → λ (c : Ctl) →
+    match p motive (λ _ → Proc)
+      | proc i st rs mb old => proc i st rs mb c
+
+def setProc : run Π (ps : List Proc) → Π (i : Nat) → Π (c : Ctl) → Maybe (List Proc) :=
+  λ (ps : List Proc) → λ (i : Nat) → λ (c : Ctl) →
+    match ps motive (λ _ → Maybe (List Proc))
+      | nil => nothing
+      | cons p ps1 =>
+          (match i motive (λ _ → Maybe (List Proc))
+            | 0 => just (cons (setCtl p c) ps1)
+            | suc i1 => mapCons Proc p (setProc ps1 i1 c))
+
+def install : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) → Π (c : Ctl) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (c : Ctl) →
+    mapSys h (setProc ps i c)
+
+def freshRef : run Π (h : List Obj) → Π (+ g : Grade) → Ref :=
+  λ (h : List Obj) → λ (+ g : Grade) →
+    ref (length Obj h) g g (selfKept g)
+
+def snoc : run Π (h : List Obj) → Π (v : Val) → List Obj :=
+  λ (h : List Obj) → λ (v : Val) →
+    append Obj h (cons (cell v live) nil)
+
+-- Replace the slot at ix. An index past the end leaves the tail empty,
+-- which is Agda's repl.
+def repl : run Π (ix : Nat) → Π (r : Ref) → Π (xs : List Ref) → List Ref :=
+  λ (ix : Nat) → λ (r : Ref) → λ (xs : List Ref) →
+    match xs motive (λ _ → List Ref)
+      | nil => nil
+      | cons y ys =>
+          (match ix motive (λ _ → List Ref)
+            | 0 => cons r ys
+            | suc ix1 => cons y (repl ix1 r ys))
+
+-- Pointer payload. isG1 and a count of one moves: the env slot becomes
+-- a fresh g0 ref to a dummy nat, and the spent ref is returned.
+-- Otherwise the spent ref is written back into the env (an alias when
+-- the checked grade is still g1 and the count was not one).
+def seePtr : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) →
+    Π (env : List Ref) → Π (ks : List Frame) → Π (ix : Nat) →
+    Π (+ o : Nat) → Π (+ c : Grade) → Π (+ g : Grade) → Π (+ kp : Kept g c) →
+    Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (i : Nat) →
+  λ (env : List Ref) → λ (ks : List Frame) → λ (ix : Nat) →
+  λ (+ o : Nat) → λ (+ c : Grade) → λ (+ g : Grade) → λ (+ kp : Kept g c) →
+    match (isG1 c) motive (λ _ → Maybe Sys)
+      | true =>
+          pass Sys (natEq (count o (refsOfH h ps)) (suc 0))
+            (install (snoc h (nat 0)) ps i
+              (rv (ref o c g kp) (repl ix (freshRef h grade0) env) ks))
+      | false =>
+          install h ps i
+            (rv (ref o c g kp) (repl ix (ref o c g kp) env) ks)
+
+-- A nat is copied onto a fresh omega ref. The env receives the spent ref.
+def seeNat : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (env : List Ref) → Π (ks : List Frame) → Π (ix : Nat) →
+    Π (o : Nat) → Π (c : Grade) → Π (g : Grade) → Π (kp : Kept g c) →
+    Π (num : Nat) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (env : List Ref) → λ (ks : List Frame) → λ (ix : Nat) →
+  λ (o : Nat) → λ (c : Grade) → λ (g : Grade) → λ (kp : Kept g c) →
+  λ (num : Nat) →
+    install (snoc h (nat num)) ps i
+      (rv (freshRef h gradeOmega) (repl ix (ref o c g kp) env) ks)
+
+def seeVal : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (env : List Ref) → Π (ks : List Frame) → Π (ix : Nat) →
+    Π (o : Nat) → Π (c : Grade) → Π (g : Grade) → Π (kp : Kept g c) →
+    Π (mv : Maybe Val) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (env : List Ref) → λ (ks : List Frame) → λ (ix : Nat) →
+  λ (o : Nat) → λ (c : Grade) → λ (g : Grade) → λ (kp : Kept g c) →
+  λ (mv : Maybe Val) →
+    match mv motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just v =>
+          (match v motive (λ _ → Maybe Sys)
+            | nat num => seeNat h ps i env ks ix o c g kp num
+            | suc-up p => seePtr h ps i env ks ix o c g kp
+            | clo rs sc => seePtr h ps i env ks ix o c g kp)
+
+def useVarGo : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (env : List Ref) → Π (ks : List Frame) → Π (ix : Nat) →
+    Π (+ o : Nat) → Π (c : Grade) → Π (g : Grade) → Π (kp : Kept g c) →
+    Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (env : List Ref) → λ (ks : List Frame) → λ (ix : Nat) →
+  λ (+ o : Nat) → λ (c : Grade) → λ (g : Grade) → λ (kp : Kept g c) →
+    match (spend g c kp) motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just sp =>
+          (match sp motive (λ (cc : Grade) → λ (_ : Spent cc) → Maybe Sys)
+            | spent c2 g2 k2 =>
+                seeVal h ps i env ks ix o c2 g2 k2 (payloadAt h o))
+
+def useVar : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (env : List Ref) → Π (ks : List Frame) → Π (ix : Nat) →
+    Π (mr : Maybe Ref) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (env : List Ref) → λ (ks : List Frame) → λ (ix : Nat) →
+  λ (mr : Maybe Ref) →
+    match mr motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just r =>
+          (match r motive (λ _ → Maybe Sys)
+            | ref o c g kp => useVarGo h ps i env ks ix o c g kp)
+
+def useIx : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (+ env : List Ref) → Π (ks : List Frame) → Π (+ ix : Nat) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (+ env : List Ref) → λ (ks : List Frame) → λ (+ ix : Nat) →
+    useVar h ps i env ks ix (lookup Ref ix env)
+
+def retOmega : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (env : List Ref) → Π (ks : List Frame) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (env : List Ref) → λ (ks : List Frame) →
+    install (snoc h (nat 0)) ps i (rv (freshRef h gradeOmega) env ks)
+
+def evalTm : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (-n : Nat) → Π (t : GTm n) → Π (+ env : List Ref) → Π (ks : List Frame) →
+    Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (-n : Nat) → λ (t : GTm n) → λ (+ env : List Ref) → λ (ks : List Frame) →
+    match t motive (λ (m : Nat) → λ (_ : GTm m) → Maybe Sys)
+      | gvar m x => useIx h ps i env ks (finToNat m x)
+      | gtyp m x => retOmega h ps i env ks
+      | gze m => retOmega h ps i env ks
+      | gsu m e => install h ps i (ev m e env (cons su ks))
+      | gapp m f a => install h ps i (ev m f env (cons (ar m a) ks))
+      | gpi m c ty b => retOmega h ps i env ks
+      | glam m c ty b =>
+          pass Sys (notB (anyG1 env))
+            (install (snoc h (clo env (scoped m (glam m c ty b)))) ps i
+              (rv (freshRef h gradeOmega) env ks))
+      | gmatch m e z s =>
+          install h ps i (ev m e env (cons (mt m e z s) ks))
+
+-- Open a clo of a glam. badG1 and anyG1 of the captured env both refuse.
+def betaClo : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) →
+    Π (+ ra : Ref) → Π (env : List Ref) → Π (ks : List Frame) →
+    Π (+ envC : List Ref) → Π (sc : Scoped) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (i : Nat) →
+  λ (+ ra : Ref) → λ (env : List Ref) → λ (ks : List Frame) →
+  λ (+ envC : List Ref) → λ (sc : Scoped) →
+    match sc motive (λ _ → Maybe Sys)
+      | scoped m0 tm =>
+          (match tm motive (λ (k : Nat) → λ (_ : GTm k) → Maybe Sys)
+            | gvar m x => nothing
+            | gtyp m x => nothing
+            | gze m => nothing
+            | gsu m e => nothing
+            | gapp m f a => nothing
+            | gpi m c ty b => nothing
+            | glam m c ty body =>
+                pass Sys (notB (badG1 c (obj ra) (refsOfH h ps)))
+                  (pass Sys (notB (anyG1 envC))
+                    (install h ps i
+                      (ev (suc m) body (cons (regrade ra c) envC)
+                        (cons (bd env) ks))))
+            | gmatch m e z s => nothing)
+
+def betaVal : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (ra : Ref) → Π (env : List Ref) → Π (ks : List Frame) →
+    Π (mv : Maybe Val) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (ra : Ref) → λ (env : List Ref) → λ (ks : List Frame) →
+  λ (mv : Maybe Val) →
+    match mv motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just v =>
+          (match v motive (λ _ → Maybe Sys)
+            | nat num => nothing
+            | suc-up p => nothing
+            | clo envC sc => betaClo h ps i ra env ks envC sc)
+
+def beta : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (ra : Ref) → Π (rf : Ref) → Π (env : List Ref) → Π (ks : List Frame) →
+    Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (ra : Ref) → λ (rf : Ref) → λ (env : List Ref) → λ (ks : List Frame) →
+    match rf motive (λ _ → Maybe Sys)
+      | ref o c g kp => betaVal h ps i ra env ks (payloadAt h o)
+
+def onSucAt : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (env : List Ref) → Π (n : Nat) → Π (s : GTm suc(n)) →
+    Π (ks : List Frame) → Π (+ pred : Ref) → Π (+ pg : Grade) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (env : List Ref) → λ (n : Nat) → λ (s : GTm suc(n)) →
+  λ (ks : List Frame) → λ (+ pred : Ref) → λ (+ pg : Grade) →
+    pass Sys (notB (badG1 pg (obj pred) (refsOfH h ps)))
+      (install (setPayload h o (nat 0)) ps i
+        (ev (suc n) s (cons (regrade pred pg) env) ks))
+
+def onSuc : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (+ env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (s : GTm suc(n)) → Π (ks : List Frame) → Π (pred : Ref) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (+ env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (s : GTm suc(n)) → λ (ks : List Frame) → λ (pred : Ref) →
+    onSucAt h ps i o env n s ks pred (predComp env n e)
+
+def onPayload : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (z : GTm n) → Π (s : GTm suc(n)) → Π (ks : List Frame) →
+    Π (mv : Maybe Val) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (z : GTm n) → λ (s : GTm suc(n)) → λ (ks : List Frame) →
+  λ (mv : Maybe Val) →
+    match mv motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just v =>
+          (match v motive (λ _ → Maybe Sys)
+            | nat num =>
+                (match num motive (λ _ → Maybe Sys)
+                  | 0 => install h ps i (ev n z env ks)
+                  | suc num1 => nothing)
+            | suc-up pred => onSuc h ps i o env n e s ks pred
+            | clo rs sc => nothing)
+
+def onMatch : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (r : Ref) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (z : GTm n) → Π (s : GTm suc(n)) → Π (ks : List Frame) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (r : Ref) → λ (env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (z : GTm n) → λ (s : GTm suc(n)) → λ (ks : List Frame) →
+    match r motive (λ _ → Maybe Sys)
+      | ref o c g kp => onPayload h ps i o env n e z s ks (payloadAt h o)
+
+-- saved is resumed by the process layer, not by eval1.
+def evalRet : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (r : Ref) → Π (env : List Ref) → Π (ks : List Frame) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (r : Ref) → λ (env : List Ref) → λ (ks : List Frame) →
+    match ks motive (λ _ → Maybe Sys)
+      | nil => nothing
+      | cons f fs =>
+          (match f motive (λ _ → Maybe Sys)
+            | ar n a => install h ps i (ev n a env (cons (fn r) fs))
+            | fn rf => beta h ps i r rf env fs
+            | su =>
+                install (snoc h (suc-up r)) ps i
+                  (rv (freshRef h gradeOmega) env fs)
+            | mt n e z s => onMatch h ps i r env n e z s fs
+            | bd env0 => install h ps i (rv r env0 fs)
+            | saved cd => nothing)
+
+def evalHere : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (c : Ctl) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (c : Ctl) →
+    match c motive (λ _ → Maybe Sys)
+      | idle => nothing
+      | ev n t env ks => evalTm h ps i n t env ks
+      | rv r env ks => evalRet h ps i r env ks
+      | pr cd => nothing
+
+def eval1At : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (mp : Maybe Proc) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (mp : Maybe Proc) →
+    match mp motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just p =>
+          (match p motive (λ _ → Maybe Sys)
+            | proc pid st rs mb c => evalHere h ps i c)
+
+def eval1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Sys :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps => eval1At h ps i (lookup Proc i ps)
+
+-- Fuel-bounded evaluation at process 0. Structural on the fuel.
+def runFor : run Π (fuel : Nat) → Π (+ s : Sys) → Sys :=
+  λ (fuel : Nat) → λ (+ s : Sys) →
+    match fuel motive (λ _ → Sys)
+      | 0 => s
+      | suc n =>
+          (match (eval1 s 0) motive (λ _ → Sys)
+            | nothing => s
+            | just t => runFor n t)
+
+def anyG1-nil : evidence {anyG1 nil ≡ false : Bool} := refl
+
+def anyG1-g1 : evidence {anyG1 (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) ≡ true : Bool} := refl
+
+def anyG1-omega : evidence {anyG1 (cons (ref 0 gradeOmega gradeOmega (selfKept gradeOmega)) nil) ≡ false : Bool} := refl
+
+def fresh-kept : evidence Π (h : List Obj) → Π (g : Grade) →
+    {keptOf (freshRef h g) ≡ kept-at g g (selfKept g) : KeptAt} :=
+  λ (h : List Obj) → λ (g : Grade) → refl
+
+def badG1-alias : evidence Π (o : Nat) → Π (g : Grade) → Π (k : Kept g grade1) →
+    {badG1 grade1 o (cons (ref o grade1 g k) (cons (ref o grade1 g k) nil)) ≡ true : Bool} :=
+  λ (o : Nat) → λ (g : Grade) → λ (k : Kept g grade1) →
+    rewrite natEq-refl o motive (λ z → {andB (isG1 grade1) (notB (natEq (bump z (bump z 0)) (suc 0))) ≡ true : Bool}) in
+    refl
+
+def badG1-unique : evidence Π (o : Nat) → Π (g : Grade) → Π (k : Kept g grade1) →
+    {badG1 grade1 o (cons (ref o grade1 g k) nil) ≡ false : Bool} :=
+  λ (o : Nat) → λ (g : Grade) → λ (k : Kept g grade1) →
+    rewrite natEq-refl o motive (λ z → {andB (isG1 grade1) (notB (natEq (bump z 0) (suc 0))) ≡ false : Bool}) in
+    refl
+
+def badG1-omega : evidence Π (o : Nat) → Π (rs : List Ref) →
+    {badG1 gradeOmega o rs ≡ false : Bool} :=
+  λ (o : Nat) → λ (rs : List Ref) → refl
+
+def noRef : run Maybe Ref := nothing
+
+def gradeAt-none : evidence {gradeAt noRef ≡ aff : Grade} := refl
+
+def predComp-ze : evidence Π (env : List Ref) → Π (n : Nat) →
+    {predComp env n (gze n) ≡ aff : Grade} :=
+  λ (env : List Ref) → λ (n : Nat) → refl
+
+def predComp-var : evidence Π (o : Nat) → Π (c : Grade) → Π (g : Grade) → Π (k : Kept g c) →
+    {predComp (cons (ref o c g k) nil) (suc 0) (gvar (suc 0) (fzero 0)) ≡ c : Grade} :=
+  λ (o : Nat) → λ (c : Grade) → λ (g : Grade) → λ (k : Kept g c) → refl
+
+-- The dynamic environment realises the syntactic context.
+-- The head ref is built with checked grade g, so the book does not
+-- store a call to `checked` in the constructor.
+data EgIx : Type where
+  egix : Π (n : Nat) → Vec Grade n → List Ref → EgIx
+
+data EnvGrades : EgIx → Type where
+  eg-nil : EnvGrades (egix 0 vnil nil)
+  eg-cons : Π (n : Nat) → Π (g : Grade) → Π (gs : Vec Grade n) →
+            Π (o : Nat) → Π (r : Grade) → Π (k : Kept r g) →
+            Π (rs : List Ref) →
+            EnvGrades (egix n gs rs) →
+            EnvGrades (egix (suc n) (vcons n g gs) (cons (ref o g r k) rs))
+
+def sharp-env : evidence Π (-i : EgIx) → Π (p : EnvGrades i) →
+    (match i motive (λ _ → Type)
+      | egix n ctx rs => {g1InScope n ctx ≡ anyG1 rs : Bool}) :=
+  λ (-i : EgIx) → λ (p : EnvGrades i) →
+    match p motive (λ (j : EgIx) → λ (_ : EnvGrades j) →
+        match j motive (λ _ → Type)
+          | egix n ctx rs => {g1InScope n ctx ≡ anyG1 rs : Bool})
+      | eg-nil => refl
+      | eg-cons n g gs o r k rs rest =>
+          rewrite sharp-env (egix n gs rs) rest
+            motive (λ z → {orB (isG1 g) z ≡ orB (isG1 g) (anyG1 rs) : Bool}) in
+          refl
+
+-- Where the fragment allows a closure, anyG1 of a realising environment
+-- is false. Agda's capture-check-clear is this fact under an InB
+-- hypothesis; glamSharp reads that hypothesis, and lam-clear is the step.
+def lam-clear : evidence Π (n : Nat) → Π (ctx : Vec Grade n) → Π (rs : List Ref) →
+    Π (sharp : NoG1 (ngix n ctx)) → Π (eg : EnvGrades (egix n ctx rs)) →
+    {anyG1 rs ≡ false : Bool} :=
+  λ (n : Nat) → λ (ctx : Vec Grade n) → λ (rs : List Ref) →
+  λ (sharp : NoG1 (ngix n ctx)) → λ (eg : EnvGrades (egix n ctx rs)) →
+    rewrite sym Bool (g1InScope n ctx) (anyG1 rs) (sharp-env (egix n ctx rs) eg)
+      motive (λ z → {z ≡ false : Bool}) in
+    rewrite noG1-sound n ctx sharp
+      motive (λ z → {z ≡ false : Bool}) in
+    refl
+
+-- A motive on indexed GTm cannot return the literal Type: the checker
+-- infers that codomain, and Type has no type. isLam returns a Bool.
+-- CapRes is a small family. At a glam index it stores the NoG1 that
+-- ib-lam already carries. Other constructors store nothing.
+def isLam : run Π (n : Nat) → Π (t : GTm n) → Bool :=
+  λ (n : Nat) → λ (t : GTm n) →
+    match t motive (λ (k : Nat) → λ (_ : GTm k) → Bool)
+      | gvar m x => false
+      | gtyp m x => false
+      | gze m => false
+      | gsu m e => false
+      | gapp m f a => false
+      | gpi m c0 ty0 b0 => false
+      | glam m c0 ty0 b0 => true
+      | gmatch m e z s => false
+
+data CapIx : Type where
+  capix : Π (z : Bool) → Π (n : Nat) → Vec Grade n → CapIx
+
+data CapRes : CapIx → Type where
+  cap-no : Π (n : Nat) → Π (d : Vec Grade n) → CapRes (capix false n d)
+  cap-yes : Π (n : Nat) → Π (d : Vec Grade n) → NoG1 (ngix n d) →
+            CapRes (capix true n d)
+
+def packLam : evidence Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) →
+    Π (ty : Grade) → Π (b : GTm suc(n)) →
+    Π (p : InB (ix n ctx (glam n c ty b))) → CapRes (capix true n ctx) :=
+  λ (n : Nat) → λ (ctx : Vec Grade n) → λ (c : Grade) →
+  λ (ty : Grade) → λ (b : GTm suc(n)) →
+  λ (p : InB (ix n ctx (glam n c ty b))) →
+    match p motive (λ (j : Ix) → λ (_ : InB j) →
+        match j motive (λ _ → Type)
+          | ix m d tm => CapRes (capix (isLam m tm) m d))
+      | ib-var m d x g lk nz => cap-no m d
+      | ib-typ m d x => cap-no m d
+      | ib-ze m d => cap-no m d
+      | ib-su m d e q => cap-no m d
+      | ib-app m d f a pf pa => cap-no m d
+      | ib-pi m d c1 ty1 b1 q => cap-no m d
+      | ib-lam m d c1 ty1 b1 sharp q => cap-yes m d sharp
+      | ib-mat m d e z s g pr pe pz ps => cap-no m d
+
+def fromCap : evidence Π (n : Nat) → Π (d : Vec Grade n) →
+    Π (p : CapRes (capix true n d)) → NoG1 (ngix n d) :=
+  λ (n : Nat) → λ (d : Vec Grade n) → λ (p : CapRes (capix true n d)) →
+    match p motive (λ (i : CapIx) → λ (_ : CapRes i) →
+        match i motive (λ _ → Type)
+          | capix z m d1 =>
+              match z motive (λ _ → Type)
+                | true => NoG1 (ngix m d1)
+                | false => {true ≡ true : Bool})
+      | cap-no m d1 => refl
+      | cap-yes m d1 sharp => sharp
+
+def glamSharp : evidence Π (n : Nat) → Π (ctx : Vec Grade n) → Π (c : Grade) →
+    Π (ty : Grade) → Π (b : GTm suc(n)) →
+    Π (p : InB (ix n ctx (glam n c ty b))) → NoG1 (ngix n ctx) :=
+  λ (n : Nat) → λ (ctx : Vec Grade n) → λ (c : Grade) →
+  λ (ty : Grade) → λ (b : GTm suc(n)) →
+  λ (p : InB (ix n ctx (glam n c ty b))) →
+    fromCap n ctx (packLam n ctx c ty b p)
+
+def capture-check-clear : evidence Π (n : Nat) → Π (ctx : Vec Grade n) →
+    Π (c : Grade) → Π (ty : Grade) → Π (b : GTm suc(n)) → Π (rs : List Ref) →
+    Π (ib : InB (ix n ctx (glam n c ty b))) →
+    Π (eg : EnvGrades (egix n ctx rs)) →
+    {anyG1 rs ≡ false : Bool} :=
+  λ (n : Nat) → λ (ctx : Vec Grade n) →
+  λ (c : Grade) → λ (ty : Grade) → λ (b : GTm suc(n)) → λ (rs : List Ref) →
+  λ (ib : InB (ix n ctx (glam n c ty b))) →
+  λ (eg : EnvGrades (egix n ctx rs)) →
+    lam-clear n ctx rs (glamSharp n ctx c ty b ib) eg
+
+def closed-lam-clear : evidence Π (c : Grade) → Π (ty : Grade) → Π (b : GTm (suc 0)) →
+    Π (ib : InB (ix 0 vnil (glam 0 c ty b))) →
+    {anyG1 nil ≡ false : Bool} :=
+  λ (c : Grade) → λ (ty : Grade) → λ (b : GTm (suc 0)) →
+  λ (ib : InB (ix 0 vnil (glam 0 c ty b))) →
+    capture-check-clear 0 vnil c ty b nil ib eg-nil

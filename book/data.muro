@@ -42,6 +42,12 @@ def andB : run Π (a : Bool) → Π (b : Bool) → Bool :=
       | true => b
       | false => false
 
+def notB : run Π (b : Bool) → Bool :=
+  λ (b : Bool) →
+    match b motive (λ _ → Bool)
+      | true => false
+      | false => true
+
 def both : run Π (p : Answer) → Π (q : Answer) → Answer :=
   λ (p : Answer) → λ (q : Answer) →
     match p motive (λ _ → Answer)
