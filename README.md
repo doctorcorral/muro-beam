@@ -25,7 +25,7 @@ import beam "muro-beam-boundary"
 def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
 ```
 
-That import is not a muro term in this repository. The pure Muro mirror of the boundary is the book in [`book/`](book/). It is checked with muro 0.20.33. It defines the grades, the terms, the boundary check, the runtime data, the heap operations `alloc`, `deref` / `spend`, `send`, and `reuse`, one CEK step (`eval1`, and `runFor` on fuel), and total ordered `collect`. It receives (`recvRoot`, and `recv1`, which parks on an empty inbox), spawns (`spawn1`, with `emit1` and `deliver1`), and schedules one `Step` or `PStep` at a time. The in-boundary `trip` runs spawn, emit a grade-1 reference, deliver, and recv, and emits `List Event`. `cex` is refused by `inBoundary` and, once lowered, `eval1` gets stuck after `runFor 6`. The book is not yet compared event by event with the Agda model: the model does not emit `Event`, and there is no MAlonzo job. The plan is [docs/RUNTIME-BOOK.md](docs/RUNTIME-BOOK.md).
+That import is not a muro term in this repository. The pure Muro mirror of the boundary is the book in [`book/`](book/). It is checked with muro 0.20.33. It defines the grades, the terms, the boundary check, the runtime data, the heap operations `alloc`, `deref` / `spend`, `send`, and `reuse`, one CEK step (`eval1`, and `runFor` on fuel), and total ordered `collect`. It receives (`recvRoot`, and `recv1`, which parks on an empty inbox), spawns (`spawn1`, with `emit1` and `deliver1`), and schedules one `Step` or `PStep` at a time. The in-boundary `trip` runs spawn, emit a grade-1 reference, deliver, and recv, and emits `List Event`. `cex` is refused by `inBoundary` and, once lowered, `eval1` gets stuck after `runFor 6`. `MuroBeam.Event` and `MuroBeam.Emit` emit the same events. `make conformance` runs both sides on `trip`, the `cex` refusal, and one alloc, deref, send, eval, and collect step. The lists match. That is the executable image for those examples. The plan is [docs/RUNTIME-BOOK.md](docs/RUNTIME-BOOK.md).
 
 See [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -40,6 +40,8 @@ make agda
 ```
 
 `make agda` checks `agda/MuroBeam.agda` with `--safe` and `--no-libraries`. `make audit` rejects `postulate`, termination pragmas, holes, and an `OPTIONS` line without `--safe`. `vendor/agda-stdlib` is gitignored.
+
+`make conformance` compiles `MuroBeam.Conform` with `agda --ghc --safe` (`+RTS -M3G -A64M -RTS`, `-O0`) and diffs the binary against `book/show.muro`. It needs Agda, GHC, Elixir, and the muro 0.20.33 archive. The Haskell driver is `scripts/conform.py`. It is not an Agda file, so the audit still sees only `--safe` modules.
 
 `make book` checks the Muro book with `mix muro.check`. The archive is muro 0.20.33 from Hex, not the Agda pin above. [`docs/RUNTIME-BOOK.md`](docs/RUNTIME-BOOK.md) records both pins.
 

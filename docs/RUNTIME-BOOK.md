@@ -8,7 +8,21 @@ Ricardo approved the plan on 2026-11-12, with the four amendments below, and app
 
 ## What this part does not claim
 
-This book is not the executable image of the proved specification. That phrase waits on a conformance test that compares traces event by event and finds that they match. The book now emits `List Event`. The Agda model has no `Event` type and no emitter, and `agda/` is unchanged in this part, so compiling the current modules with MAlonzo cannot produce a trace to compare. This part does not add a GHC job. `eval1` still returns `Maybe Sys`. `collect` still returns `Sys`. The events are built by the wrappers in `book/emit.muro`.
+For seven closed examples, this book is an executable image of the Agda emitter. `make conformance` compiles `MuroBeam.Conform` with `agda --ghc --safe` and diffs the MAlonzo binary against the strings `book/show.muro` normalises. The CI job `malonzo conformance` runs that command and fails if a line differs. The lists match:
+
+```
+trip: just [tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-recv 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))]
+stuck: nothing
+alloc: just [tr-alloc 0 pt(fin(1))]
+deref: just [tr-spend 0 pt(fin(1)) pt(fin(0))]
+send: just [tr-send 0 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove]
+step: just [tr-step 0]
+collect: ran [tr-collect(0)]
+```
+
+`trip` is `emitPops` of spawn, emit, deliver, and recv on `s0`. `stuck` is `eval1` after `runFor 6` of the lowered `cexApp`. Both sides refuse, and the line is `nothing`: the run is not a trace, so no events are printed for it. `alloc`, `deref`, `send`, `step`, and `collect` are the one-step pins in `book/emit.muro`. `collect` is total, so that line says `ran`. Ignore, flush, and await are not in the comparison. A wrapper is still not proved equal to its operation for an arbitrary system. `eval1` still returns `Maybe Sys`. `collect` still returns `Sys`. The events are built by the wrappers.
+
+`MuroBeam.Event`, `MuroBeam.Emit`, and `MuroBeam.Conform` are `--safe` and have no postulates. The umbrella imports them and does not open them. `PRun`, `Process`, `Collect`, `Example`, and `Lower` are unchanged. The harness does not import `Example` or `Lower`, because both reach `Unique`, and it does not import `PExample`, `Stray`, or `PWf`. The cex term is copied. `lower` is the one-process system written out.
 
 The boolean checks and the proof predicate are not proved equivalent in general. `once` is accepted by `inBoundary` and inhabits `InB`, and `inBoundary-to-noEscape` sends that proof to `NoEsc`. `cex` is refused by the boolean check. A theorem that `inBoundary t ≡ yes` if and only if an `InB` proof exists is not in this book.
 
@@ -39,7 +53,7 @@ Part 4 is weaker than Agda in the same way. The Agda text is unchanged.
 - The wrappers call the operations. There is no quantified equation that an emitting wrapper agrees with the operation for every system: a neutral `Maybe` does not match, so that equation is not `refl`. The pins are the systems that reduce (`trip-trace`, `emit-deref-g1`, `emit-alloc0`, `emit-send-g1`, `emit-reuse`, `emit-ze`, `emit-collect-free`, `emit-recv-one`, and the copy and refusal traces).
 - `spawn-preserves-grade1`, `lowerP-safe`, and `residual-inv-step` are not restated. Every `Ref` still stores `Kept`.
 
-The conformance comparison is the follow-up, not this part. The book side of `trip` emits `[tr-spawn 0 1, tr-send 1 0 ρ Kmove, tr-recv 0 ρ]`. A later change adds an Agda emitter for that list and for one alloc, deref, send, eval, and collect example, compiles it with `agda --ghc --safe` under `+RTS -M3G -A64M -RTS`, and compares the lists. The driver should import `PRun`, not `PExample`, because `PExample` imports `Stray`. Local `agda` is 2.8.0 and local `ghc` is 9.12.2. This part did not ask either to compile the model. Until that comparison is in CI, or in a script CI runs, and the lists match, the book is not an executable image.
+The conformance comparison is `make conformance`, described above. The book side of `trip` is the first line. `ρ` prints as `ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))`, which is `selfKept grade1`. The driver imports `PRun`, not `PExample`. Local `agda` is 2.8.0 and local `ghc` is 9.12.2. CI uses Agda 2.8.0 and GHC 9.8.4. The phrase above is only for those seven examples.
 
 A book lemma that shares an Agda name is a shape or an example the wall can check, not the Agda theorem, unless the equation really is the same closed statement. `trip-spawn` is `spawn1 s0 0 ≡ just s1` on the `trip` systems. `ex-cex-stuck` is `eval1 (runFor 6 (lowerTm 0 cexApp)) 0 ≡ nothing`. See the weaker-than-Agda lists above.
 
@@ -47,7 +61,7 @@ A book lemma that shares an Agda name is a shape or an example the wall can chec
 
 ### 1. The book and the Agda model meet in a conformance test
 
-The link is a test, not a slogan. Both sides will be run on the same closed terms. Until the traces match, docs do not call the book an executable image.
+The link is a test, not a slogan. Both sides run on the same closed terms. For the seven examples above, the traces match, and that is the executable image. It is not a claim about an arbitrary system.
 
 Shared examples, encoded in `book/smoke.muro`:
 
@@ -55,7 +69,7 @@ Shared examples, encoded in `book/smoke.muro`:
 - `cex` is the §2B term from `MuroBeam.Example`. Agda writes `glam g1 g0 (gapp (glam gω g0 (gapp (gvar fzero) (gvar fzero))) (glam aff g0 (gvar (fsuc fzero))))`. The inner application sits at scope 2. `fzero (suc 0)` is the inner binder. `fsuc (suc 0) (fzero 0)` is de Bruijn 1, the outer grade-1 binder.
 - `ghost`, `glam g0 g0 (gvar 0)`, is the witness that the converse fails. `inBoundary` returns `no` and `noEscape` returns `yes`. Agda does not claim the converse either.
 
-`book/trace.muro` fixes the event datatype. This part emits `List Event` from the book. The Agda side does not emit it yet.
+`book/trace.muro` fixes the event datatype. The book and `MuroBeam.Event` both emit `List Event` with these fields.
 
 | Event | Fields |
 | --- | --- |
@@ -107,7 +121,7 @@ Later parts follow this rule.
 | 1 (merged, PR #6) | Boundary mirror, runtime data, this plan, smoke, CI. |
 | 2 (merged, PR #7) | `alloc`, `deref` / `spend`, `send` that moves a finite grade and copies `omega` and every `iv`, and `reuse`. Residual and grade-1 evidence the checker can express. Smoke for the accepted steps and the refusals. |
 | 3 (merged, PR #8) | One CEK step (`eval1`, `runFor`), and total ordered `collect`. |
-| 4 (this book) | `recv`, `spawn`, scheduling. The in-boundary `trip`. The out-of-boundary term refused by `runFor` / `eval1`. Emission of `List Event`. The MAlonzo comparison is the follow-up named above. |
+| 4 (this book) | `recv`, `spawn`, scheduling. The in-boundary `trip`. The out-of-boundary term refused by `runFor` / `eval1`. Emission of `List Event`. The MAlonzo comparison is `make conformance`. |
 
 ## Two pins
 
@@ -137,6 +151,7 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 | `book/emit.muro` | Emitting wrappers and `emitPops`. A run is `ran : Sys → List Event → Run`. |
 | `book/trip.muro` | The `trip` schedule, the copy and ignore pins, and the refusals. |
 | `book/smoke.muro` | `once`, `cex`, `ghost`, `cexApp`, `ex-cex-stuck`, and the import of `trip.muro`. |
+| `book/show.muro` | The conformance printer. It imports `smoke.muro`. `make book` does not import it. `scripts/book_show.exs` normalises the seven `show-*` definitions. |
 
 `beamGrade` reads `pt (fin 0)` as `g0`, `pt (fin 1)` as `g1`, `pt inf` as `omega`, and every `iv`, including `aff`, as `omega`. `pt (fin n)` for `n ≥ 2` is `nothing`. The checked equations are `beam-g0`, `beam-g1`, `beam-omega`, `beam-iv`, and `beam-fin2`. `kind` is the same three send behaviours: `g0-not-sent`, `g1-moved`, `omega-copied`, `iv-copied`.
 
@@ -197,4 +212,4 @@ These are checker limits. The Agda statements are not weakened to fit them, and 
 - There is no inversion of `Maybe`. A premise `{spendRef r ≡ just r'}`, `{rootAt s i j ≡ just r}`, or `{reuse s i j g v ≡ just t}` does not refine `r` or `t`. The book states the shapes that reduce, and it states `alloc-ordered` and `reuse-ordered` for the heap operations those steps perform.
 - A `match` motive that ignores its argument leaves a `poke` or an `append` stuck on a variable index, so the branch type does not convert. The motive has to mention the index, as `pokeOrd` does. This is how the ordered proofs are written. It is not a missing lemma.
 
-Part 4 is the receive, spawn, scheduling, `trip`, running refusal, and emission above. The MAlonzo comparison is the follow-up named under "What this part does not claim". The totality rule is unchanged.
+Part 4 is the receive, spawn, scheduling, `trip`, running refusal, and emission above. The MAlonzo comparison is the seven lines under "What this part does not claim". The totality rule is unchanged.
