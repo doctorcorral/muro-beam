@@ -532,7 +532,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 
 ## Runtime book
 
-`book/` is a Muro mirror of this boundary, of the runtime data, and of the heap operations `alloc`, `deref`, `send`, and `reuse`. muro 0.20.33 checks it. The Agda development above is unchanged and remains the proof. The plan, the totality rule, and what the mirror does not claim are in [RUNTIME-BOOK.md](RUNTIME-BOOK.md).
+`book/` is a Muro mirror of this boundary, of the runtime data, of the heap operations `alloc`, `deref`, `send`, and `reuse`, of one CEK step (`eval1`), and of total ordered `collect`. muro 0.20.33 checks it. The Agda development above is unchanged and remains the proof. The plan, the totality rule, and what the mirror does not claim are in [RUNTIME-BOOK.md](RUNTIME-BOOK.md).
 
 ## Goals beyond v0
 
