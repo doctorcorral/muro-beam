@@ -5,14 +5,15 @@
 # with the checker's :run unfold then reduces each closed run String.
 # A string normal form is {:slit, binary}. Anything else is a failure.
 #
-# stdout is the seven lines and nothing else. Timing goes to stderr.
+# stdout is the show-* lines and nothing else. Timing goes to stderr.
 # Fuel is per definition, so one term cannot spend the others' budget.
+# show-wide is the printer check (overflow, then ten at fuel 8).
 
 path = Path.expand("book/show.muro")
 check_fuel = 20_000
 norm_fuel = 200_000
 
-names = ~w(show-trip show-stuck show-alloc show-deref show-send show-step show-collect)
+names = ~w(show-trip show-stuck show-alloc show-deref show-send show-step show-collect show-wide)
 
 case Muro.Load.file(path, fuel: check_fuel) do
   {:error, msg} ->

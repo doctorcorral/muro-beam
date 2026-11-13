@@ -4,46 +4,54 @@
 -- The strings are the encoding in book/show.muro. Nothing here is a
 -- proof: the Haskell driver prints `report`, and the book prints the
 -- same lines by normalising its show definitions. A refusal is the
--- word nothing. A successful Maybe Run is just and the events. collect
--- is total, so that line is ran.
+-- word nothing, with no fingerprint. A successful Maybe Run is just,
+-- the events, and a post-state fingerprint. collect is total, so that
+-- line is ran.
 --
--- Example and Lower are not imported. Both reach Unique. The cex term
--- is copied from Example, and lower is the three-line system Lower
--- builds for one closed term. PExample, Stray, and PWf stay out.
+-- The fingerprint is h<heap length>l<live cells>p<process count>.
+-- It is not the system. Success lines still do not compare payloads,
+-- grades, or control.
+--
+-- Example, Lower, Unique, PExample, Stray, and PWf are not imported.
+-- The closed cex term and lowerTm live in MuroBeam.Cex.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
 
 module MuroBeam.Conform where
 
-open import Data.Fin.Base using () renaming (zero to fzero; suc to fsuc)
-open import Data.List.Base using (List; []; _∷_)
+open import Data.Fin.Base using () renaming (zero to fzero)
+open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _≤_; z≤n; s≤s)
 open import Data.String.Base using (String; _++_)
 
 open import Muro.Grade using
-  ( Grade; Point; fin; inf; pt; iv; g0; g1; gω; aff
-  ; GTm; gvar; glam; gapp; gze )
+  ( Grade; Point; fin; inf; pt; iv; g0; g1
+  ; GTm; gapp; gze )
 
+open import MuroBeam.Cex using (cex; lowerTm)
 open import MuroBeam.Emit using
   ( Run; ran; Pop; pop-spawn; pop-emit; pop-deliver; pop-recv
   ; emitPops; emitAlloc; emitDeref; emitSendRoot; emitEval; emitCollect )
 open import MuroBeam.Event using
   ( Event; tr-alloc; tr-spend; tr-send; tr-recv; tr-spawn; tr-step; tr-collect )
 open import MuroBeam.Grade using (Kept; fin-kept; ω-kept; iv-kept; selfKept; Kind; Kmove; Kcopy)
-open import MuroBeam.Heap using (Obj; cell; Val; nat; Status; live; Ref; ref)
+open import MuroBeam.Heap using (Obj; cell; nat; live; free; Ref; ref)
 open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; go)
 open import MuroBeam.Process using (Sys; sys; proc; ready; idle; ev; pr; eval1; runFor)
 
 ------------------------------------------------------------------------
 -- Decimal, same division as book/show.muro. Eight digits is enough
--- for these examples. Data.Nat.Show is not used: its text is not the
--- book's, and this walk stays on Data.Nat.Base.
+-- for these examples. Fuel exhaustion, a remainder past 9, and a
+-- digit past 9 print overflow, not a truncated or empty numeral.
+-- Data.Nat.Show is not used: its text is not the book's, and this
+-- walk stays on Data.Nat.Base.
 ------------------------------------------------------------------------
 
 data Dig : Set where
   dig : ℕ → ℕ → Dig
+  over : Dig
 
 bump : ℕ → ℕ → Dig
 bump q zero = dig q (suc zero)
@@ -56,44 +64,65 @@ bump q (suc (suc (suc (suc (suc (suc zero)))))) = dig q (suc (suc (suc (suc (suc
 bump q (suc (suc (suc (suc (suc (suc (suc zero))))))) = dig q (suc (suc (suc (suc (suc (suc (suc (suc zero))))))))
 bump q (suc (suc (suc (suc (suc (suc (suc (suc zero)))))))) = dig q (suc (suc (suc (suc (suc (suc (suc (suc (suc zero)))))))))
 bump q (suc (suc (suc (suc (suc (suc (suc (suc (suc zero))))))))) = dig (suc q) zero
-bump q (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = dig q zero
+bump q (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = over
 
 div10 : ℕ → Dig
 div10 zero = dig zero zero
 div10 (suc n) = add1 (div10 n)
   where
   add1 : Dig → Dig
+  add1 over = over
   add1 (dig q r) = bump q r
 
--- Eight successors. A longer number prints no digits on both sides.
+-- Eight successors. A longer number prints overflow on both sides.
 shFuel : ℕ
 shFuel = suc (suc (suc (suc (suc (suc (suc (suc zero)))))))
 
-digits : ℕ → ℕ → List ℕ
-digits zero _ = []
+consDigit : ℕ → Maybe (List ℕ) → Maybe (List ℕ)
+consDigit _ nothing = nothing
+consDigit r (just xs) = just (r ∷ xs)
+
+digits : ℕ → ℕ → Maybe (List ℕ)
+digits zero _ = nothing
 digits (suc f) n with div10 n
-... | dig zero r = r ∷ []
-... | dig (suc k) r = r ∷ digits f (suc k)
+... | over = nothing
+... | dig zero r = just (r ∷ [])
+... | dig (suc k) r = consDigit r (digits f (suc k))
 
-showDigit : ℕ → String
-showDigit zero = "0"
-showDigit (suc zero) = "1"
-showDigit (suc (suc zero)) = "2"
-showDigit (suc (suc (suc zero))) = "3"
-showDigit (suc (suc (suc (suc zero)))) = "4"
-showDigit (suc (suc (suc (suc (suc zero))))) = "5"
-showDigit (suc (suc (suc (suc (suc (suc zero)))))) = "6"
-showDigit (suc (suc (suc (suc (suc (suc (suc zero))))))) = "7"
-showDigit (suc (suc (suc (suc (suc (suc (suc (suc zero)))))))) = "8"
-showDigit (suc (suc (suc (suc (suc (suc (suc (suc (suc zero))))))))) = "9"
-showDigit (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = "bad"
+showDigit : ℕ → Maybe String
+showDigit zero = just "0"
+showDigit (suc zero) = just "1"
+showDigit (suc (suc zero)) = just "2"
+showDigit (suc (suc (suc zero))) = just "3"
+showDigit (suc (suc (suc (suc zero)))) = just "4"
+showDigit (suc (suc (suc (suc (suc zero))))) = just "5"
+showDigit (suc (suc (suc (suc (suc (suc zero)))))) = just "6"
+showDigit (suc (suc (suc (suc (suc (suc (suc zero))))))) = just "7"
+showDigit (suc (suc (suc (suc (suc (suc (suc (suc zero)))))))) = just "8"
+showDigit (suc (suc (suc (suc (suc (suc (suc (suc (suc zero))))))))) = just "9"
+showDigit (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = nothing
 
-revDigits : List ℕ → String
-revDigits [] = ""
-revDigits (d ∷ rest) = revDigits rest ++ showDigit d
+revDigits : List ℕ → Maybe String
+revDigits [] = just ""
+revDigits (d ∷ rest) with showDigit d
+... | nothing = nothing
+... | just ch with revDigits rest
+... | nothing = nothing
+... | just pre = just (pre ++ ch)
+
+showText : Maybe String → String
+showText nothing = "overflow"
+showText (just s) = s
+
+forceRev : Maybe (List ℕ) → Maybe String
+forceRev nothing = nothing
+forceRev (just xs) = revDigits xs
+
+showAt : ℕ → ℕ → String
+showAt f n = showText (forceRev (digits f n))
 
 showℕ : ℕ → String
-showℕ n = revDigits (digits shFuel n)
+showℕ n = showAt shFuel n
 
 showPoint : Point → String
 showPoint (fin n) = "fin(" ++ showℕ n ++ ")"
@@ -149,17 +178,28 @@ showBody (e ∷ rest) = showEvent e ++ showTail rest
 showEvents : List Event → String
 showEvents es = "[" ++ showBody es ++ "]"
 
+-- Heap length, live cells, process count. Not payloads or control.
+liveCount : List Obj → ℕ
+liveCount [] = zero
+liveCount (cell _ live ∷ os) = suc (liveCount os)
+liveCount (cell _ free ∷ os) = liveCount os
+
+showFp : Sys → String
+showFp (sys h ps) =
+  "h" ++ showℕ (length h) ++ "l" ++ showℕ (liveCount h) ++ "p" ++ showℕ (length ps)
+
 showMaybe : Maybe Run → String
 showMaybe nothing = "nothing"
-showMaybe (just (ran _ es)) = "just " ++ showEvents es
+showMaybe (just (ran s es)) = "just " ++ showEvents es ++ " " ++ showFp s
 
 showRan : Run → String
-showRan (ran _ es) = "ran " ++ showEvents es
+showRan (ran s es) = "ran " ++ showEvents es ++ " " ++ showFp s
 
--- eval1 returns a system, not a trace. just carries no events.
+-- eval1 returns a system, not a trace. just carries the fingerprint.
+-- nothing is a refusal and stays the word nothing.
 showStuck : Maybe Sys → String
 showStuck nothing = "nothing"
-showStuck (just _) = "just"
+showStuck (just s) = "just " ++ showFp s
 
 line : String → String → String
 line name body = name ++ ": " ++ body ++ "\n"
@@ -215,18 +255,8 @@ lone : Sys
 lone = sys tripH0 (proc zero ready [] [] idle ∷ [])
 
 ------------------------------------------------------------------------
--- cex, copied from Example. One process, empty heap, empty env.
+-- cex, from MuroBeam.Cex. One process, empty heap, empty env.
 ------------------------------------------------------------------------
-
-lowerTm : ∀ {n} → GTm n → Sys
-lowerTm t = sys [] (proc zero ready [] [] (ev t [] []) ∷ [])
-
-cex : GTm zero
-cex =
-  glam g1 g0
-    (gapp
-      (glam gω g0 (gapp (gvar fzero) (gvar fzero)))
-      (glam aff g0 (gvar (fsuc fzero))))
 
 cexApp : GTm zero
 cexApp = gapp cex gze
@@ -238,7 +268,32 @@ stuckRun : Maybe Sys
 stuckRun = eval1 (runFor fuel6 (lowerTm cexApp)) zero
 
 ------------------------------------------------------------------------
--- Seven lines. The driver prints this and nothing else.
+-- Printer check. Fuel 8 cannot show a nine-digit nat, and a unary
+-- 10^8 is not normalised. ten is two digits, so fuel 1 exhausts.
+-- Remainder 10 is the bump catch-all. Digit 10 is the digit catch-all.
+-- The last word is ten at fuel 8, which is 10.
+------------------------------------------------------------------------
+
+ten : ℕ
+ten = suc (suc (suc (suc (suc (suc (suc (suc (suc (suc zero)))))))))
+
+pairText : Dig → String
+pairText over = "overflow"
+pairText (dig _ _) = "pair"
+
+digitText : ℕ → String
+digitText n = showText (showDigit n)
+
+wideBody : String
+wideBody =
+  showAt (suc zero) ten ++ " " ++
+  pairText (bump zero ten) ++ " " ++
+  digitText ten ++ " " ++
+  showℕ ten
+
+------------------------------------------------------------------------
+-- Seven examples, then the printer check. The driver prints this
+-- and nothing else.
 ------------------------------------------------------------------------
 
 report : String
@@ -249,4 +304,5 @@ report =
   line "deref" (showMaybe (emitDeref liveG1 zero zero)) ++
   line "send" (showMaybe (emitSendRoot twoG1 zero zero (suc zero))) ++
   line "step" (showMaybe (emitEval emitZe zero)) ++
-  line "collect" (showRan (emitCollect lone))
+  line "collect" (showRan (emitCollect lone)) ++
+  line "wide" wideBody

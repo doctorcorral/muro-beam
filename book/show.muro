@@ -1,15 +1,19 @@
 -- Printer for the conformance comparison.
 --
 -- scripts/book_show.exs loads this file and normalises show-trip,
--- show-stuck, show-alloc, show-deref, show-send, show-step, and
--- show-collect. Each one is a closed run String. The normal form is
--- a string literal. CI diffs those literals against the MAlonzo
--- binary. This is not a hand-copied expected list.
+-- show-stuck, show-alloc, show-deref, show-send, show-step,
+-- show-collect, and show-wide. Each one is a closed run String.
+-- The normal form is a string literal. CI diffs those literals
+-- against the MAlonzo binary. This is not a hand-copied expected list.
 --
 -- Encoding, one line each, trailing newline included:
 --   name ": " body
---   body  = "nothing" | "just " events | "ran " events | "just"
+--   body  = "nothing"
+--         | "just " events " " fp
+--         | "ran " events " " fp
+--         | "just " fp
 --   events = "[" event (", " event)* "]" or "[]"
+--   fp = "h" heap-length "l" live-cells "p" process-count
 --   tr-collect wraps its indices in parentheses, separated by spaces.
 --   ref(obj,checked,residual,kept)
 --   grade is pt(fin(n)) | pt(inf) | iv(point,point)
@@ -17,52 +21,88 @@
 --   le is le-zero(n) | le-suc(m,n,le)
 --   kind is Kmove | Kcopy
 --   nat is decimal with no leading zeros, fuel 8
--- stuck is the Maybe Sys from eval1, so just carries no events.
+--   fuel exhaustion, a remainder past 9, and a digit past 9 print
+--   overflow. They do not print a truncated numeral or an empty string.
+-- stuck on nothing is a refusal and carries no fingerprint.
+-- stuck on just carries fp and no events. eval1 returns Maybe Sys.
 -- collect is a Run, so the word is ran.
 -- A refusal is nothing. An empty event list is [].
+-- fp is heap length, live cells, and process count. It is not the Sys.
+--
+-- show-wide is the printer check, not an eighth runtime example.
+-- Fuel 1 on ten (two digits), bump of remainder 10, and digit 10
+-- are overflow. Fuel 8 on ten is 10. A unary 10^8 is not normalised.
 --
 -- smoke.muro is not changed, and it does not import this file.
--- make book still checks smoke.muro only.
+-- make book checks smoke.muro. make book-show checks this file.
 
 import "smoke.muro"
 
 data ShPair : Type where
   sh-pair : Π (+ q : Nat) → Π (+ r : Nat) → ShPair
+  sh-over : ShPair
 
 def shFuel : run Nat := suc (suc (suc (suc (suc (suc (suc (suc 0)))))))
 
-def shDigit : run Π (n : Nat) → String :=
+def shDigit : run Π (n : Nat) → Maybe String :=
   λ (n : Nat) →
-    match n motive (λ _ → String)
-      | 0 => "0"
-      | suc n1 =>
-          (match n1 motive (λ _ → String)
-            | 0 => "1"
-            | suc n2 =>
-                (match n2 motive (λ _ → String)
-                  | 0 => "2"
-                  | suc n3 =>
-                      (match n3 motive (λ _ → String)
-                        | 0 => "3"
-                        | suc n4 =>
-                            (match n4 motive (λ _ → String)
-                              | 0 => "4"
-                              | suc n5 =>
-                                  (match n5 motive (λ _ → String)
-                                    | 0 => "5"
-                                    | suc n6 =>
-                                        (match n6 motive (λ _ → String)
-                                          | 0 => "6"
-                                          | suc n7 =>
-                                              (match n7 motive (λ _ → String)
-                                                | 0 => "7"
-                                                | suc n8 =>
-                                                    (match n8 motive (λ _ → String)
-                                                      | 0 => "8"
-                                                      | suc n9 =>
-                                                          (match n9 motive (λ _ → String)
-                                                            | 0 => "9"
-                                                            | suc n10 => "bad")))))))))
+    match n motive (λ _ → Maybe String)
+      | 0 => just "0"
+      | suc n1 => shDigit1 n1
+
+def shDigit1 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "1"
+      | suc n2 => shDigit2 n2
+
+def shDigit2 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "2"
+      | suc n3 => shDigit3 n3
+
+def shDigit3 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "3"
+      | suc n4 => shDigit4 n4
+
+def shDigit4 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "4"
+      | suc n5 => shDigit5 n5
+
+def shDigit5 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "5"
+      | suc n6 => shDigit6 n6
+
+def shDigit6 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "6"
+      | suc n7 => shDigit7 n7
+
+def shDigit7 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "7"
+      | suc n8 => shDigit8 n8
+
+def shDigit8 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "8"
+      | suc n9 => shDigit9 n9
+
+def shDigit9 : run Π (n : Nat) → Maybe String :=
+  λ (n : Nat) →
+    match n motive (λ _ → Maybe String)
+      | 0 => just "9"
+      | suc n10 => nothing
 
 def shBump : run Π (+ q : Nat) → Π (+ r : Nat) → ShPair :=
   λ (+ q : Nat) → λ (+ r : Nat) →
@@ -95,12 +135,13 @@ def shBump : run Π (+ q : Nat) → Π (+ r : Nat) → ShPair :=
                                                       | suc i =>
                                                           (match i motive (λ _ → ShPair)
                                                             | 0 => sh-pair (suc q) 0
-                                                            | suc j => sh-pair q 0)))))))))
+                                                            | suc j => sh-over)))))))))
 
 def shBumpOf : run Π (p : ShPair) → ShPair :=
   λ (p : ShPair) →
     match p motive (λ _ → ShPair)
       | sh-pair q r => shBump q r
+      | sh-over => sh-over
 
 def shDiv10 : run Π (n : Nat) → ShPair :=
   λ (n : Nat) →
@@ -108,25 +149,56 @@ def shDiv10 : run Π (n : Nat) → ShPair :=
       | 0 => sh-pair 0 0
       | suc k => shBumpOf (shDiv10 k)
 
-def shDigits : run Π (fuel : Nat) → Π (n : Nat) → List Nat :=
-  λ (fuel : Nat) → λ (n : Nat) →
-    match fuel motive (λ _ → List Nat)
-      | 0 => nil
-      | suc f =>
-          (match (shDiv10 n) motive (λ _ → List Nat)
-            | sh-pair q r =>
-                (match q motive (λ (qq : Nat) → List Nat)
-                  | 0 => cons r nil
-                  | suc k => cons r (shDigits f (suc k))))
+def shConsDigit : run Π (r : Nat) → Π (m : Maybe (List Nat)) → Maybe (List Nat) :=
+  λ (r : Nat) → λ (m : Maybe (List Nat)) →
+    match m motive (λ _ → Maybe (List Nat))
+      | nothing => nothing
+      | just xs => just (cons r xs)
 
-def shRev : run Π (xs : List Nat) → String :=
+def shDigits : run Π (fuel : Nat) → Π (n : Nat) → Maybe (List Nat) :=
+  λ (fuel : Nat) → λ (n : Nat) →
+    match fuel motive (λ _ → Maybe (List Nat))
+      | 0 => nothing
+      | suc f =>
+          (match (shDiv10 n) motive (λ _ → Maybe (List Nat))
+            | sh-pair q r =>
+                (match q motive (λ (qq : Nat) → Maybe (List Nat))
+                  | 0 => just (cons r nil)
+                  | suc k => shConsDigit r (shDigits f (suc k)))
+            | sh-over => nothing)
+
+def shCatDigit : run Π (md : Maybe String) → Π (mpre : Maybe String) → Maybe String :=
+  λ (md : Maybe String) → λ (mpre : Maybe String) →
+    match md motive (λ _ → Maybe String)
+      | nothing => nothing
+      | just ch =>
+          (match mpre motive (λ _ → Maybe String)
+            | nothing => nothing
+            | just pre => just (strCat pre ch))
+
+def shRev : run Π (xs : List Nat) → Maybe String :=
   λ (xs : List Nat) →
-    match xs motive (λ _ → String)
-      | nil => ""
-      | cons d rest => strCat (shRev rest) (shDigit d)
+    match xs motive (λ _ → Maybe String)
+      | nil => just ""
+      | cons d rest => shCatDigit (shDigit d) (shRev rest)
+
+def shForce : run Π (m : Maybe (List Nat)) → Maybe String :=
+  λ (m : Maybe (List Nat)) →
+    match m motive (λ _ → Maybe String)
+      | nothing => nothing
+      | just xs => shRev xs
+
+def shText : run Π (m : Maybe String) → String :=
+  λ (m : Maybe String) →
+    match m motive (λ _ → String)
+      | nothing => "overflow"
+      | just s => s
+
+def shNatAt : run Π (fuel : Nat) → Π (n : Nat) → String :=
+  λ (fuel : Nat) → λ (n : Nat) → shText (shForce (shDigits fuel n))
 
 def shNat : run Π (n : Nat) → String :=
-  λ (n : Nat) → shRev (shDigits shFuel n)
+  λ (n : Nat) → shNatAt shFuel n
 
 def shPoint : run Π (p : Point) → String :=
   λ (p : Point) →
@@ -230,14 +302,27 @@ def shTail : run Π (ev : List Event) → String :=
 def shEvents : run Π (ev : List Event) → String :=
   λ (ev : List Event) → strCat "[" (strCat (shBody ev) "]")
 
--- The system is not part of the line. Erasing it keeps the string.
-def shErase2 : run Π (-h : List Obj) → Π (-ps : List Proc) → String :=
-  λ (-h : List Obj) → λ (-ps : List Proc) → ""
+-- Heap length, live cells, process count. Not payloads or control.
+def shLive : run Π (os : List Obj) → Nat :=
+  λ (os : List Obj) →
+    match os motive (λ _ → Nat)
+      | nil => 0
+      | cons o os1 =>
+          (match o motive (λ _ → Nat)
+            | cell v st =>
+                (match st motive (λ _ → Nat)
+                  | live => suc (shLive os1)
+                  | free => shLive os1))
 
-def shTouch : run Π (s : Sys) → String :=
+def shFp : run Π (s : Sys) → String :=
   λ (s : Sys) →
     match s motive (λ _ → String)
-      | sys h ps => shErase2 h ps
+      | sys h ps =>
+          strCat "h"
+            (strCat (shNat (length Obj h))
+              (strCat "l"
+                (strCat (shNat (shLive h))
+                  (strCat "p" (shNat (length Proc ps))))))
 
 def shMaybe : run Π (m : Maybe Run) → String :=
   λ (m : Maybe Run) →
@@ -245,18 +330,21 @@ def shMaybe : run Π (m : Maybe Run) → String :=
       | nothing => "nothing"
       | just r =>
           (match r motive (λ _ → String)
-            | ran s ev => strCat (strCat "just " (shEvents ev)) (shTouch s))
+            | ran s ev =>
+                strCat "just " (strCat (shEvents ev) (strCat " " (shFp s))))
 
 def shRan : run Π (r : Run) → String :=
   λ (r : Run) →
     match r motive (λ _ → String)
-      | ran s ev => strCat (strCat "ran " (shEvents ev)) (shTouch s)
+      | ran s ev => strCat "ran " (strCat (shEvents ev) (strCat " " (shFp s)))
 
+-- eval1 returns a system, not a trace. just carries the fingerprint.
+-- nothing is a refusal and stays the word nothing.
 def shStuck : run Π (m : Maybe Sys) → String :=
   λ (m : Maybe Sys) →
     match m motive (λ _ → String)
       | nothing => "nothing"
-      | just s => strCat "just" (shTouch s)
+      | just s => strCat "just " (shFp s)
 
 def fuel6 : run Nat := suc (suc (suc (suc (suc (suc 0)))))
 
@@ -282,3 +370,25 @@ def show-step : run String :=
 
 def show-collect : run String :=
   strCat "collect: " (strCat (shRan (emitCollect lone)) "\n")
+
+-- Printer check. Fuel 1 on ten (two digits) exhausts. Remainder 10 is
+-- the bump catch-all. Digit 10 is the digit catch-all. Fuel 8 on ten
+-- is 10. A unary 10^8 is not normalised.
+def shTen : run Nat := suc (suc (suc (suc (suc (suc (suc (suc (suc (suc 0)))))))))
+
+def shPairText : run Π (p : ShPair) → String :=
+  λ (p : ShPair) →
+    match p motive (λ _ → String)
+      | sh-pair q r => "pair"
+      | sh-over => "overflow"
+
+def shWideBody : run String :=
+  strCat (shNatAt (suc 0) shTen)
+    (strCat " "
+      (strCat (shPairText (shBump 0 shTen))
+        (strCat " "
+          (strCat (shText (shDigit shTen))
+            (strCat " " (shNat shTen))))))
+
+def show-wide : run String :=
+  strCat "wide: " (strCat shWideBody "\n")
