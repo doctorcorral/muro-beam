@@ -20,6 +20,8 @@ Part 2 is also weaker than Agda where the checker cannot state the Agda theorem.
 - Agda's `send-preserves-residual` concludes `AllInv (refsOf t)` from `send ≡ just t`. Every book `Ref` already stores `Kept` (`ref-inv`). Send moves or copies that `Ref`. The book does not invert `{sendRoot ≡ just t}`.
 - `alloc-ordered` is `OrdAt` for the heap append `alloc` performs. `reuse-ordered` is `OrdAt` for the `poke` `reuse` performs. Agda's `reuse-ordered` is the implication from `reuse ≡ just t` together with `Ordered (heap s)`. The examples pin the boolean as well (`alloc-ordered-bool`, `reuse-ordered-bool`). Agda's `Ordered` is a function of `lookup`. `OrdAt` is the list spine, which is the form this checker indexes.
 
+A book lemma that shares an Agda name is a shape or an example the wall can check, not the Agda theorem. See the weaker-than-Agda list above.
+
 ## Four amendments
 
 ### 1. The book and the Agda model meet in a conformance test
@@ -60,7 +62,7 @@ Out-of-boundary refusal is `inBoundary` and `noEscape`, total `run` functions. I
 
 The functions return `Answer` (`yes` or `no`), not a proof-carrying `Dec`. `refl` is refused in `run` mode, so a `run` cannot build the `yes` proof. The proof predicate is separate, and `inBoundary-to-noEscape` is evidence.
 
-The same rule covers the heap. A refused `deref` of a `g0` residual, a refused `send` of a `g0` checked grade, a refused second `spend` of a spent `g1`, a refused `reuse` of an unspent root, and a refused `reuse` of two spent references are `nothing` from the `run` function. `book/run.muro` witnesses the results. `mix muro.check` fails if they flip.
+The same rule covers the heap. A refused `deref` of a `g0` residual, a refused `send` of a `g0` checked grade, a refused `send` of a residual that is already `g0`, a refused second `spend` of a spent `g1`, a refused `reuse` of an unspent root, a refused `reuse` of two spent references, a refused `reuse` when a mailbox still aliases the object, and a refused `reuse` of a spent non-`g1` ref are `nothing` from the `run` function. `book/run.muro` witnesses the results. `mix muro.check` fails if they flip.
 
 ### 4. Totality, decided here
 
@@ -78,7 +80,7 @@ Later parts follow this rule.
 | Part | Contents |
 | --- | --- |
 | 1 (merged, PR #6) | Boundary mirror, runtime data, this plan, smoke, CI. |
-| 2 (this book) | `alloc`, `deref` / `spend`, `send` that moves a finite grade and copies `omega`, and `reuse`. Residual and grade-1 evidence the checker can express. Smoke for the accepted steps and the refusals. |
+| 2 (this book) | `alloc`, `deref` / `spend`, `send` that moves a finite grade and copies `omega` and every `iv`, and `reuse`. Residual and grade-1 evidence the checker can express. Smoke for the accepted steps and the refusals. |
 | 3 | One CEK step, and total ordered `collect`. |
 | 4 | `recv`, `spawn`, scheduling. An in-boundary example that runs. The out-of-boundary example refused by this book's check. Emission. The conformance comparison, when the MAlonzo build is ready. |
 

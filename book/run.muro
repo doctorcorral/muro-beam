@@ -167,6 +167,10 @@ def sendSelf : run Maybe Sys :=
 def sendG2 : run Maybe Sys :=
   andThen Sys Sys (alloc twoIdle 0 grade2 0) (λ (s : Sys) → sendRoot s 0 0 1)
 
+-- After derefG1 the residual is g0 and checked is still g1.
+def sendResidualG0 : run Maybe Sys :=
+  andThen Sys Sys derefG1 (λ (s : Sys) → sendRoot s 0 0 1)
+
 def allocAgain : run Maybe Sys :=
   andThen Sys Sys allocG1 (λ (s : Sys) → alloc s 0 grade1 1)
 
@@ -179,6 +183,24 @@ def reuseLive : run Maybe Sys :=
 def twoSpent : run Sys :=
   sys (cons cell0 nil)
       (cons (proc 0 ready (cons spentG1 (cons spentG1 nil)) nil idle) nil)
+
+-- A spent unique g1 root, plus an in-flight mailbox alias of the same object.
+def spentWithMsg : run Sys :=
+  sys (cons cell0 nil)
+      (cons (proc 0 ready (cons spentG1 nil) nil idle)
+            (cons (proc 1 ready nil (cons (msg spentG1) nil) idle) nil))
+
+def reuseAlias : run Maybe Sys := reuse spentWithMsg 0 0 grade1 7
+
+-- A spent residual whose checked grade is not g1.
+def spentG2 : run Ref :=
+  ref 0 grade2 grade0 (fin-kept 0 (suc (suc 0)) (le-zero (suc (suc 0))))
+
+def spentNonG1 : run Sys :=
+  sys (cons cell0 nil)
+      (cons (proc 0 ready (cons spentG2 nil) nil idle) nil)
+
+def reuseNonG1 : run Maybe Sys := reuse spentNonG1 0 0 grade1 7
 
 def wRef : run Ref := ref 0 gradeOmega gradeOmega omega-kept
 
@@ -225,6 +247,9 @@ def send-aff-inbox : evidence {mbInbox1 sendAff ≡ cons (msg affRef) nil : List
 -- A g0 checked grade is not sent.
 def send-g0 : evidence {sendG0 ≡ nothing : Maybe Sys} := refl
 
+-- After derefG1 the residual is g0. Send refuses, even though checked is still g1.
+def send-residual-g0 : evidence {sendResidualG0 ≡ nothing : Maybe Sys} := refl
+
 -- A finite point above 1 moves.
 def send-g2-roots : evidence {mbRoots0 sendG2 ≡ nil : List Ref} := refl
 def send-g2-inbox : evidence {mbInbox1 sendG2 ≡ cons (msg g2Ref) nil : List Msg} := refl
@@ -251,3 +276,10 @@ def reuse-count : evidence {mbCount reuseSpent 0 ≡ suc 0 : Nat} := refl
 -- An unspent g1 root is not reused. Two spent references are not reused.
 def reuse-live : evidence {reuseLive ≡ nothing : Maybe Sys} := refl
 def reuse-two : evidence {reuse twoSpent 0 0 grade1 7 ≡ nothing : Maybe Sys} := refl
+
+-- A mailbox alias keeps the count at 2, so reuse is nothing.
+def reuse-alias-count : evidence {mbCount (just spentWithMsg) 0 ≡ suc (suc 0) : Nat} := refl
+def reuse-alias : evidence {reuseAlias ≡ nothing : Maybe Sys} := refl
+
+-- A spent non-g1 ref is refused by the isG1 gate.
+def reuse-non-g1 : evidence {reuseNonG1 ≡ nothing : Maybe Sys} := refl
