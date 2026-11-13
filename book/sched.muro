@@ -1,0 +1,211 @@
+-- One scheduling step, and the process-layer steps around it.
+--
+-- Agda's Step and PStep store the proof that the operation returned
+-- just. A constructor here cannot store that equation: the positivity
+-- walk unfolds recvRoot and lookup. These types are unindexed. They
+-- hold the two systems. A hand-built value is not rejected. The check
+-- is tryStep, tryPStep, stepOf, and pstepOf, whose nothing and just
+-- results are pinned, and runPops, which applies one Pop at a time.
+--
+-- step-collect is always a step. p-lift is a Pop that runs tryStep.
+-- There is no p-await, p-flush, p-npeek, or p-ndemon: those operations
+-- are not in this book.
+--
+-- runPops is structural on the Pop list. The list is the first
+-- argument, so the recursive call's decreasing argument is that tail.
+-- It is not a fuelled loop. One Pop, then the tail.
+
+import "prun.muro"
+import "recv.muro"
+import "collect.muro"
+
+-- Host reuse on the indices the operations read twice. Not a BeamGrade.
+data Op : Type where
+  op-deref : Π (+ i : Nat) → Π (+ j : Nat) → Op
+  op-send : Π (+ si : Nat) → Π (+ sj : Nat) → Π (+ ri : Nat) → Op
+  op-recv : Π (+ i : Nat) → Op
+  op-alloc : Π (i : Nat) → Π (+ g : Grade) → Π (v : Nat) → Op
+  op-reuse : Π (+ i : Nat) → Π (+ j : Nat) → Π (+ g : Grade) → Π (+ v : Nat) → Op
+  op-eval : Π (+ i : Nat) → Op
+  op-collect : Op
+
+data Pop : Type where
+  pop-spawn : Π (+ i : Nat) → Pop
+  pop-emit : Π (+ i : Nat) → Pop
+  pop-deliver : Π (+ i : Nat) → Pop
+  pop-recv : Π (+ i : Nat) → Pop
+  pop-arm : Π (+ i : Nat) → Pop
+  pop-seq : Π (+ i : Nat) → Pop
+  pop-bind : Π (+ i : Nat) → Pop
+  pop-done : Π (+ i : Nat) → Pop
+  pop-lift : Op → Pop
+
+data Step : Type where
+  step-deref : Sys → Sys → Step
+  step-send : Sys → Sys → Step
+  step-recv : Sys → Sys → Step
+  step-alloc : Sys → Sys → Step
+  step-reuse : Sys → Sys → Step
+  step-eval : Sys → Sys → Step
+  step-collect : Sys → Sys → Step
+
+data PStep : Type where
+  p-lift : Step → PStep
+  p-spawn : Sys → Sys → PStep
+  p-emit : Sys → Sys → PStep
+  p-deliver : Sys → Sys → PStep
+  p-recv : Sys → Sys → PStep
+  p-arm : Sys → Sys → PStep
+  p-seq : Sys → Sys → PStep
+  p-bind : Sys → Sys → PStep
+  p-done : Sys → Sys → PStep
+
+-- Book form of PStep*. pstop is the reflexive step. pdone is a PTm.
+data PStepStar : Type where
+  pstop : Sys → PStepStar
+  pmore : PStep → PStepStar → PStepStar
+
+-- The + operations receive a rebuilt sys. Its fields are reusable.
+-- op-collect does not match s, so it is just (collect s) for any s.
+def tryStep : run Π (s : Sys) → Π (op : Op) → Maybe Sys :=
+  λ (s : Sys) → λ (op : Op) →
+    match op motive (λ _ → Maybe Sys)
+      | op-deref i j =>
+          (match s motive (λ _ → Maybe Sys)
+            | sys h ps => deref (sys h ps) i j)
+      | op-send si sj ri =>
+          (match s motive (λ _ → Maybe Sys)
+            | sys h ps => sendRoot (sys h ps) si sj ri)
+      | op-recv i =>
+          (match s motive (λ _ → Maybe Sys)
+            | sys h ps => recvRoot (sys h ps) i)
+      | op-alloc i g v =>
+          (match s motive (λ _ → Maybe Sys)
+            | sys h ps => alloc (sys h ps) i g v)
+      | op-reuse i j g v =>
+          (match s motive (λ _ → Maybe Sys)
+            | sys h ps => reuse (sys h ps) i j g v)
+      | op-eval i => eval1 s i
+      | op-collect => just (collect s)
+
+def tryPStep : run Π (s : Sys) → Π (p : Pop) → Maybe Sys :=
+  λ (s : Sys) → λ (p : Pop) →
+    match p motive (λ _ → Maybe Sys)
+      | pop-spawn i => spawn1 s i
+      | pop-emit i => emit1 s i
+      | pop-deliver i => deliver1 s i
+      | pop-recv i => recv1 s i
+      | pop-arm i => arm1 s i
+      | pop-seq i => seq1 s i
+      | pop-bind i => bind1 s i
+      | pop-done i => done1 s i
+      | pop-lift op => tryStep s op
+
+def stepOf : run Π (+ s : Sys) → Π (op : Op) → Maybe Step :=
+  λ (+ s : Sys) → λ (op : Op) →
+    match op motive (λ _ → Maybe Step)
+      | op-deref i j =>
+          (match (deref s i j) motive (λ _ → Maybe Step)
+            | nothing => nothing
+            | just t => just (step-deref s t))
+      | op-send si sj ri =>
+          (match (sendRoot s si sj ri) motive (λ _ → Maybe Step)
+            | nothing => nothing
+            | just t => just (step-send s t))
+      | op-recv i =>
+          (match (recvRoot s i) motive (λ _ → Maybe Step)
+            | nothing => nothing
+            | just t => just (step-recv s t))
+      | op-alloc i g v =>
+          (match (alloc s i g v) motive (λ _ → Maybe Step)
+            | nothing => nothing
+            | just t => just (step-alloc s t))
+      | op-reuse i j g v =>
+          (match (reuse s i j g v) motive (λ _ → Maybe Step)
+            | nothing => nothing
+            | just t => just (step-reuse s t))
+      | op-eval i =>
+          (match (eval1 s i) motive (λ _ → Maybe Step)
+            | nothing => nothing
+            | just t => just (step-eval s t))
+      | op-collect => just (step-collect s (collect s))
+
+def pstepOf : run Π (+ s : Sys) → Π (p : Pop) → Maybe PStep :=
+  λ (+ s : Sys) → λ (p : Pop) →
+    match p motive (λ _ → Maybe PStep)
+      | pop-spawn i =>
+          (match (spawn1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-spawn s t))
+      | pop-emit i =>
+          (match (emit1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-emit s t))
+      | pop-deliver i =>
+          (match (deliver1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-deliver s t))
+      | pop-recv i =>
+          (match (recv1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-recv s t))
+      | pop-arm i =>
+          (match (arm1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-arm s t))
+      | pop-seq i =>
+          (match (seq1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-seq s t))
+      | pop-bind i =>
+          (match (bind1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-bind s t))
+      | pop-done i =>
+          (match (done1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-done s t))
+      | pop-lift op =>
+          (match (stepOf s op) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just st => just (p-lift st))
+
+def runPops : run Π (ps : List Pop) → Π (s : Sys) → Maybe Sys :=
+  λ (ps : List Pop) → λ (s : Sys) →
+    match ps motive (λ _ → Maybe Sys)
+      | nil => just s
+      | cons p rest =>
+          (match (tryPStep s p) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just t => runPops rest t)
+
+-- Any system. op-collect does not inspect the Pop's neighbours.
+def step-collect-always : evidence
+    Π (s : Sys) → {tryStep s op-collect ≡ just (collect s) : Maybe Sys} :=
+  λ (s : Sys) → refl
+
+def step-collect-nil : evidence
+    {tryStep (sys nil nil) op-collect ≡ just (sys nil nil) : Maybe Sys} :=
+  refl
+
+def step-recv-empty : evidence
+    {tryStep (sys nil (cons (proc 0 ready nil nil idle) nil)) (op-recv 0)
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+def step-eval-idle : evidence
+    {tryStep (sys nil (cons (proc 0 ready nil nil idle) nil)) (op-eval 0)
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+def lift-collect-nil : evidence
+    {pstepOf (sys nil nil) (pop-lift op-collect)
+      ≡ just (p-lift (step-collect (sys nil nil) (sys nil nil))) : Maybe PStep} :=
+  refl
+
+def run-nil : evidence Π (s : Sys) → {runPops nil s ≡ just s : Maybe Sys} :=
+  λ (s : Sys) → refl
+
+def run-spawn-miss : evidence
+    {runPops (cons (pop-spawn 0) nil) (sys nil nil) ≡ nothing : Maybe Sys} :=
+  refl

@@ -1,6 +1,5 @@
--- Trace events both sides of the conformance test will emit.
--- The heap operations return Maybe Sys, as the Agda steps do. They do
--- not emit Event. Emission and the MAlonzo comparison are a later part.
+-- Trace events. The heap operations, eval1, and collect return the
+-- state and do not build these. Emitting wrappers are book/emit.muro.
 -- Names are prefixed so they do not clash with PTm constructors in the
 -- one constructor scope.
 --

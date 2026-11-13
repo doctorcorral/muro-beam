@@ -1,11 +1,18 @@
--- Process, mailbox, and CEK shapes. recv and spawn are a later part.
--- The one-step evaluator is book/step.muro. collect is book/collect.muro.
--- alloc, deref, sendRoot, and reuse are book/ops.muro.
--- The mailbox is the inbox field, a List Msg.
+-- Process, mailbox, and CEK shapes.
+-- v0 recv is book/recv.muro. spawn1, emit1, deliver1, and recv1 are
+-- book/prun.muro. The one-step evaluator is book/step.muro.
+-- collect is book/collect.muro. alloc, deref, sendRoot, and reuse are
+-- book/ops.muro. The mailbox is the inbox field, a List Msg.
 -- Agda's PTm constructor done is pdone here: the constructor namespace
 -- is one flat scope, and PState already uses done.
 -- The heap and the process list are host-reusable: a step reads them
--- and writes them back. The `+` is that quantity, not a BeamGrade.
+-- and writes them back. A scope Nat on PTm, the child scope of spawn,
+-- the destination of send, and a protocol tag are the same kind of
+-- mark: the step reads the number and writes it back. Code's scope
+-- and environment are marked the same way, so a spawn can thin the
+-- list and rebuild the code, and a send can read a slot and rebuild
+-- the list. The dead-tag list is marked the same way, so a delivery
+-- can test it and keep it. The `+` is that quantity, not a BeamGrade.
 
 import "heap.muro"
 
@@ -23,25 +30,25 @@ data Thin : Nat → Nat → Type where
   skip : Π (m : Nat) → Π (n : Nat) → Thin m n → Thin m suc(n)
 
 data PTm : Nat → Type where
-  pdone : Π (n : Nat) → PTm n
-  send : Π (n : Nat) → Nat → Fin n → PTm n → PTm n
-  recv : Π (n : Nat) → Grade → Grade → PTm suc(n) → PTm n
-  spawn : Π (n : Nat) → Π (m : Nat) → Thin m n → PTm m → PTm n → PTm n
-  seq : Π (n : Nat) → GTm n → PTm suc(n) → PTm n
-  await : Π (n : Nat) → Fin n → PTm n → PTm n
-  ignore : Π (n : Nat) → Fin n → PTm n → PTm n
-  nignore : Π (n : Nat) → Fin n → PTm n → PTm n
-  awaitT : Π (n : Nat) → Nat → PTm n → PTm n
-  ignoreT : Π (n : Nat) → Nat → PTm n → PTm n
-  flushT : Π (n : Nat) → Nat → PTm n → PTm n
-  ncheckT : Π (n : Nat) → Nat → PTm n → PTm n
-  ndemonT : Π (n : Nat) → Nat → PTm n → PTm n
+  pdone : Π (+ n : Nat) → PTm n
+  send : Π (+ n : Nat) → Π (+ dst : Nat) → Fin n → PTm n → PTm n
+  recv : Π (+ n : Nat) → Grade → Grade → PTm suc(n) → PTm n
+  spawn : Π (+ n : Nat) → Π (+ m : Nat) → Thin m n → PTm m → PTm n → PTm n
+  seq : Π (+ n : Nat) → GTm n → PTm suc(n) → PTm n
+  await : Π (+ n : Nat) → Fin n → PTm n → PTm n
+  ignore : Π (+ n : Nat) → Fin n → PTm n → PTm n
+  nignore : Π (+ n : Nat) → Fin n → PTm n → PTm n
+  awaitT : Π (+ n : Nat) → Π (+ tag : Nat) → PTm n → PTm n
+  ignoreT : Π (+ n : Nat) → Π (+ tag : Nat) → PTm n → PTm n
+  flushT : Π (+ n : Nat) → Π (+ tag : Nat) → PTm n → PTm n
+  ncheckT : Π (+ n : Nat) → Π (+ tag : Nat) → PTm n → PTm n
+  ndemonT : Π (+ n : Nat) → Π (+ tag : Nat) → PTm n → PTm n
 
 data Flight : Type where
   flight : Nat → Ref → Flight
 
 data Code : Type where
-  go : Π (n : Nat) → PTm n → List Ref → List Flight → List Nat → List Nat → Code
+  go : Π (+ n : Nat) → PTm n → Π (+ env : List Ref) → List Flight → Π (+ d : List Nat) → List Nat → Code
 
 data Frame : Type where
   ar : Π (n : Nat) → GTm n → Frame

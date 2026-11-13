@@ -20,6 +20,7 @@ import "process.muro"
 import "trace.muro"
 import "run.muro"
 import "cek.muro"
+import "trip.muro"
 
 def once : run GTm 0 :=
   glam 0 grade1 grade0 (gvar (suc 0) (fzero 0))
@@ -60,3 +61,12 @@ def ghost-noesc : evidence NoEsc (ix 0 vnil ghost) :=
   ne-lam 0 vnil grade0 grade0 (gvar (suc 0) (fzero 0))
     ng-nil
     (ne-var (suc 0) (vcons 0 grade0 vnil) (fzero 0))
+
+-- cex is well-typed and inBoundary already refuses it. Running the
+-- lowered application is a separate check: eval1 gets stuck. This is
+-- Agda's ex-cex-stuck. It is not a second static filter.
+def cexApp : run GTm 0 := gapp 0 cex (gze 0)
+
+def ex-cex-stuck : evidence
+    {eval1 (runFor 6 (lowerTm 0 cexApp)) 0 ≡ nothing : Maybe Sys} :=
+  refl

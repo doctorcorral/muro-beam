@@ -5,7 +5,7 @@
 -- only recursion, and it is structural on the fuel: it stops when
 -- eval1 returns nothing. No termination pragma. No scheduler.
 -- Refusal is nothing. The terms and heaps are well-typed data.
--- This file does not emit tr-step.
+-- This file does not emit tr-step. book/emit.muro does.
 
 import "ops.muro"
 import "boundary.muro"
@@ -343,6 +343,12 @@ def eval1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Sys :=
   λ (s : Sys) → λ (+ i : Nat) →
     match s motive (λ _ → Maybe Sys)
       | sys h ps => eval1At h ps i (lookup Proc i ps)
+
+-- Agda's lower, for a bare term. One process, pid 0, empty heap.
+-- The name is lowerTm: le-lower already binds the Le step.
+def lowerTm : run Π (n : Nat) → Π (t : GTm n) → Sys :=
+  λ (n : Nat) → λ (t : GTm n) →
+    sys nil (cons (proc 0 ready nil nil (ev n t nil nil)) nil)
 
 -- Fuel-bounded evaluation at process 0. Structural on the fuel.
 def runFor : run Π (fuel : Nat) → Π (+ s : Sys) → Sys :=

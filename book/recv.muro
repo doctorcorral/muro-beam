@@ -1,0 +1,47 @@
+-- v0 receive. Empty mailbox is nothing. A message is dequeued onto
+-- the roots and the inbox becomes the tail. This is Agda's recv.
+-- The function is recvRoot: PTm already binds recv.
+-- recv1, which can park, is book/prun.muro. This file does not emit.
+
+import "ops.muro"
+
+def recvInbox : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (pid : Nat) → Π (st : PState) → Π (rs : List Ref) → Π (c : Ctl) →
+    Π (mb : List Msg) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (pid : Nat) → λ (st : PState) → λ (rs : List Ref) → λ (c : Ctl) →
+  λ (mb : List Msg) →
+    match mb motive (λ _ → Maybe Sys)
+      | nil => nothing
+      | cons m ms =>
+          (match m motive (λ _ → Maybe Sys)
+            | msg r =>
+                mapSys h
+                  (update Proc i (proc pid st (append Ref rs (cons r nil)) ms c) ps))
+
+def recvAt : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (mp : Maybe Proc) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) → λ (mp : Maybe Proc) →
+    match mp motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just p =>
+          (match p motive (λ _ → Maybe Sys)
+            | proc pid st rs mb c => recvInbox h ps i pid st rs c mb)
+
+def recvRoot : run Π (+ s : Sys) → Π (+ i : Nat) → Maybe Sys :=
+  λ (+ s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps => recvAt h ps i (lookup Proc i ps)
+
+-- Empty inbox, and a missing pid. Both are nothing from this run.
+def recv-empty : evidence
+    {recvRoot (sys nil (cons (proc 0 ready nil nil idle) nil)) 0 ≡ nothing : Maybe Sys} :=
+  refl
+
+def recv-miss : evidence {recvRoot (sys nil nil) 0 ≡ nothing : Maybe Sys} := refl
+
+def recv-one : evidence
+    {recvRoot (sys nil (cons (proc 0 ready nil (cons (msg (ref 0 grade1 grade1 (selfKept grade1))) nil) idle) nil)) 0
+      ≡ just (sys nil (cons (proc 0 ready (cons (ref 0 grade1 grade1 (selfKept grade1)) nil) nil idle) nil))
+      : Maybe Sys} :=
+  refl
