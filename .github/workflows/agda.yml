@@ -92,3 +92,87 @@ jobs:
 
       - name: Check the book
         run: make book
+
+      - name: Check the book printer
+        run: make book-show
+
+  # Event lists from MAlonzo against the book printer. Green only when
+  # the bytes match. The two Agda version legs above are unchanged.
+  #
+  # Cache keys:
+  # - haskell-actions/setup caches the GHC 9.8.4 and Cabal 3.12.1.0
+  #   ghcup install on its own key (runner OS, tool version).
+  # - actions/cache key conform-v2-agda280-ghc984-<sources> restores
+  #   vendor/agda-stdlib (v2.3) and the generated MAlonzo tree. A hit
+  #   skips agda --ghc and only relinks the driver. A miss clones the
+  #   stdlib and compiles Conform. The key covers the Agda sources, the
+  #   Makefile, and the comparison scripts. v2 is a new printer and
+  #   MuroBeam.Cex, so a v1 tree is not reused. Book changes that do not
+  #   touch those files still re-run the printer; they do not force a
+  #   second MAlonzo compile.
+  conformance:
+    name: malonzo conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/cache@v4
+        id: conform-cache
+        with:
+          path: |
+            MAlonzo
+            vendor/agda-stdlib
+          key: conform-v2-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/conform.py', 'scripts/book_show.exs', 'book/show.muro') }}
+
+      - name: Install Agda 2.8.0
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          asset="Agda-v2.8.0-linux.tar.xz"
+          curl -fL --retry 5 -o "$tmp/$asset" \
+            "https://github.com/agda/agda/releases/download/v2.8.0/${asset}"
+          tar -xJf "$tmp/$asset" -C "$tmp"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$tmp/agda" "$HOME/.local/bin/agda"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          agda --version
+          agda --setup
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.8.4"
+          cabal-version: "3.12.1.0"
+
+      - name: Fetch Agda standard library 2.3
+        if: steps.conform-cache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch v2.3 https://github.com/agda/agda-stdlib.git vendor/agda-stdlib
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "27"
+
+      - name: Install muro 0.20.33
+        run: |
+          mix local.hex --force
+          mix archive.install hex muro 0.20.33 --force
+          mix muro --version | grep -F 0.20.33
+
+      - name: Compare event lists
+        run: |
+          set -euo pipefail
+          agda --version
+          ghc --version
+          elixir --version
+          if [ "${{ steps.conform-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "MAlonzo cache hit; relink and compare"
+            make book-show
+            python3 scripts/conform.py
+          else
+            echo "MAlonzo cache miss; cold compile"
+            make conformance
+          fi

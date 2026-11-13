@@ -13,7 +13,7 @@
 module MuroBeam.Example where
 
 open import Data.Bool.Base using (Bool; true; false)
-open import Data.Fin.Base using () renaming (zero to fzero; suc to fsuc)
+open import Data.Fin.Base using () renaming (zero to fzero)
 open import Data.List.Base using (List; []; _∷_)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc)
@@ -43,6 +43,7 @@ open import MuroBeam.Ref using
 open import MuroBeam.Collect using (collect)
 open import MuroBeam.Source using (Checked; term; noEscape?)
 open import MuroBeam.Lower using (lower)
+open import MuroBeam.Cex public using (cex)
 open import MuroBeam.Boundary using (inBoundary?; yes; no)
 
 take : ∀ {A : Set} → A → Maybe A → A
@@ -240,15 +241,9 @@ ex-match-many : runFor 1 (lower match-many)
 ex-match-many = refl
 
 -- λ(g1) x. (λ(gω) f. f f) (λ(aff) _. x), applied to zero.
--- decide accepts it. The inner λ would capture the still-live g1, so
--- eval1 refuses that closure. collect keeps the g1 cell.
-cex : GTm 0
-cex =
-  glam g1 g0
-    (gapp
-      (glam gω g0 (gapp (gvar fzero) (gvar fzero)))
-      (glam aff g0 (gvar (fsuc fzero))))
-
+-- The term is MuroBeam.Cex.cex. decide accepts it. The inner λ would
+-- capture the still-live g1, so eval1 refuses that closure. collect
+-- keeps the g1 cell.
 cex-ok : decide run Vec.[] cex ≡ okR Vec.[]
 cex-ok = refl
 

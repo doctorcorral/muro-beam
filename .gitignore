@@ -1,2 +1,8 @@
 *.agdai
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+MAlonzo/
+conform-malonzo
 vendor/agda-stdlib/
