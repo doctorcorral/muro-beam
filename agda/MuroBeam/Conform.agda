@@ -37,7 +37,8 @@ open import MuroBeam.Emit using
 open import MuroBeam.Death using
   ( DRun; dran; base; runDs
   ; downOps; againOps; doneOps; abandonOps; sendOps
-  ; meetMail; meetEmpty )
+  ; settleAfterOps
+  ; meetMail; meetEmpty; meetNormal )
 open import MuroBeam.Event using
   ( Event; tr-alloc; tr-spend; tr-send; tr-recv; tr-spawn; tr-step; tr-collect; tr-down
   ; Why; killed; crash; normal; abandon )
@@ -331,4 +332,5 @@ report =
   line "down-again" (showMaybe (asRun (runDs againOps meetMail))) ++
   line "down-done" (showMaybe (asRun (runDs doneOps meetEmpty))) ++
   line "abandon" (showMaybe (asRun (runDs abandonOps meetEmpty))) ++
-  line "send-dead" (showMaybe (asRun (runDs sendOps meetEmpty)))
+  line "send-dead" (showMaybe (asRun (runDs sendOps meetEmpty))) ++
+  line "settle-after-exit" (showMaybe (asRun (runDs settleAfterOps meetNormal)))

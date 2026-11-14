@@ -3,7 +3,8 @@
 -- scripts/book_show.exs loads this file and normalises show-trip,
 -- show-stuck, show-alloc, show-deref, show-send, show-step,
 -- show-collect, show-wide, show-down, show-down-again,
--- show-down-done, show-abandon, and show-send-dead. Each one is a
+-- show-down-done, show-abandon, show-send-dead, and
+-- show-settle-after-exit. Each one is a
 -- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
@@ -411,6 +412,7 @@ def show-wide : run String :=
 -- Death schedules. down is queued mail, then one tr-down.
 -- down-again is the second observation. down-done and abandon are
 -- halts: just, and an empty event list. send-dead is the consumed put.
+-- settle-after-exit is a normal exit, then a settle, then one down.
 def show-down : run String :=
   strCat "down: " (strCat (shMaybe (asRun (runDs downOps meetMail))) "\n")
 
@@ -425,3 +427,6 @@ def show-abandon : run String :=
 
 def show-send-dead : run String :=
   strCat "send-dead: " (strCat (shMaybe (asRun (runDs sendOps meetEmpty))) "\n")
+
+def show-settle-after-exit : run String :=
+  strCat "settle-after-exit: " (strCat (shMaybe (asRun (runDs settleAfterOps meetNormal))) "\n")
