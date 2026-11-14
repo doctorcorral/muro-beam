@@ -51,4 +51,5 @@ open import MuroBeam.PExample public hiding (take)
 import MuroBeam.Cex
 import MuroBeam.Event
 import MuroBeam.Emit
+import MuroBeam.Death
 import MuroBeam.Conform
