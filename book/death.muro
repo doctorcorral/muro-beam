@@ -5,14 +5,18 @@
 -- mark used by deliver, ignore, and demonitor. The names here are
 -- down, monitor, and Why.
 --
--- An exit records the reason and emits nothing. A failure exit sets
--- dead, and a later d-send is then consumed: just, and an empty event
--- list. The arm runs at the observer's receive, after that inbox is
--- empty. Queued mail is tr-recv first, then one tr-down. A second
--- observation is nothing. done or abandon makes the observation a
+-- An exit records the reason and emits nothing. The exit step decides
+-- the verdict. A failure exit sets dead, and a later d-send is then
+-- consumed: just, and an empty event list. A halt exit sets halted
+-- and leaves dead false. The arm runs at the observer's receive,
+-- after that inbox is empty. Queued mail is tr-recv first, then one
+-- tr-down. A second observation is nothing. observe reads dead. It
+-- does not run haltWhy again, so a later d-settle does not turn a
+-- failure exit into a halt. done or abandon makes the observation a
 -- halt: just, no tr-down, and armed stays false. normal is that halt
--- when either phase is settled, and a failure-arm down when neither is.
--- The arm is this transition. It does not run a protocol skeleton.
+-- when either phase is settled at the exit, and a failure-arm down
+-- when neither is. The arm is this transition. It does not run a
+-- protocol skeleton.
 --
 -- d-send is only the consumed put. It is nothing when the peer is not
 -- yet failure-dead. enqueue stays on sendRoot and emit1.
@@ -240,9 +244,27 @@ def stepSend : run Π (m : Meet) → Π (src : Nat) → Π (dst : Nat) → Maybe
                   | false => nothing)
             | false => nothing)
 
--- noted refuses a second observation. A halt is just and emits nothing.
--- A matching failure reason emits one tr-down and sets armed.
--- No exit and no halt parks: just, and no event.
+-- The exit step already chose. dead is that choice. A later d-settle
+-- does not re-run haltWhy. No step leaves exited true with dead and
+-- halted both false: a failure writes dead, and a halt writes halted.
+-- If that meeting is observed anyway, it is the halt the exit chose.
+def observeExit : run Π (m : Meet) → Maybe DRun :=
+  λ (m : Meet) →
+    match m motive (λ _ → Maybe DRun)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match dead motive (λ _ → Maybe DRun)
+            | true =>
+                (match (whyEq why expect) motive (λ _ → Maybe DRun)
+                  | true =>
+                      just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead true true expect)
+                                 (cons (tr-down observer peer why) nil))
+                  | false => nothing)
+            | false =>
+                just (dran (meeting base watching observer peer phaseS phaseP true exited why dead armed true expect) nil))
+
+-- noted refuses a second observation. Once exited is set, observeExit
+-- branches on dead. A matching failure reason emits one tr-down and
+-- sets armed. No exit and no halt parks: just, and no event.
 def observe : run Π (m : Meet) → Maybe DRun :=
   λ (m : Meet) →
     match m motive (λ _ → Maybe DRun)
@@ -250,21 +272,13 @@ def observe : run Π (m : Meet) → Maybe DRun :=
           (match noted motive (λ _ → Maybe DRun)
             | true => nothing
             | false =>
-                (match halted motive (λ _ → Maybe DRun)
+                (match exited motive (λ _ → Maybe DRun)
                   | true =>
-                      just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead armed true expect) nil)
+                      observeExit (meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect)
                   | false =>
-                      (match exited motive (λ _ → Maybe DRun)
+                      (match halted motive (λ _ → Maybe DRun)
                         | true =>
-                            (match (haltWhy why phaseS phaseP false) motive (λ _ → Maybe DRun)
-                              | true =>
-                                  just (dran (meeting base watching observer peer phaseS phaseP true exited why dead armed true expect) nil)
-                              | false =>
-                                  (match (andB dead (whyEq why expect)) motive (λ _ → Maybe DRun)
-                                    | true =>
-                                        just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead true true expect)
-                                                   (cons (tr-down observer peer why) nil))
-                                    | false => nothing))
+                            just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead armed true expect) nil)
                         | false =>
                             just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect) nil))))
 
@@ -498,6 +512,24 @@ def liveSendOps : run List DOp :=
   cons (d-mon 0 1)
     (cons (d-send 0 1) nil)
 
+-- normal while neither phase is settled, then a settle, then the
+-- receive. The exit already set dead. The settle does not clear it.
+-- settleAfterSelfOps settles the observer instead of the peer.
+def settleAfterOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 normal)
+      (cons (d-settle 1)
+        (cons (d-recv 0) nil)))
+
+def settleAfterAgain : run List DOp :=
+  append DOp settleAfterOps (cons (d-recv 0) nil)
+
+def settleAfterSelfOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 normal)
+      (cons (d-settle 0)
+        (cons (d-recv 0) nil)))
+
 def monTwice : run List DOp :=
   cons (d-mon 0 1)
     (cons (d-mon 0 1) nil)
@@ -600,3 +632,18 @@ def second-monitor : evidence
 
 def no-monitor : evidence
     {stepExit meetEmpty 1 killed ≡ nothing : Maybe Meet} := refl
+
+def settle-after-exit : evidence
+    {evOf (runDs settleAfterOps meetNormal) ≡ just oneNormal : Maybe (List Event)} := refl
+
+def settle-after-exit-armed : evidence
+    {armedOf (runDs settleAfterOps meetNormal) ≡ true : Bool} := refl
+
+def settle-after-exit-again : evidence
+    {runDs settleAfterAgain meetNormal ≡ nothing : Maybe DRun} := refl
+
+def settle-after-exit-self : evidence
+    {evOf (runDs settleAfterSelfOps meetNormal) ≡ just oneNormal : Maybe (List Event)} := refl
+
+def settle-after-exit-self-armed : evidence
+    {armedOf (runDs settleAfterSelfOps meetNormal) ≡ true : Bool} := refl
