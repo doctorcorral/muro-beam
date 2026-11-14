@@ -5,14 +5,18 @@
 -- of Proc, and it is not a PStep: codeDead, deadInCtl, and deadAt stay
 -- protocol tags. Stray, Unique, PWf, and Adequacy are unchanged.
 --
--- An exit records the reason and does not emit. A failure exit sets
--- `dead`, which is the mark that consumes a later send. The failure
--- arm runs at the observer's receive, and only once that inbox is
--- empty: queued mail is `tr-recv` first, then one `tr-down`. A second
--- observation is nothing. `done` or abandon makes a later observation
--- a halt (empty events, arm not set). `:normal` is that halt when
--- either phase is settled, and a failure-arm down when neither is.
--- The arm is this transition. It does not run a protocol skeleton.
+-- An exit records the reason and does not emit. The exit step decides
+-- the verdict. A failure exit sets `dead`, which is the mark that
+-- consumes a later send. A halt exit sets `halted` and leaves `dead`
+-- false. The failure arm runs at the observer's receive, and only
+-- once that inbox is empty: queued mail is `tr-recv` first, then one
+-- `tr-down`. A second observation is nothing. `observe` reads `dead`.
+-- It does not run `haltWhy` again, so a later `d-settle` does not turn
+-- a failure exit into a halt. `done` or abandon makes a later
+-- observation a halt (empty events, arm not set). `:normal` is that
+-- halt when either phase is settled at the exit, and a failure-arm
+-- down when neither is. The arm is this transition. It does not run
+-- a protocol skeleton.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -192,22 +196,31 @@ stepSend m src dst with watching m
 ... | false = nothing
 ... | true  = just (dran m [])
 
--- Halt, or the one arm. `noted` refuses the second observation.
--- A receive with no exit and no halt parks: just, and no event.
-observe : Meet → Maybe DRun
-observe m with noted m
-... | true  = nothing
-... | false with halted m
-... | true  = just (dran (record m { noted = true }) [])
-... | false with exited m
-... | false = just (dran m [])
-... | true with haltWhy (why m) (phaseS m) (phaseP m) false
-... | true  = just (dran (record m { noted = true ; halted = true }) [])
-... | false with dead m ∧ whyEq (why m) (expect m)
+-- The exit step already chose. `dead` is that choice. A later
+-- `d-settle` does not re-run `haltWhy`. No step leaves `exited`
+-- true with `dead` and `halted` both false: a failure writes `dead`,
+-- and a halt writes `halted`. If that meeting is observed anyway,
+-- it is the halt the exit step chose.
+observeExit : Meet → Maybe DRun
+observeExit m with dead m
+... | false = just (dran (record m { noted = true ; halted = true }) [])
+... | true with whyEq (why m) (expect m)
 ... | true  =
   just (dran (record m { noted = true ; armed = true })
              (tr-down (observer m) (peer m) (why m) ∷ []))
 ... | false = nothing
+
+-- `noted` refuses the second observation. Once `exited` is set,
+-- `observeExit` branches on `dead`. A receive with no exit and no
+-- halt parks: just, and no event.
+observe : Meet → Maybe DRun
+observe m with noted m
+... | true  = nothing
+... | false with exited m
+... | true  = observeExit m
+... | false with halted m
+... | true  = just (dran (record m { noted = true }) [])
+... | false = just (dran m [])
 
 -- Already-noted observation is nothing, for any other fields.
 observe-noted : ∀ m → noted m ≡ true → observe m ≡ nothing
@@ -379,6 +392,26 @@ liveSendOps =
   d-mon zero (suc zero) ∷
   d-send zero (suc zero) ∷ []
 
+-- `:normal` while neither phase is settled, then a settle, then
+-- the receive. The exit already set `dead`. The settle does not
+-- clear it. The self list settles the observer instead of the peer.
+settleAfterOps : List DOp
+settleAfterOps =
+  d-mon zero (suc zero) ∷
+  d-exit (suc zero) normal ∷
+  d-settle (suc zero) ∷
+  d-recv zero ∷ []
+
+settleAfterAgain : List DOp
+settleAfterAgain = settleAfterOps ++ (d-recv zero ∷ [])
+
+settleAfterSelfOps : List DOp
+settleAfterSelfOps =
+  d-mon zero (suc zero) ∷
+  d-exit (suc zero) normal ∷
+  d-settle zero ∷
+  d-recv zero ∷ []
+
 monTwice : List DOp
 monTwice =
   d-mon zero (suc zero) ∷
@@ -483,3 +516,18 @@ second-monitor = refl
 
 no-monitor : stepExit meetEmpty (suc zero) killed ≡ nothing
 no-monitor = refl
+
+settle-after-exit : evOf (runDs settleAfterOps meetNormal) ≡ just oneNormal
+settle-after-exit = refl
+
+settle-after-exit-armed : flag armed (runDs settleAfterOps meetNormal) ≡ true
+settle-after-exit-armed = refl
+
+settle-after-exit-again : runDs settleAfterAgain meetNormal ≡ nothing
+settle-after-exit-again = refl
+
+settle-after-exit-self : evOf (runDs settleAfterSelfOps meetNormal) ≡ just oneNormal
+settle-after-exit-self = refl
+
+settle-after-exit-self-armed : flag armed (runDs settleAfterSelfOps meetNormal) ≡ true
+settle-after-exit-self-armed = refl
