@@ -2,7 +2,9 @@
 --
 -- scripts/book_show.exs loads this file and normalises show-trip,
 -- show-stuck, show-alloc, show-deref, show-send, show-step,
--- show-collect, and show-wide. Each one is a closed run String.
+-- show-collect, show-wide, show-down, show-down-again,
+-- show-down-done, show-abandon, and show-send-dead. Each one is a
+-- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
 --
@@ -20,6 +22,8 @@
 --   kept is fin-kept(k,n,le) | omega-kept | iv-kept(point,point)
 --   le is le-zero(n) | le-suc(m,n,le)
 --   kind is Kmove | Kcopy
+--   tr-down is "tr-down " observer " " dead " " reason
+--   reason is killed | crash | normal | abandon
 --   nat is decimal with no leading zeros, fuel 8
 --   fuel exhaustion, a remainder past 9, and a digit past 9 print
 --   overflow. They do not print a truncated numeral or an empty string.
@@ -242,6 +246,14 @@ def shKind : run Π (k : Kind) → String :=
       | Kmove => "Kmove"
       | Kcopy => "Kcopy"
 
+def shWhy : run Π (w : Why) → String :=
+  λ (w : Why) →
+    match w motive (λ _ → String)
+      | killed => "killed"
+      | crash => "crash"
+      | normal => "normal"
+      | abandon => "abandon"
+
 def shRef : run Π (r : Ref) → String :=
   λ (r : Ref) →
     match r motive (λ _ → String)
@@ -286,6 +298,9 @@ def shEvent : run Π (e : Event) → String :=
           strCat "tr-spawn " (strCat (shNat p) (strCat " " (shNat c)))
       | tr-step i => strCat "tr-step " (shNat i)
       | tr-collect ns => strCat "tr-collect(" (strCat (shNatBody ns) ")")
+      | tr-down o d w =>
+          strCat "tr-down "
+            (strCat (shNat o) (strCat " " (strCat (shNat d) (strCat " " (shWhy w)))))
 
 def shBody : run Π (ev : List Event) → String :=
   λ (ev : List Event) →
@@ -392,3 +407,21 @@ def shWideBody : run String :=
 
 def show-wide : run String :=
   strCat "wide: " (strCat shWideBody "\n")
+
+-- Death schedules. down is queued mail, then one tr-down.
+-- down-again is the second observation. down-done and abandon are
+-- halts: just, and an empty event list. send-dead is the consumed put.
+def show-down : run String :=
+  strCat "down: " (strCat (shMaybe (asRun (runDs downOps meetMail))) "\n")
+
+def show-down-again : run String :=
+  strCat "down-again: " (strCat (shMaybe (asRun (runDs againOps meetMail))) "\n")
+
+def show-down-done : run String :=
+  strCat "down-done: " (strCat (shMaybe (asRun (runDs doneOps meetEmpty))) "\n")
+
+def show-abandon : run String :=
+  strCat "abandon: " (strCat (shMaybe (asRun (runDs abandonOps meetEmpty))) "\n")
+
+def show-send-dead : run String :=
+  strCat "send-dead: " (strCat (shMaybe (asRun (runDs sendOps meetEmpty))) "\n")

@@ -13,8 +13,19 @@
 --             emit this event.
 -- tr-collect  freed object indices, in increasing index order.
 --             book/collect.muro runs collect and does not emit this event.
+-- tr-down     observer pid, dead pid, reason. Peer death, observed at
+--             a receive. Not a protocol tag: Code's dead list stays
+--             the consumption mark used by deliver, ignore, and demonitor.
 
 import "heap.muro"
+
+-- The reason on a down. killed is the reason the observer stores.
+-- This book does not rewrite a separate kill spelling into it.
+data Why : Type where
+  killed : Why
+  crash : Why
+  normal : Why
+  abandon : Why
 
 data Event : Type where
   tr-alloc : Nat → Grade → Event
@@ -24,6 +35,7 @@ data Event : Type where
   tr-spawn : Nat → Nat → Event
   tr-step : Nat → Event
   tr-collect : List Nat → Event
+  tr-down : Nat → Nat → Why → Event
 
 data Trace : Type where
   trace : List Event → Trace
