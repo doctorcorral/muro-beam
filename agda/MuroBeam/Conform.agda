@@ -34,8 +34,14 @@ open import MuroBeam.Cex using (cex; lowerTm)
 open import MuroBeam.Emit using
   ( Run; ran; Pop; pop-spawn; pop-emit; pop-deliver; pop-recv
   ; emitPops; emitAlloc; emitDeref; emitSendRoot; emitEval; emitCollect )
+open import MuroBeam.Death using
+  ( DRun; dran; base; runDs
+  ; downOps; againOps; doneOps; abandonOps; sendOps
+  ; settleAfterOps
+  ; meetMail; meetEmpty; meetNormal )
 open import MuroBeam.Event using
-  ( Event; tr-alloc; tr-spend; tr-send; tr-recv; tr-spawn; tr-step; tr-collect )
+  ( Event; tr-alloc; tr-spend; tr-send; tr-recv; tr-spawn; tr-step; tr-collect; tr-down
+  ; Why; killed; crash; normal; abandon )
 open import MuroBeam.Grade using (Kept; fin-kept; ω-kept; iv-kept; selfKept; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using (Obj; cell; nat; live; free; Ref; ref)
 open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; go)
@@ -146,6 +152,12 @@ showKind : Kind → String
 showKind Kmove = "Kmove"
 showKind Kcopy = "Kcopy"
 
+showWhy : Why → String
+showWhy killed  = "killed"
+showWhy crash   = "crash"
+showWhy normal  = "normal"
+showWhy abandon = "abandon"
+
 showRef : Ref → String
 showRef (ref o c r k) =
   "ref(" ++ showℕ o ++ "," ++ showGrade c ++ "," ++ showGrade r ++ "," ++ showKept k ++ ")"
@@ -166,6 +178,8 @@ showEvent (tr-recv i r) = "tr-recv " ++ showℕ i ++ " " ++ showRef r
 showEvent (tr-spawn p c) = "tr-spawn " ++ showℕ p ++ " " ++ showℕ c
 showEvent (tr-step i) = "tr-step " ++ showℕ i
 showEvent (tr-collect ns) = "tr-collect(" ++ showNatBody ns ++ ")"
+showEvent (tr-down o d w) =
+  "tr-down " ++ showℕ o ++ " " ++ showℕ d ++ " " ++ showWhy w
 
 showTail : List Event → String
 showTail [] = ""
@@ -292,8 +306,16 @@ wideBody =
   showℕ ten
 
 ------------------------------------------------------------------------
--- Seven examples, then the printer check. The driver prints this
--- and nothing else.
+-- The death schedules project to Run through the underlying Sys.
+-- Flags are not on the fingerprint. The book pins those.
+------------------------------------------------------------------------
+
+asRun : Maybe DRun → Maybe Run
+asRun nothing = nothing
+asRun (just (dran m es)) = just (ran (base m) es)
+
+-- Seven examples, the printer check, then the death schedules.
+-- The driver prints this and nothing else.
 ------------------------------------------------------------------------
 
 report : String
@@ -305,4 +327,10 @@ report =
   line "send" (showMaybe (emitSendRoot twoG1 zero zero (suc zero))) ++
   line "step" (showMaybe (emitEval emitZe zero)) ++
   line "collect" (showRan (emitCollect lone)) ++
-  line "wide" wideBody
+  line "wide" wideBody ++
+  line "down" (showMaybe (asRun (runDs downOps meetMail))) ++
+  line "down-again" (showMaybe (asRun (runDs againOps meetMail))) ++
+  line "down-done" (showMaybe (asRun (runDs doneOps meetEmpty))) ++
+  line "abandon" (showMaybe (asRun (runDs abandonOps meetEmpty))) ++
+  line "send-dead" (showMaybe (asRun (runDs sendOps meetEmpty))) ++
+  line "settle-after-exit" (showMaybe (asRun (runDs settleAfterOps meetNormal)))

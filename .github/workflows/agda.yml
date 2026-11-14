@@ -102,14 +102,14 @@ jobs:
   # Cache keys:
   # - haskell-actions/setup caches the GHC 9.8.4 and Cabal 3.12.1.0
   #   ghcup install on its own key (runner OS, tool version).
-  # - actions/cache key conform-v2-agda280-ghc984-<sources> restores
+  # - actions/cache key conform-v4-agda280-ghc984-<sources> restores
   #   vendor/agda-stdlib (v2.3) and the generated MAlonzo tree. A hit
   #   skips agda --ghc and only relinks the driver. A miss clones the
   #   stdlib and compiles Conform. The key covers the Agda sources, the
-  #   Makefile, and the comparison scripts. v2 is a new printer and
-  #   MuroBeam.Cex, so a v1 tree is not reused. Book changes that do not
-  #   touch those files still re-run the printer; they do not force a
-  #   second MAlonzo compile.
+  #   Makefile, and the comparison scripts. v4 freezes the death
+  #   verdict in observe and adds settle-after-exit, so a v3 tree is
+  #   not reused. Book changes that do not touch those files still
+  #   re-run the printer; they do not force a second MAlonzo compile.
   conformance:
     name: malonzo conformance
     runs-on: ubuntu-24.04
@@ -125,7 +125,7 @@ jobs:
           path: |
             MAlonzo
             vendor/agda-stdlib
-          key: conform-v2-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/conform.py', 'scripts/book_show.exs', 'book/show.muro') }}
+          key: conform-v4-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/conform.py', 'scripts/book_show.exs', 'book/show.muro') }}
 
       - name: Install Agda 2.8.0
         run: |

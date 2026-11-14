@@ -1,0 +1,649 @@
+-- Peer death for one monitor.
+--
+-- Two processes. One watches the other. This is not a field of Proc
+-- and it is not a PStep. Code's dead-tag list is still the consumption
+-- mark used by deliver, ignore, and demonitor. The names here are
+-- down, monitor, and Why.
+--
+-- An exit records the reason and emits nothing. The exit step decides
+-- the verdict. A failure exit sets dead, and a later d-send is then
+-- consumed: just, and an empty event list. A halt exit sets halted
+-- and leaves dead false. The arm runs at the observer's receive,
+-- after that inbox is empty. Queued mail is tr-recv first, then one
+-- tr-down. A second observation is nothing. observe reads dead. It
+-- does not run haltWhy again, so a later d-settle does not turn a
+-- failure exit into a halt. done or abandon makes the observation a
+-- halt: just, no tr-down, and armed stays false. normal is that halt
+-- when either phase is settled at the exit, and a failure-arm down
+-- when neither is. The arm is this transition. It does not run a
+-- protocol skeleton.
+--
+-- d-send is only the consumed put. It is nothing when the peer is not
+-- yet failure-dead. enqueue stays on sendRoot and emit1.
+
+import "emit.muro"
+
+data Phase : Type where
+  ph-run : Phase
+  ph-settled : Phase
+
+-- Flags are host-reusable. A step reads one and writes the meeting
+-- back. The mark is not a BeamGrade. base is a Sys, already reusable
+-- in its own fields.
+data Meet : Type where
+  meeting :
+    Π (+ base : Sys) →
+    Π (+ watching : Bool) →
+    Π (+ observer : Nat) →
+    Π (+ peer : Nat) →
+    Π (+ phaseS : Phase) →
+    Π (+ phaseP : Phase) →
+    Π (+ halted : Bool) →
+    Π (+ exited : Bool) →
+    Π (+ why : Why) →
+    Π (+ dead : Bool) →
+    Π (+ armed : Bool) →
+    Π (+ noted : Bool) →
+    Π (+ expect : Why) →
+    Meet
+
+data DRun : Type where
+  dran : Meet → List Event → DRun
+
+data DOp : Type where
+  d-mon : Nat → Nat → DOp
+  d-exit : Nat → Why → DOp
+  d-recv : Nat → DOp
+  d-send : Nat → Nat → DOp
+  d-done : Nat → DOp
+  d-abandon : Nat → DOp
+  d-settle : Nat → DOp
+
+def whyEq : run Π (a : Why) → Π (b : Why) → Bool :=
+  λ (a : Why) → λ (b : Why) →
+    match a motive (λ _ → Bool)
+      | killed =>
+          (match b motive (λ _ → Bool)
+            | killed => true
+            | crash => false
+            | normal => false
+            | abandon => false)
+      | crash =>
+          (match b motive (λ _ → Bool)
+            | killed => false
+            | crash => true
+            | normal => false
+            | abandon => false)
+      | normal =>
+          (match b motive (λ _ → Bool)
+            | killed => false
+            | crash => false
+            | normal => true
+            | abandon => false)
+      | abandon =>
+          (match b motive (λ _ → Bool)
+            | killed => false
+            | crash => false
+            | normal => false
+            | abandon => true)
+
+def phaseOn : run Π (p : Phase) → Bool :=
+  λ (p : Phase) →
+    match p motive (λ _ → Bool)
+      | ph-run => false
+      | ph-settled => true
+
+-- Abandon is always a halt. killed and crash are halts only when the
+-- party is already halted. normal is a halt when halted is set or
+-- either phase is settled.
+def haltWhy : run Π (w : Why) → Π (s : Phase) → Π (p : Phase) → Π (h : Bool) → Bool :=
+  λ (w : Why) → λ (s : Phase) → λ (p : Phase) → λ (h : Bool) →
+    match w motive (λ _ → Bool)
+      | killed => h
+      | crash => h
+      | normal => orB h (orB (phaseOn s) (phaseOn p))
+      | abandon => true
+
+def procHere : run Π (ps : List Proc) → Π (i : Nat) → Bool :=
+  λ (ps : List Proc) → λ (i : Nat) →
+    match ps motive (λ _ → Bool)
+      | nil => false
+      | cons p ps1 =>
+          (match i motive (λ _ → Bool)
+            | 0 => true
+            | suc j => procHere ps1 j)
+
+-- One walk of the process list. Equal indices are refused.
+def bothHere : run Π (ps : List Proc) → Π (o : Nat) → Π (p : Nat) → Bool :=
+  λ (ps : List Proc) → λ (o : Nat) → λ (p : Nat) →
+    match ps motive (λ _ → Bool)
+      | nil => false
+      | cons q ps1 =>
+          (match o motive (λ _ → Bool)
+            | 0 =>
+                (match p motive (λ _ → Bool)
+                  | 0 => false
+                  | suc j => procHere ps1 j)
+            | suc i =>
+                (match p motive (λ _ → Bool)
+                  | 0 => procHere ps1 i
+                  | suc j => bothHere ps1 i j))
+
+def badEnds : run Π (ps : List Proc) → Π (o : Nat) → Π (p : Nat) → Bool :=
+  λ (ps : List Proc) → λ (o : Nat) → λ (p : Nat) →
+    notB (bothHere ps o p)
+
+def takeMail : run Π (p : Proc) → Maybe (Ref × Proc) :=
+  λ (p : Proc) →
+    match p motive (λ _ → Maybe (Ref × Proc))
+      | proc i st rs mb c =>
+          (match mb motive (λ _ → Maybe (Ref × Proc))
+            | nil => nothing
+            | cons m ms =>
+                (match m motive (λ _ → Maybe (Ref × Proc))
+                  | msg r => just (r, proc i st rs ms c)))
+
+def stepMon : run Π (m : Meet) → Π (+ o : Nat) → Π (+ p : Nat) → Maybe Meet :=
+  λ (m : Meet) → λ (+ o : Nat) → λ (+ p : Nat) →
+    match m motive (λ _ → Maybe Meet)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match watching motive (λ _ → Maybe Meet)
+            | true => nothing
+            | false =>
+                (match base motive (λ _ → Maybe Meet)
+                  | sys h ps =>
+                      (match (badEnds ps o p) motive (λ _ → Maybe Meet)
+                        | true => nothing
+                        | false =>
+                            just (meeting (sys h ps) true o p phaseS phaseP halted exited why dead armed noted expect))))
+
+def stepExit : run Π (m : Meet) → Π (+ i : Nat) → Π (+ w : Why) → Maybe Meet :=
+  λ (m : Meet) → λ (+ i : Nat) → λ (+ w : Why) →
+    match m motive (λ _ → Maybe Meet)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match watching motive (λ _ → Maybe Meet)
+            | true =>
+                (match (natEq i peer) motive (λ _ → Maybe Meet)
+                  | true =>
+                      (match exited motive (λ _ → Maybe Meet)
+                        | true => nothing
+                        | false =>
+                            (match halted motive (λ _ → Maybe Meet)
+                              | true =>
+                                  just (meeting base watching observer peer phaseS phaseP halted true w dead armed noted expect)
+                              | false =>
+                                  (match (haltWhy w phaseS phaseP false) motive (λ _ → Maybe Meet)
+                                    | true =>
+                                        just (meeting base watching observer peer phaseS phaseP true true w false armed noted expect)
+                                    | false =>
+                                        just (meeting base watching observer peer phaseS phaseP halted true w true armed noted expect))))
+                  | false => nothing)
+            | false => nothing)
+
+def stepSettle : run Π (m : Meet) → Π (+ i : Nat) → Maybe Meet :=
+  λ (m : Meet) → λ (+ i : Nat) →
+    match m motive (λ _ → Maybe Meet)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match (natEq i observer) motive (λ _ → Maybe Meet)
+            | true =>
+                just (meeting base watching observer peer ph-settled phaseP halted exited why dead armed noted expect)
+            | false =>
+                (match (natEq i peer) motive (λ _ → Maybe Meet)
+                  | true =>
+                      just (meeting base watching observer peer phaseS ph-settled halted exited why dead armed noted expect)
+                  | false => nothing))
+
+def stepDone : run Π (m : Meet) → Π (+ i : Nat) → Maybe Meet :=
+  λ (m : Meet) → λ (+ i : Nat) →
+    match m motive (λ _ → Maybe Meet)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match base motive (λ _ → Maybe Meet)
+            | sys h ps =>
+                (match (lookup Proc i ps) motive (λ _ → Maybe Meet)
+                  | nothing => nothing
+                  | just p =>
+                      (match p motive (λ _ → Maybe Meet)
+                        | proc pid st rs mb c =>
+                            (match (update Proc i (proc pid done rs mb c) ps) motive (λ _ → Maybe Meet)
+                              | nothing => nothing
+                              | just ps2 =>
+                                  (match (andB watching (natEq i peer)) motive (λ _ → Maybe Meet)
+                                    | true =>
+                                        just (meeting (sys h ps2) watching observer peer phaseS phaseP true exited why dead armed noted expect)
+                                    | false =>
+                                        just (meeting (sys h ps2) watching observer peer phaseS phaseP halted exited why dead armed noted expect))))))
+
+def stepAbandon : run Π (m : Meet) → Π (+ i : Nat) → Maybe Meet :=
+  λ (m : Meet) → λ (+ i : Nat) →
+    match m motive (λ _ → Maybe Meet)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match watching motive (λ _ → Maybe Meet)
+            | true =>
+                (match (natEq i peer) motive (λ _ → Maybe Meet)
+                  | true =>
+                      (match exited motive (λ _ → Maybe Meet)
+                        | true => nothing
+                        | false =>
+                            just (meeting base watching observer peer phaseS phaseP true true abandon false armed noted expect))
+                  | false => nothing)
+            | false => nothing)
+
+-- Consumed put. Empty events. Refused when the peer is not failure-dead.
+def stepSend : run Π (m : Meet) → Π (src : Nat) → Π (dst : Nat) → Maybe DRun :=
+  λ (m : Meet) → λ (src : Nat) → λ (dst : Nat) →
+    match m motive (λ _ → Maybe DRun)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match watching motive (λ _ → Maybe DRun)
+            | true =>
+                (match (andB (natEq src observer) (natEq dst peer)) motive (λ _ → Maybe DRun)
+                  | true =>
+                      (match dead motive (λ _ → Maybe DRun)
+                        | true =>
+                            just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect) nil)
+                        | false => nothing)
+                  | false => nothing)
+            | false => nothing)
+
+-- The exit step already chose. dead is that choice. A later d-settle
+-- does not re-run haltWhy. No step leaves exited true with dead and
+-- halted both false: a failure writes dead, and a halt writes halted.
+-- If that meeting is observed anyway, it is the halt the exit chose.
+def observeExit : run Π (m : Meet) → Maybe DRun :=
+  λ (m : Meet) →
+    match m motive (λ _ → Maybe DRun)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match dead motive (λ _ → Maybe DRun)
+            | true =>
+                (match (whyEq why expect) motive (λ _ → Maybe DRun)
+                  | true =>
+                      just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead true true expect)
+                                 (cons (tr-down observer peer why) nil))
+                  | false => nothing)
+            | false =>
+                just (dran (meeting base watching observer peer phaseS phaseP true exited why dead armed true expect) nil))
+
+-- noted refuses a second observation. Once exited is set, observeExit
+-- branches on dead. A matching failure reason emits one tr-down and
+-- sets armed. No exit and no halt parks: just, and no event.
+def observe : run Π (m : Meet) → Maybe DRun :=
+  λ (m : Meet) →
+    match m motive (λ _ → Maybe DRun)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match noted motive (λ _ → Maybe DRun)
+            | true => nothing
+            | false =>
+                (match exited motive (λ _ → Maybe DRun)
+                  | true =>
+                      observeExit (meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect)
+                  | false =>
+                      (match halted motive (λ _ → Maybe DRun)
+                        | true =>
+                            just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead armed true expect) nil)
+                        | false =>
+                            just (dran (meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect) nil))))
+
+def stepRecv : run Π (m : Meet) → Π (+ i : Nat) → Maybe DRun :=
+  λ (m : Meet) → λ (+ i : Nat) →
+    match m motive (λ _ → Maybe DRun)
+      | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+          (match watching motive (λ _ → Maybe DRun)
+            | true =>
+                (match (natEq i observer) motive (λ _ → Maybe DRun)
+                  | true =>
+                      (match base motive (λ _ → Maybe DRun)
+                        | sys h ps =>
+                            (match (lookup Proc i ps) motive (λ _ → Maybe DRun)
+                              | nothing => nothing
+                              | just p =>
+                                  (match (takeMail p) motive (λ _ → Maybe DRun)
+                                    | nothing =>
+                                        observe (meeting (sys h ps) watching observer peer phaseS phaseP halted exited why dead armed noted expect)
+                                    | just pair =>
+                                        let (r, p2) = pair in
+                                          (match (update Proc i p2 ps) motive (λ _ → Maybe DRun)
+                                            | nothing => nothing
+                                            | just ps2 =>
+                                                just (dran (meeting (sys h ps2) watching observer peer phaseS phaseP halted exited why dead armed noted expect)
+                                                           (cons (tr-recv i r) nil))))))
+                  | false => nothing)
+            | false => nothing)
+
+def mapMeet : run Π (m : Maybe Meet) → Maybe DRun :=
+  λ (m : Maybe Meet) →
+    match m motive (λ _ → Maybe DRun)
+      | nothing => nothing
+      | just m1 => just (dran m1 nil)
+
+def stepD : run Π (op : DOp) → Π (m : Meet) → Maybe DRun :=
+  λ (op : DOp) → λ (m : Meet) →
+    match op motive (λ _ → Maybe DRun)
+      | d-mon o p => mapMeet (stepMon m o p)
+      | d-exit i w => mapMeet (stepExit m i w)
+      | d-recv i => stepRecv m i
+      | d-send s d => stepSend m s d
+      | d-done i => mapMeet (stepDone m i)
+      | d-abandon i => mapMeet (stepAbandon m i)
+      | d-settle i => mapMeet (stepSettle m i)
+
+def joinD : run Π (ev : List Event) → Π (m : Maybe DRun) → Maybe DRun :=
+  λ (ev : List Event) → λ (m : Maybe DRun) →
+    match m motive (λ _ → Maybe DRun)
+      | nothing => nothing
+      | just d =>
+          (match d motive (λ _ → Maybe DRun)
+            | dran m1 ev2 => just (dran m1 (append Event ev ev2)))
+
+-- The op list is the decreasing argument, as emitPops is.
+def runDs : run Π (ops : List DOp) → Π (m : Meet) → Maybe DRun :=
+  λ (ops : List DOp) → λ (m : Meet) →
+    match ops motive (λ _ → Maybe DRun)
+      | nil => just (dran m nil)
+      | cons op rest =>
+          (match (stepD op m) motive (λ _ → Maybe DRun)
+            | nothing => nothing
+            | just d =>
+                (match d motive (λ _ → Maybe DRun)
+                  | dran m1 ev => joinD ev (runDs rest m1)))
+
+def evOf : run Π (m : Maybe DRun) → Maybe (List Event) :=
+  λ (m : Maybe DRun) →
+    match m motive (λ _ → Maybe (List Event))
+      | nothing => nothing
+      | just d =>
+          (match d motive (λ _ → Maybe (List Event))
+            | dran m1 ev => just ev)
+
+def armedOf : run Π (m : Maybe DRun) → Bool :=
+  λ (m : Maybe DRun) →
+    match m motive (λ _ → Bool)
+      | nothing => false
+      | just d =>
+          (match d motive (λ _ → Bool)
+            | dran m1 ev =>
+                (match m1 motive (λ _ → Bool)
+                  | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect => armed))
+
+def deadOf : run Π (m : Maybe DRun) → Bool :=
+  λ (m : Maybe DRun) →
+    match m motive (λ _ → Bool)
+      | nothing => false
+      | just d =>
+          (match d motive (λ _ → Bool)
+            | dran m1 ev =>
+                (match m1 motive (λ _ → Bool)
+                  | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect => dead))
+
+def haltedOf : run Π (m : Maybe DRun) → Bool :=
+  λ (m : Maybe DRun) →
+    match m motive (λ _ → Bool)
+      | nothing => false
+      | just d =>
+          (match d motive (λ _ → Bool)
+            | dran m1 ev =>
+                (match m1 motive (λ _ → Bool)
+                  | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect => halted))
+
+def whyOf : run Π (m : Maybe DRun) → Maybe Why :=
+  λ (m : Maybe DRun) →
+    match m motive (λ _ → Maybe Why)
+      | nothing => nothing
+      | just d =>
+          (match d motive (λ _ → Maybe Why)
+            | dran m1 ev =>
+                (match m1 motive (λ _ → Maybe Why)
+                  | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect => just why))
+
+def stateAt : run Π (m : Maybe DRun) → Π (i : Nat) → Maybe PState :=
+  λ (m : Maybe DRun) → λ (i : Nat) →
+    match m motive (λ _ → Maybe PState)
+      | nothing => nothing
+      | just d =>
+          (match d motive (λ _ → Maybe PState)
+            | dran m1 ev =>
+                (match m1 motive (λ _ → Maybe PState)
+                  | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+                      (match base motive (λ _ → Maybe PState)
+                        | sys h ps =>
+                            (match (lookup Proc i ps) motive (λ _ → Maybe PState)
+                              | nothing => nothing
+                              | just p => just (state p)))))
+
+def asRun : run Π (m : Maybe DRun) → Maybe Run :=
+  λ (m : Maybe DRun) →
+    match m motive (λ _ → Maybe Run)
+      | nothing => nothing
+      | just d =>
+          (match d motive (λ _ → Maybe Run)
+            | dran m1 ev =>
+                (match m1 motive (λ _ → Maybe Run)
+                  | meeting base watching observer peer phaseS phaseP halted exited why dead armed noted expect =>
+                      just (ran base ev)))
+
+------------------------------------------------------------------------
+-- Closed meetings. The cell is the object the queued ref names.
+------------------------------------------------------------------------
+
+def downRho : run Ref := ref 0 grade1 grade1 (selfKept grade1)
+
+def downH : run List Obj := cons (cell (nat 0) live) nil
+
+def pEmpty : run Proc := proc 0 ready nil nil idle
+
+def pMail : run Proc := proc 0 ready nil (cons (msg downRho) nil) idle
+
+def pPeer : run Proc := proc 1 ready nil nil idle
+
+def meetEmpty : run Meet :=
+  meeting (sys downH (cons pEmpty (cons pPeer nil)))
+     false 0 1 ph-run ph-run
+     false false killed false false false killed
+
+def meetMail : run Meet :=
+  meeting (sys downH (cons pMail (cons pPeer nil)))
+     false 0 1 ph-run ph-run
+     false false killed false false false killed
+
+def meetNormal : run Meet :=
+  meeting (sys downH (cons pEmpty (cons pPeer nil)))
+     false 0 1 ph-run ph-run
+     false false killed false false false normal
+
+def meetMiss : run Meet :=
+  meeting (sys downH (cons pEmpty (cons pPeer nil)))
+     false 0 1 ph-run ph-run
+     false false killed false false false crash
+
+def downOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 killed)
+      (cons (d-recv 0)
+        (cons (d-recv 0) nil)))
+
+def againOps : run List DOp := append DOp downOps (cons (d-recv 0) nil)
+
+def doneOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-done 1)
+      (cons (d-exit 1 killed)
+        (cons (d-recv 0) nil)))
+
+def abandonOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-abandon 1)
+      (cons (d-recv 0) nil))
+
+def sendOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 killed)
+      (cons (d-send 0 1) nil))
+
+def sendRecvOps : run List DOp := append DOp sendOps (cons (d-recv 0) nil)
+
+def afterOps : run List DOp := append DOp downOps (cons (d-send 0 1) nil)
+
+def normalOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 normal)
+      (cons (d-recv 0) nil))
+
+def settledOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-settle 1)
+      (cons (d-exit 1 normal)
+        (cons (d-recv 0) nil)))
+
+def settledSelfOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-settle 0)
+      (cons (d-exit 1 normal)
+        (cons (d-recv 0) nil)))
+
+def missOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 killed)
+      (cons (d-recv 0) nil))
+
+def twiceOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 killed)
+      (cons (d-exit 1 crash) nil))
+
+def liveSendOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-send 0 1) nil)
+
+-- normal while neither phase is settled, then a settle, then the
+-- receive. The exit already set dead. The settle does not clear it.
+-- settleAfterSelfOps settles the observer instead of the peer.
+def settleAfterOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 normal)
+      (cons (d-settle 1)
+        (cons (d-recv 0) nil)))
+
+def settleAfterAgain : run List DOp :=
+  append DOp settleAfterOps (cons (d-recv 0) nil)
+
+def settleAfterSelfOps : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-exit 1 normal)
+      (cons (d-settle 0)
+        (cons (d-recv 0) nil)))
+
+def monTwice : run List DOp :=
+  cons (d-mon 0 1)
+    (cons (d-mon 0 1) nil)
+
+def downEv : run List Event :=
+  cons (tr-recv 0 downRho) (cons (tr-down 0 1 killed) nil)
+
+def oneDown : run List Event := cons (tr-down 0 1 killed) nil
+
+def oneNormal : run List Event := cons (tr-down 0 1 normal) nil
+
+-- Schedules. A flip of an event or a flag fails the check.
+-- Agda's observe-noted quantifies over every noted meeting. A premise
+-- {noted ≡ true} does not refine this match, so that equation is not
+-- here. down-again is the closed second observation.
+
+def down-events : evidence
+    {evOf (runDs downOps meetMail) ≡ just downEv : Maybe (List Event)} := refl
+
+def down-armed : evidence
+    {armedOf (runDs downOps meetMail) ≡ true : Bool} := refl
+
+def down-dead : evidence
+    {deadOf (runDs downOps meetMail) ≡ true : Bool} := refl
+
+def down-again : evidence
+    {runDs againOps meetMail ≡ nothing : Maybe DRun} := refl
+
+def down-done-events : evidence
+    {evOf (runDs doneOps meetEmpty) ≡ just nil : Maybe (List Event)} := refl
+
+def down-done-armed : evidence
+    {armedOf (runDs doneOps meetEmpty) ≡ false : Bool} := refl
+
+def down-done-halted : evidence
+    {haltedOf (runDs doneOps meetEmpty) ≡ true : Bool} := refl
+
+def down-done-dead : evidence
+    {deadOf (runDs doneOps meetEmpty) ≡ false : Bool} := refl
+
+def down-done-state : evidence
+    {stateAt (runDs doneOps meetEmpty) 1 ≡ just done : Maybe PState} := refl
+
+def abandon-events : evidence
+    {evOf (runDs abandonOps meetEmpty) ≡ just nil : Maybe (List Event)} := refl
+
+def abandon-armed : evidence
+    {armedOf (runDs abandonOps meetEmpty) ≡ false : Bool} := refl
+
+def abandon-why : evidence
+    {whyOf (runDs abandonOps meetEmpty) ≡ just abandon : Maybe Why} := refl
+
+def abandon-state : evidence
+    {stateAt (runDs abandonOps meetEmpty) 1 ≡ just ready : Maybe PState} := refl
+
+def send-dead-events : evidence
+    {evOf (runDs sendOps meetEmpty) ≡ just nil : Maybe (List Event)} := refl
+
+def send-dead-armed : evidence
+    {armedOf (runDs sendOps meetEmpty) ≡ false : Bool} := refl
+
+def send-dead-dead : evidence
+    {deadOf (runDs sendOps meetEmpty) ≡ true : Bool} := refl
+
+def send-then-down : evidence
+    {evOf (runDs sendRecvOps meetEmpty) ≡ just oneDown : Maybe (List Event)} := refl
+
+def send-after-arm : evidence
+    {evOf (runDs afterOps meetMail) ≡ just downEv : Maybe (List Event)} := refl
+
+def normal-mid : evidence
+    {evOf (runDs normalOps meetNormal) ≡ just oneNormal : Maybe (List Event)} := refl
+
+def normal-mid-armed : evidence
+    {armedOf (runDs normalOps meetNormal) ≡ true : Bool} := refl
+
+def normal-settled : evidence
+    {evOf (runDs settledOps meetNormal) ≡ just nil : Maybe (List Event)} := refl
+
+def normal-settled-armed : evidence
+    {armedOf (runDs settledOps meetNormal) ≡ false : Bool} := refl
+
+def normal-self : evidence
+    {evOf (runDs settledSelfOps meetNormal) ≡ just nil : Maybe (List Event)} := refl
+
+def normal-self-armed : evidence
+    {armedOf (runDs settledSelfOps meetNormal) ≡ false : Bool} := refl
+
+def unmatched : evidence
+    {runDs missOps meetMiss ≡ nothing : Maybe DRun} := refl
+
+def exit-twice : evidence
+    {runDs twiceOps meetEmpty ≡ nothing : Maybe DRun} := refl
+
+def send-before-dead : evidence
+    {runDs liveSendOps meetEmpty ≡ nothing : Maybe DRun} := refl
+
+def second-monitor : evidence
+    {runDs monTwice meetEmpty ≡ nothing : Maybe DRun} := refl
+
+def no-monitor : evidence
+    {stepExit meetEmpty 1 killed ≡ nothing : Maybe Meet} := refl
+
+def settle-after-exit : evidence
+    {evOf (runDs settleAfterOps meetNormal) ≡ just oneNormal : Maybe (List Event)} := refl
+
+def settle-after-exit-armed : evidence
+    {armedOf (runDs settleAfterOps meetNormal) ≡ true : Bool} := refl
+
+def settle-after-exit-again : evidence
+    {runDs settleAfterAgain meetNormal ≡ nothing : Maybe DRun} := refl
+
+def settle-after-exit-self : evidence
+    {evOf (runDs settleAfterSelfOps meetNormal) ≡ just oneNormal : Maybe (List Event)} := refl
+
+def settle-after-exit-self-armed : evidence
+    {armedOf (runDs settleAfterSelfOps meetNormal) ≡ true : Bool} := refl

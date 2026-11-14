@@ -21,6 +21,7 @@ import "trace.muro"
 import "run.muro"
 import "cek.muro"
 import "trip.muro"
+import "death.muro"
 
 def once : run GTm 0 :=
   glam 0 grade1 grade0 (gvar (suc 0) (fzero 0))
