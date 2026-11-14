@@ -2,13 +2,13 @@
 
 The Agda model in `agda/` is the proof. The book in `book/` is the artefact the muro wall checks. This document is the plan for that book.
 
-Part 1, merged as PR #6, is the boundary mirror, the runtime data, this plan, the smoke, and the CI job. Part 2, merged as PR #7, runs `alloc`, `deref` / `spend`, `send`, and `reuse`. Part 3, merged as PR #8, runs one CEK step (`eval1` and its helpers, plus fuel-bounded `runFor`) and total ordered `collect`. Part 4 is this book. It runs v0 `recv` (`recvRoot`), the process steps `spawn1`, `emit1`, `deliver1`, `recv1`, `arm1`, `seq1`, `bind1`, and `done1`, one scheduling step (`tryStep` / `tryPStep`), and `List Event` emission. The in-boundary `trip` runs spawn, emit a grade-1 reference, deliver, and recv. `cex`, already refused by `inBoundary`, is also refused when lowered and run (`ex-cex-stuck`). The smoke pins the accepted steps and the refusals.
+Part 1, merged as PR #6, is the boundary mirror, the runtime data, this plan, the smoke, and the CI job. Part 2, merged as PR #7, runs `alloc`, `deref` / `spend`, `send`, and `reuse`. Part 3, merged as PR #8, runs one CEK step (`eval1` and its helpers, plus fuel-bounded `runFor`) and total ordered `collect`. Part 4 is this book. It runs v0 `recv` (`recvRoot`), the process steps `spawn1`, `emit1`, `deliver1`, `recv1`, `arm1`, `seq1`, `bind1`, and `done1`, one scheduling step (`tryStep` / `tryPStep`), and `List Event` emission. The in-boundary `trip` runs spawn, emit a grade-1 reference, deliver, and recv. `cex`, already refused by `inBoundary`, is also refused when lowered and run (`ex-cex-stuck`). The smoke pins the accepted steps and the refusals. Peer death is the later monitor: one process watches one peer, queued mail is received before `tr-down`, and the failure arm runs once.
 
 Ricardo approved the plan on 2026-11-12, with the four amendments below, and approved part 2 the same day after PR #6 merged. Part 2 merged as PR #7 later that day. Part 3 merged as PR #8. Part 4 followed.
 
 ## What this part does not claim
 
-For seven closed examples, this book is an executable image of the Agda emitter. `make conformance` checks the printer with `make book-show`, compiles `MuroBeam.Conform` with `agda --ghc --safe`, and diffs the MAlonzo binary against the strings `book/show.muro` normalises. The CI job `malonzo conformance` runs that command and fails if a line differs. The lines match:
+For the closed examples below, this book is an executable image of the Agda emitter. `make conformance` checks the printer with `make book-show`, compiles `MuroBeam.Conform` with `agda --ghc --safe`, and diffs the MAlonzo binary against the strings `book/show.muro` normalises. The CI job `malonzo conformance` runs that command and fails if a line differs. The lines match:
 
 ```
 trip: just [tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-recv 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))] h3l3p2
@@ -19,9 +19,16 @@ send: just [tr-send 0 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-z
 step: just [tr-step 0] h1l1p1
 collect: ran [tr-collect(0)] h1l0p1
 wide: overflow overflow overflow 10
+down: just [tr-recv 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))), tr-down 0 1 killed] h1l1p2
+down-again: nothing
+down-done: just [] h1l1p2
+abandon: just [] h1l1p2
+send-dead: just [] h1l1p2
 ```
 
 `trip` is `emitPops` of spawn, emit, deliver, and recv on `s0`. `stuck` is `eval1` after `runFor 6` of the lowered `cexApp`. Both sides refuse, and the line is `nothing`. A refusal carries no fingerprint. `alloc`, `deref`, `send`, `step`, and `collect` are the one-step pins in `book/emit.muro`. `collect` is total, so that line says `ran`. Ignore, flush, and await are not in the comparison. A wrapper is still not proved equal to its operation for an arbitrary system. `eval1` still returns `Maybe Sys`. `collect` still returns `Sys`. The events are built by the wrappers.
+
+`down` is `runDs` of monitor, a `killed` exit, and two receives, on a meeting whose observer inbox already holds one grade-1 message. The first receive is `tr-recv`. The second is `tr-down`. `down-again` is that schedule plus one more receive, and the line is `nothing`: the arm does not run twice. `down-done` is monitor, `d-done` of the peer, an exit, and a receive. The peer is `done`, so the receive is a halt: `just` and an empty event list, and `armed` stays false. `abandon` is the same shape for `d-abandon`, and the reason stored is `abandon`. `send-dead` is monitor, a `killed` exit, and `d-send`. The put is consumed: `just` and an empty event list. The death flags are not on the fingerprint. `down-armed`, `down-done-armed`, `send-dead-dead`, and the other equations in `book/death.muro` pin them. A matching `just []` is not, by itself, the claim that the arm ran.
 
 Success lines compare the event list and a post-state fingerprint. The fingerprint is `h` plus the heap length, `l` plus the number of live cells, and `p` plus the process count, in the same decimal as the events. It is not the system. Payloads, grades, residuals, and control are not on the line. A matching success line is not a claim that the final systems are equal. That is a hard limit of this comparison. `stuck` on `just` would print `just` and that same fingerprint, and no events, because `eval1` returns `Maybe Sys`. Today's `stuck` line is the refusal `nothing`.
 
@@ -58,7 +65,7 @@ Part 4 is weaker than Agda in the same way. The Agda text is unchanged.
 - The wrappers call the operations. There is no quantified equation that an emitting wrapper agrees with the operation for every system: a neutral `Maybe` does not match, so that equation is not `refl`. The pins are the systems that reduce (`trip-trace`, `emit-deref-g1`, `emit-alloc0`, `emit-send-g1`, `emit-reuse`, `emit-ze`, `emit-collect-free`, `emit-recv-one`, and the copy and refusal traces).
 - `spawn-preserves-grade1`, `lowerP-safe`, and `residual-inv-step` are not restated. Every `Ref` still stores `Kept`.
 
-The conformance comparison is `make conformance`, described above. The book side of `trip` is the first line. `ρ` prints as `ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))`, which is `selfKept grade1`. The driver imports `PRun`, not `PExample`. Local `agda` is 2.8.0 and local `ghc` is 9.12.2. CI uses Agda 2.8.0 and GHC 9.8.4. The phrase above is only for those seven examples, and the fingerprint on a success line is not the system. `wide` is the printer check.
+The conformance comparison is `make conformance`, described above. The book side of `trip` is the first line. `ρ` prints as `ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))`, which is `selfKept grade1`. The driver imports `PRun`, not `PExample`. Local `agda` is 2.8.0 and local `ghc` is 9.12.2. CI uses Agda 2.8.0 and GHC 9.8.4. The phrase above is only for the lines under "What this part does not claim", and the fingerprint on a success line is not the system. `wide` is the printer check. The death lines are the same comparison: events and that fingerprint, not the meeting flags.
 
 A book lemma that shares an Agda name is a shape or an example the wall can check, not the Agda theorem, unless the equation really is the same closed statement. `trip-spawn` is `spawn1 s0 0 ≡ just s1` on the `trip` systems. `ex-cex-stuck` is `eval1 (runFor 6 (lowerTm 0 cexApp)) 0 ≡ nothing`. See the weaker-than-Agda lists above.
 
@@ -66,7 +73,7 @@ A book lemma that shares an Agda name is a shape or an example the wall can chec
 
 ### 1. The book and the Agda model meet in a conformance test
 
-The link is a test, not a slogan. Both sides run on the same closed terms. For the seven examples above, the traces match, and that is the executable image. It is not a claim about an arbitrary system.
+The link is a test, not a slogan. Both sides run on the same closed terms. For the lines under "What this part does not claim", the traces match, and that is the executable image. It is not a claim about an arbitrary system.
 
 Shared examples, encoded in `book/smoke.muro`:
 
@@ -85,6 +92,7 @@ Shared examples, encoded in `book/smoke.muro`:
 | `tr-spawn` | parent pid, child pid |
 | `tr-step` | pid. One CEK step. Control before and after is a later field. |
 | `tr-collect` | freed object indices, in increasing order |
+| `tr-down` | observer pid, dead pid, reason (`killed`, `crash`, `normal`, or `abandon`) |
 
 `tr-` keeps these names off the process-term constructors. The heap operations, `eval1`, and `collect` do not build a trace. `book/emit.muro` does, by calling those operations and pairing the resulting system with the events. A placeholder cell is not `tr-alloc`. `deliver1` adds no event.
 
@@ -117,7 +125,7 @@ Later parts follow this rule.
 - Multi-step evaluation is driven from outside. Either an explicit fuel argument, `runFor fuel state`, or an external scheduler that applies one process step at a time, in the style of Agda's `PStep`.
 - No internal unbounded loop.
 
-`inBoundary` and `noEscape` follow the rule: they recurse on the term, and they take no fuel. `alloc`, `deref`, `sendRoot`, and `reuse` follow it too. `eval1` does not call itself. Its helpers are one `run` each. `runFor` recurses on the fuel and stops when `eval1` returns `nothing`. `collect` is one `run` from `Sys` to `Sys`, structural on the heap and the process list, with no internal loop. `recvRoot` walks one mailbox. `spawn1` walks one thinning. `emit1`, `deliver1`, `recv1`, `seq1`, `bind1`, `done1`, and `arm1` each walk one process list or one stack. `finRebuild` walks one `Fin`, with the bound erased so the `Fin` is the argument it descends on. `runPops` and `emitPops` walk one `Pop` list and apply one step, then the tail. None of them is an internal unbounded loop.
+`inBoundary` and `noEscape` follow the rule: they recurse on the term, and they take no fuel. `alloc`, `deref`, `sendRoot`, and `reuse` follow it too. `eval1` does not call itself. Its helpers are one `run` each. `runFor` recurses on the fuel and stops when `eval1` returns `nothing`. `collect` is one `run` from `Sys` to `Sys`, structural on the heap and the process list, with no internal loop. `recvRoot` walks one mailbox. `spawn1` walks one thinning. `emit1`, `deliver1`, `recv1`, `seq1`, `bind1`, `done1`, and `arm1` each walk one process list or one stack. `finRebuild` walks one `Fin`, with the bound erased so the `Fin` is the argument it descends on. `runPops` and `emitPops` walk one `Pop` list and apply one step, then the tail. `runDs` walks one `DOp` list the same way. `stepMon`, `stepExit`, `observe`, `stepRecv`, `stepSend`, `stepDone`, `stepAbandon`, and `stepSettle` do not call themselves. None of them is an internal unbounded loop.
 
 ## Four parts
 
@@ -130,7 +138,7 @@ Later parts follow this rule.
 
 ## Two pins
 
-The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b262f6225c989eb6818`). That pin is not bumped. The book is checked with muro 0.20.33 from Hex. 0.20.33 adds CSHRL synthesis on top of 0.20.32. This book does not use CSHRL. Parts 2, 3, and 4 stayed on 0.20.33: the evidence in this book, including `trip-trace` and `ex-cex-stuck`, was expressible on that pin. Later published releases are not, by themselves, a reason to move.
+The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b262f6225c989eb6818`). That pin is not bumped. The book is checked with muro 0.20.33 from Hex. 0.20.33 adds CSHRL synthesis on top of 0.20.32. This book does not use CSHRL. Parts 2, 3, and 4 stayed on 0.20.33: the evidence in this book, including `trip-trace` and `ex-cex-stuck`, was expressible on that pin. Peer death stayed there too. The schedules are closed equations on a `Meet`, which 0.20.33 already checks. muro 0.21.0's `may fail` syntax is the language side. This book is the VM, and it does not need that syntax. Later published releases are not, by themselves, a reason to move.
 
 `make book` runs `mix muro.check book/smoke.muro`. That file imports the rest of the book except the conformance printer, and the checker flattens imports, so one check covers those files. `make book-show` runs `mix muro.check book/show.muro`. `smoke.muro` does not import the printer. `make conformance` runs `book-show` before the MAlonzo diff. CI installs the pinned archive. It does not fetch the Agda standard library.
 
@@ -156,7 +164,8 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 | `book/emit.muro` | Emitting wrappers and `emitPops`. A run is `ran : Sys → List Event → Run`. |
 | `book/trip.muro` | The `trip` schedule, the copy and ignore pins, and the refusals. |
 | `book/smoke.muro` | `once`, `cex`, `ghost`, `cexApp`, `ex-cex-stuck`, and the import of `trip.muro`. |
-| `book/show.muro` | The conformance printer. It imports `smoke.muro`. `make book` does not import it. `make book-show` checks it. `scripts/book_show.exs` normalises the seven example lines and `show-wide`. |
+| `book/death.muro` | One monitor, exit, receive, consumed send, `done`, abandon, and settled `:normal`. |
+| `book/show.muro` | The conformance printer. It imports `smoke.muro`. `make book` does not import it. `make book-show` checks it. `scripts/book_show.exs` normalises the example lines, `show-wide`, and the death lines. |
 
 `beamGrade` reads `pt (fin 0)` as `g0`, `pt (fin 1)` as `g1`, `pt inf` as `omega`, and every `iv`, including `aff`, as `omega`. `pt (fin n)` for `n ≥ 2` is `nothing`. The checked equations are `beam-g0`, `beam-g1`, `beam-omega`, `beam-iv`, and `beam-fin2`. `kind` is the same three send behaviours: `g0-not-sent`, `g1-moved`, `omega-copied`, `iv-copied`.
 
@@ -177,6 +186,39 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 `tryStep` is one v0 operation: `deref`, `sendRoot`, `recvRoot`, `alloc`, `reuse`, `eval1`, or `collect`. `tryPStep` is one process step, or `tryStep` under `pop-lift`. `runPops` applies a list of those steps from the outside. `Step` and `PStep` name the two systems. `stepOf` and `pstepOf` build them only from a `just` result.
 
 `emitDeref` reports `tr-spend` with the object index and the residual before and after `spendRef`, and the state from `deref`. `emitAlloc` reports `tr-alloc` at `length` of the old heap. `emitSendRoot` and `emitEmit` report `tr-send` with the source pid, the destination pid, the reference, and `Kmove` or `Kcopy`. `emitSpawn` reports `tr-spawn` of the parent index and the old process-list length. `emitRecv` and a binding `emitRecv1` report `tr-recv`. `emitEval` reports `tr-step`. `emitCollect` reports `tr-collect` of the unmarked indices, increasing. `emitReuse`, `emitDeliver`, a parking `emitRecv1`, `emitArm`, `emitSeq`, `emitBind`, and `emitDone` report an empty list when the operation returns `just`. `trip` is spawn at process 0, emit at the child, deliver, recv. The trace is `[tr-spawn 0 1, tr-send 1 0 ρ Kmove, tr-recv 0 ρ]`.
+
+## Peer death
+
+`MuroBeam.Death` and `book/death.muro` are the same meeting. It is not stored on `Proc`. `codeDead`, `deadInCtl`, and `deadAt` stay the protocol tags that `deliver`, `ignore`, and demonitor already use. A death here is `Why` and `tr-down`.
+
+One monitor: `d-mon` of an observer pid and a peer pid. A second monitor is `nothing` (`second-monitor`). An exit with no monitor is `nothing` (`no-monitor`). `d-exit` records the reason and emits nothing. A failure exit sets `dead`. `d-send` is only the consumed put: when `dead` is set it returns `just` and an empty event list (`send-dead-events`, `send-dead-dead`), and the arm is still false. The next receive emits `tr-down` (`send-then-down`). A send before that mark is `nothing` (`send-before-dead`). Enqueue of an ordinary message stays `sendRoot` and `emit1`.
+
+`d-recv` on a non-empty observer inbox dequeues one message and emits `tr-recv`. It does not observe the down yet. Agda's `takeMail` also appends that `Ref` onto the process roots. The book's `takeMail` does not. `Ref`'s `Kept` field is affine, so the same ref cannot be the received value and a new root. The event still carries the ref. No death equation reads the roots, and the fingerprint does not either. `deliver1` of ether mail is still event-silent. When the inbox is empty, `observe` runs. If the reason matches the arm, the step emits one `tr-down` (observer, peer, reason) and sets `armed` and `noted`. `down-events` is that pair, mail then down. `down-again` is one more receive, and it is `nothing`. `send-after-arm` is a consumed put after the arm: the event list stays the mail and the one down.
+
+`d-done` on the peer sets the process state to `done` and sets `halted`. A later exit is recorded and does not set `dead`. The receive is `just` and an empty list (`down-done-events`). `armed` is false, `dead` is false, `halted` is true, and the peer state is `done`. `d-abandon` sets `halted`, stores `abandon`, and does not change the process state (`abandon-state` is `ready`). The receive is the same empty success, and the arm does not run.
+
+`:normal` is a failure-arm down when neither phase is settled (`normal-mid`, and `armed` is true). `d-settle` on the peer, or on the observer, makes the same exit a halt (`normal-settled`, `normal-self`, `armed` false). An unmatched reason is `nothing` (`unmatched`), not a successful step. A second exit is `nothing` (`exit-twice`).
+
+`runDs` walks one `DOp` list, the same way `emitPops` walks one `Pop` list. `stepMon`, `stepExit`, `stepRecv`, `stepSend`, `stepDone`, `stepAbandon`, `stepSettle`, and `observe` do not call themselves. `observe-noted` in Agda says that any meeting with `noted ≡ true` observes to `nothing`. The book does not state that quantification. A premise `{noted ≡ true}` does not refine the match on the meeting, so the `true` branch is not `refl` for an arbitrary `Meet`. `down-again` is the closed schedule.
+
+The fingerprint on a death line is still heap length, live cells, and process count. These schedules start from one live cell and two processes, and they stay `h1l1p2`. The flags are the equations above.
+
+### Departures from muro 0.21.0
+
+The OTP image in muro 0.21.0 (`Muro.Emit.Otp` at tag `v0.21.0`) is the behaviour this meeting follows. These are the places it does not.
+
+- There is no `may fail` syntax, no Elixir module, and no fsm `down/1`. The monitor is a runtime step.
+- The failure arm is the one transition that sets `armed` and emits `tr-down`. It does not `drive` a protocol skeleton. There is no continuation term.
+- An unmatched reason is `nothing`. OTP stops `{:shutdown, {:unexpected, reason}}`. This meeting has no exit term and no supervisor to stop into.
+- The stored reason is the `Why` the step was given. OTP rewrites `:kill` to `:killed` before the arm sees it. Callers of this step pass `killed` when that is the reason they mean. There is no second spelling.
+- There is no `{:muro_halt, _}` message apart from abandon. `d-abandon` is the halt. OTP also treats `{:shutdown, :abandon}` as a halt before that message arrives. A later exit is refused, because an exit is once.
+- There is no `{:muro_settled, _}` token. `d-settle` sets the phase. `:normal` is a halt when either phase is settled, and a failure-arm down when neither is and the peer is not `done`.
+- `d-done` is a halt even if the phase is not settled, and even when the later exit reason is `killed`. That is this meeting's reading of "no death after done". OTP's `role dead` is the early stop, not `done` or protocol `stop`.
+- `d-exit` sets `dead` before the arm, and `d-recv` still delivers the inbox before `tr-down`. Messages already in the inbox are the ones that arrived before the down. This meeting does not keep a second BEAM mailbox, and it does not drop a queued message. The checker's drop-from-queue run is not a step here. The OTP image does not take that run either.
+- `d-send` models only the consumed put. It is `nothing` on the halt path, where `dead` is false. OTP's `peer_dead` is the failure mark, not the halt mark. A successful enqueue is still the existing send.
+- One monitor and two processes. A third process, a monitor set, credit, and acks are not in this meeting.
+- The steps are not `PStep`. `no-stray-reply` does not quantify over them. `d-done` sets the state and the halt flag. It does not run `done1`, so it does not clear roots.
+- This is not a runnable VM. There is still no emitter, no image, no loader, no scheduler for an arbitrary program, no CLI, and no I/O.
 
 ## Names
 
@@ -202,6 +244,8 @@ The Agda model still imports `vendor/muro` at v0.20.32 (`792497695ef3b0dd37fe2b2
 | tail used twice in `go` | `markIfAt` | A computed list is affine. The `+` is on the parameter that reads the list again. |
 | `recv` | `recvRoot` | `PTm` already binds `recv`. `recv1` is the process-layer step. |
 | `PStep*`'s `pdone` | `pstop` | `PTm` already binds `pdone`. |
+| `Meet`'s `mt` | `meeting` | `Frame` already binds `mt`. |
+| `takeMail` copies the ref onto the roots | the inbox loses the message and the roots stay | `Kept` inside `Ref` is affine. The event is the one use. |
 | protocol tag | `tag` | ASCII binder. The `+` is host reuse, not a `BeamGrade`. |
 
 ## Where 0.20.33 stops
@@ -217,4 +261,4 @@ These are checker limits. The Agda statements are not weakened to fit them, and 
 - There is no inversion of `Maybe`. A premise `{spendRef r ≡ just r'}`, `{rootAt s i j ≡ just r}`, or `{reuse s i j g v ≡ just t}` does not refine `r` or `t`. The book states the shapes that reduce, and it states `alloc-ordered` and `reuse-ordered` for the heap operations those steps perform.
 - A `match` motive that ignores its argument leaves a `poke` or an `append` stuck on a variable index, so the branch type does not convert. The motive has to mention the index, as `pokeOrd` does. This is how the ordered proofs are written. It is not a missing lemma.
 
-Part 4 is the receive, spawn, scheduling, `trip`, running refusal, and emission above. The MAlonzo comparison is the lines under "What this part does not claim". The totality rule is unchanged.
+Part 4 is the receive, spawn, scheduling, `trip`, running refusal, and emission above. Peer death is the monitor, the down, and the failure arm in the section of that name. The MAlonzo comparison is the lines under "What this part does not claim". The totality rule is unchanged. `runDs` is structural on the `DOp` list.
