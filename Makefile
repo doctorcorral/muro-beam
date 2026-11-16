@@ -10,7 +10,7 @@ AFLAGS := --no-libraries \
 	-i vendor/agda-stdlib/src \
 	--warning=noUnsupportedIndexedMatch
 
-.PHONY: agda audit book book-show conformance
+.PHONY: agda audit book book-show conformance images
 agda:
 	$(AGDA) $(RTS) $(AFLAGS) --safe agda/MuroBeam.agda
 
@@ -37,3 +37,11 @@ book-show:
 # Refuse holes, postulated code, and a module that is not --safe.
 audit:
 	python3 scripts/audit.py
+
+# Parse, load, and run the checked-in images. agda writes the Haskell
+# and does not call GHC. scripts/run_image.py compiles the driver.
+images:
+	$(AGDA) $(RTS) $(AFLAGS) --safe --ghc --ghc-dont-call-ghc \
+		--compile-dir=. \
+		agda/MuroBeam/RunImage.agda
+	python3 scripts/run_image.py
