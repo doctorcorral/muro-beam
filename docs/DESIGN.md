@@ -507,7 +507,21 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 
 ### `bind1`
 
-`bind1` resumes only a singleton `saved` stack. `seq` pushes one `saved` frame and parks an empty environment there, so the traces this book runs never need a deeper stack. A `saved` frame under another frame is not produced by `seq`. Generalising the resumption would be a change to the process layer for a case the layer does not build. It is left as it was.
+`bind1` resumes only a singleton `saved` stack. `seq1` pushes `saved ∷ seg ds ∷ []`, including when `ds` is empty, and parks an empty environment on `saved`. The resumption does not see a stack `seq` built. The pid-0 harness reads the value off `saved ∷ seg` and does not call `bind1`. A `saved` frame under another frame is the `nope` already in `PWf`. Generalising the resumption would resume across a code segment. It is left as it was.
+
+### Code segment
+
+`BTm` (`MuroBeam.BTm`) is muro's `GTm` plus `gref k`. The grade checker in the pin is unchanged. `decideB` is a local copy: the old constructors follow `decide`, and `decide-embed` is that agreement on the gref-free fragment, for any definition bound. `gref k` is `guard "bad gref" (k <ᵇ w) >> ok zeros`. The use vector is zeros. A definition is closed code, used at grade ω. It is not a use of a local binder, and `under` does not discharge it.
+
+The code segment is not a heap cell and not a field of `Sys`. `seq1` pushes `saved ∷ seg ds ∷ []`. `frameRefs (seg _) = []`, so `ctlRefs` of that stack is the `saved` frame's references. `lookupDef` walks to the first `seg`. The CEK rule is one clause of `evalTm`: `gref k` installs `ev code [] (bd env ∷ kont)` when definition k is in that segment, and is stuck otherwise. `bd` restores the caller environment when the installed code returns. The code itself runs under `[]`. It is closed.
+
+`checkDef` checks a definition once: `inB? []` (closed, inside the boundary) and `decideB (suc i) run []`. Index i may mention itself and every earlier definition. A later index is `bad gref`. That is ordered recursion, not a full letrec. Two definitions that call each other are refused when the earlier one names the later one. The entry's bound is `length ds`, so it may call every definition and is not itself a definition.
+
+Recursion is a jump to code that was checked. It does not guarantee termination, a bound on the number of entries, or that a recursive call is guarded. Fuel in `runFor` bounds a run. A run that does not return inside the fuel is the string `fuel`.
+
+`budget-adequate` and `exact-exhausts` stay on the pure path `Step* (lower e)` for a match-free `Checked` term. A frame on that path has no `seg`, so a successful `gref` step is impossible there: `lookupDef` is `nothing`, and the pure-path case is absurd. They are not claims about a run that carries a code segment. `decide-sound` and `Discharged` stay on `GTm`. `Ref` and `lower-sim` are not extended. The book mirror does not gain `gref`.
+
+Re-established on the extended term, on the paths already stated: `lower-wf` and `lower-safe` (`MuroBeam.Lower`; the step case is `step-preserves-grade1` in `MuroBeam.Unique`), `lowerP-wf` (`MuroBeam.PTm`) and `lowerP-safe` (`MuroBeam.PWf`), `grade1-unique` (`MuroBeam.Unique`) and `Grade1Unique` (`MuroBeam.Heap`), `refsOf` (`seg` adds none; `bd` carries the caller environment), `collect-safe` (`MuroBeam.Collect`), `no-stray-reply` (`MuroBeam.Stray`; the `gref` case is the same-refs seal). `InBoundary` and `NoEscape` have a `gref` clause (`ib-ref`, `ne-ref`). The public wrappers are still the image of a closed `GTm 0` under `embed`. `MatchFree` has `mf-ref`. `parse-show` (`MuroBeam.Parse`) is the round trip for both file shapes. `load-sound` (`MuroBeam.Load`) is still the checker equation on a loaded program.
 
 ## Limits
 
@@ -527,7 +541,9 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **`exact-exhausts` is the `g1` pop.** It does not claim every `fin n`. A binder that has not reached `bd` is outside it.
 - **`decide-sound` is binder discharge.** The counts are the uses `decide` computed for the body. It is not the false free-variable reading recorded in the v1c section.
 - **`lower-sim` is not a theorem.** The grade-free machine takes the β that `badG1` refuses. Backward simulation and determinacy are not in this book.
-- **`bind1` resumes one frame.** `seq` produces that shape. A nested `saved` stack is not resumed.
+- **`bind1` does not resume a `seq`.** `seq1` pushes `saved` over `seg`, including an empty segment, and `bind1` matches only `saved ∷ []`. The harness does not call `bind1`.
+- **Recursion is not termination.** A definition may call itself and earlier definitions. A later definition is `bad gref`. Nothing here proves that a recursive call returns, that the recursion is guarded, or that the number of entries is bounded. Fuel bounds the run that is actually taken.
+- **`budget-adequate` does not follow `gref`.** The theorem is `Step* (lower e)` for a match-free `Checked` term. That path has no code segment, so it has no successful `gref` step. A run of `plus` or `half` is outside it. `decide-sound` is still muro's lemma on `GTm`. `decide-embed` is the agreement of `decideB` with that lemma on the gref-free fragment.
 - **Not in this book.** A pid-0 harness runs one pure image (`MuroBeam.RunImage`). There is no CLI yet (B3) and no scheduler for an arbitrary program yet (B2). No bytecode. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
 
 ## Runtime book
@@ -588,7 +604,7 @@ Implication for muro-beam: the runtime must not assume that argument uses are sc
 
 ### Done
 
-- **Image format.** v1 is the S-expression muro emits (`docs/IMAGE.md`). The loader, the parser, and the round trip are Agda (`MuroBeam.Image`, `MuroBeam.Parse`, `MuroBeam.Load`). The book is untouched. A test harness runs a pure image on pid 0. There is still no `muro-beam` binary. The production runner is B3.
+- **Image format.** v1 is the S-expression muro emits today (`docs/IMAGE.md`). v2 is that line with a `(defs …)` section. The loader accepts both. The parser, the round trip, and the checker are Agda (`MuroBeam.Image`, `MuroBeam.Parse`, `MuroBeam.Load`). The book is untouched. A test harness runs a pure image on pid 0. There is still no `muro-beam` binary. The production runner is B3. The muro emitter that writes the defs section is a later muro change. This repository does not contain it.
 
 ## Open questions
 

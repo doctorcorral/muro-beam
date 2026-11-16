@@ -37,7 +37,7 @@ open import MuroBeam.PSyntax using
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; bd; saved
+  ; Frame; ar; fn; su; mt; bd; saved; seg
   ; roots; inbox; state; Msg; msg; post; setProc; snoc )
   renaming (done to pstDone)
 open import MuroBeam.Collect using (Step)
@@ -308,6 +308,7 @@ scrubFrame τ ph (saved c) = saved (scrubCode τ ph c)
 scrubFrame _ _  (ar a)    = ar a
 scrubFrame _ _  su        = su
 scrubFrame _ _  (mt e z s) = mt e z s
+scrubFrame _ _  (seg ds)  = seg ds
 
 scrubFrames : ℕ → Ref → List Frame → List Frame
 scrubFrames _ _  []       = []
@@ -580,9 +581,10 @@ ndemon1 (sys h ps) i =
   demon _ = nothing
 
 ------------------------------------------------------------------------
--- seq runs a GTm. The ether moves onto `saved` and is not duplicated
--- into that frame's environment. bind resumes when `saved` is the
--- whole stack. done drops roots and the environment and keeps flights.
+-- seq runs the entry under `saved ∷ seg ds`. The ether moves onto
+-- `saved` and is not duplicated into that frame's environment.
+-- bind resumes only `saved ∷ []`, so it does not resume a seq.
+-- done drops roots and the environment and keeps flights.
 ------------------------------------------------------------------------
 
 seq1 : Sys → ℕ → Maybe Sys
@@ -592,8 +594,8 @@ seq1 (sys h ps) i =
   sequenced (ctl p)
   where
   sequenced : Ctl → Maybe Sys
-  sequenced (pr (go (seq e k) env eth d dm)) =
-    setProc ps i (ev e env (saved (go k [] eth d dm) ∷ [])) >>= λ ps' →
+  sequenced (pr (go (seq ds e k) env eth d dm)) =
+    setProc ps i (ev e env (saved (go k [] eth d dm) ∷ seg ds ∷ [])) >>= λ ps' →
     just (sys h ps')
   sequenced _ = nothing
 

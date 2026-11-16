@@ -33,10 +33,16 @@ open import Relation.Nullary.Decidable.Core using (Dec; yes; no) public
 open import Relation.Nullary.Negation.Core using (¬_) public
 
 open import Muro.Grade
-  using (Grade; Point; fin; inf; pt; iv; aff
-        ; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch)
+  using (Grade; Point; fin; inf; pt; iv; aff; GTm)
   renaming (g0 to grade0; g1 to grade1; gω to gradeω)
   public
+-- `glam` in this module is the local term. The public predicate
+-- `InBoundary` is still on muro's `GTm`, so the closed-λ lemma names
+-- muro's constructor.
+open import Muro.Grade using () renaming (glam to gLam)
+
+open import MuroBeam.BTm using
+  ( BTm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
 
 open import MuroBeam.Grade using
   ( Kept; iv-kept; isG1; isZeroGrade
@@ -61,7 +67,7 @@ open import MuroBeam.Unique using
 open import MuroBeam.Source using (Checked; term) public
 open import MuroBeam.Source using
   ( g1InScope; predG; NoEsc; NoEscape
-  ; ne-var; ne-typ; ne-ze; ne-su; ne-app; ne-pi; ne-lam; ne-mat )
+  ; ne-var; ne-typ; ne-ze; ne-su; ne-app; ne-pi; ne-lam; ne-mat; ne-ref )
 open import MuroBeam.Lower using
   ( lower; Step*; lower-safe; lower-g0-never-deref
   ) public
@@ -189,10 +195,10 @@ sharpCxt : ∀ {n} → Cxt n → Bool
 sharpCxt = g1InScope
 
 -- Same predecessor grade `NoEsc` uses on a match.
-predGrade : ∀ {n} → Cxt n → GTm n → Grade
+predGrade : ∀ {n} → Cxt n → BTm n → Grade
 predGrade = predG
 
-data InB {n} (Γ : Cxt n) : GTm n → Set where
+data InB {n} (Γ : Cxt n) : BTm n → Set where
   ib-var : ∀ x → isZeroGrade (lookup Γ x) ≡ false → InB Γ (gvar x)
   ib-typ : ∀ x → InB Γ (gtyp x)
   ib-ze  : InB Γ gze
@@ -203,9 +209,10 @@ data InB {n} (Γ : Cxt n) : GTm n → Set where
            InB Γ (glam c t b)
   ib-mat : ∀ {e z s} → InB Γ e → InB Γ z →
            InB (predGrade Γ e Vec.∷ Γ) s → InB Γ (gmatch e z s)
+  ib-ref : ∀ {k} → InB Γ (gref k)
 
 InBoundary : GTm 0 → Set
-InBoundary t = InB Vec.[] t
+InBoundary t = InB Vec.[] (embed t)
 
 -- The filter implies the capture restriction. The `g0` premise of
 -- `ib-var` is dropped: `NoEscape` does not refuse a `g0` variable.
@@ -222,6 +229,7 @@ inBoundary→noEscape = toNo Vec.[]
   toNo _ (ib-pi p)        = ne-pi (toNo _ p)
   toNo _ (ib-lam q p)     = ne-lam q (toNo _ p)
   toNo Γ (ib-mat pe pz ps) = ne-mat (toNo Γ pe) (toNo Γ pz) (toNo _ ps)
+  toNo _ ib-ref = ne-ref
 
 -- A `glam` the fragment accepts is not under a grade-1 binder.
 lam-not-under-g1 : ∀ {n} {Γ : Cxt n} {c t b} →
@@ -259,14 +267,14 @@ capture-check-clear ib eg =
 -- every closed λ, in the fragment or not. This is `capture-check-clear`
 -- at that environment. Carrying `EnvGrades` along `eval1` is v1c.
 closed-lam-clear : ∀ {c t b} →
-  InBoundary (glam c t b) → anyG1 [] ≡ false
+  InBoundary (gLam c t b) → anyG1 [] ≡ false
 closed-lam-clear ib = capture-check-clear ib eg-nil
 
 ------------------------------------------------------------------------
 -- Decision. Structural on the term. No fuel, no pragma.
 ------------------------------------------------------------------------
 
-inB? : ∀ {n} (Γ : Cxt n) (t : GTm n) → Dec (InB Γ t)
+inB? : ∀ {n} (Γ : Cxt n) (t : BTm n) → Dec (InB Γ t)
 inB? Γ (gvar x) = varAns (isZeroGrade (lookup Γ x)) refl
   where
   varAns : (z : Bool) → isZeroGrade (lookup Γ x) ≡ z → Dec (InB Γ (gvar x))
@@ -296,6 +304,7 @@ inB? Γ (gmatch e z s) with inB? Γ e | inB? Γ z | inB? (predGrade Γ e Vec.∷
 ... | no ¬e  | _      | _      = no (λ { (ib-mat pe _ _) → ¬e pe })
 ... | yes _  | no ¬z  | _      = no (λ { (ib-mat _ pz _) → ¬z pz })
 ... | yes _  | yes _  | no ¬s  = no (λ { (ib-mat _ _ ps) → ¬s ps })
+inB? Γ (gref _) = yes ib-ref
 
 inBoundary? : (t : GTm 0) → Dec (InBoundary t)
-inBoundary? t = inB? Vec.[] t
+inBoundary? t = inB? Vec.[] (embed t)

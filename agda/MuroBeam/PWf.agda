@@ -43,7 +43,7 @@ open import MuroBeam.Lib using
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; bd; saved
+  ; Frame; ar; fn; su; mt; bd; saved; seg
   ; roots; inbox; state; Msg; msg; mapRef; post
   ; refsP; refsPs; refsOf; ctlRefs; ctlRefsPs; framesRefs; frameRefs
   ; preOf; mapSys; setProc; snoc
@@ -445,7 +445,7 @@ arm-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -474,7 +474,7 @@ ndemon-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -510,12 +510,12 @@ seq-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (flushT _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (ncheckT _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (pr (go (ndemonT _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-    onC (pr (go (seq e k) env eth d dm)) eqc lk0 ec rewrite lk0 | ec =
+    onC (pr (go (seq ds e k) env eth d dm)) eqc lk0 ec rewrite lk0 | ec =
       keep-counts h ps i p c t wf lk0 eqc
         (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (seq-count q env eth))
         (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (seq-has q env eth))
         (seq-bound env eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
-      where c = ev e env (saved (go k [] eth d dm) ∷ [])
+      where c = ev e env (saved (go k [] eth d dm) ∷ seg ds ∷ [])
 
 bind-wf : ∀ h ps i t → WF (sys h ps) → bind1 (sys h ps) i ≡ just t → WF t
 bind-wf h ps i t wf eq = from (lookup ps i) eq refl
@@ -535,6 +535,7 @@ bind-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (rv _ _ (su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (seg _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv r env (saved (go k cenv eth d dm) ∷ [])) eqc lk0 ec rewrite lk0 | ec =
       keep-counts h ps i p c t wf lk0 eqc
@@ -640,6 +641,7 @@ frame-le : ∀ k τ ph f → (obj ph ≡ᵇ k) ≡ false →
 frame-le k τ ph (ar _) hp = ≤-refl
 frame-le k τ ph su hp = ≤-refl
 frame-le k τ ph (mt _ _ _) hp = ≤-refl
+frame-le k τ ph (seg _) hp = ≤-refl
 frame-le k τ ph (fn r) hp with obj r ≡ᵇ τ
 ... | true rewrite hp = z≤n
 ... | false = ≤-refl
@@ -774,6 +776,7 @@ frame-has : ∀ k τ ph f → isG1 (checked ph) ≡ false →
 frame-has k τ ph (ar _) ng ()
 frame-has k τ ph su ng ()
 frame-has k τ ph (mt _ _ _) ng ()
+frame-has k τ ph (seg _) ng ()
 frame-has k τ ph (fn r) ng hf with obj r ≡ᵇ τ
 ... | true rewrite ng | ∧-falseʳ (obj ph ≡ᵇ k) =
   ⊥-elim (true≢false (sym hf))
@@ -892,6 +895,7 @@ frame-miss : ∀ τ ph f → isG1 (checked ph) ≡ false →
 frame-miss τ ph (ar _) ng b = refl
 frame-miss τ ph su ng b = refl
 frame-miss τ ph (mt _ _ _) ng b = refl
+frame-miss τ ph (seg _) ng b = refl
 frame-miss τ ph (fn r) ng (bcons lt _) with obj r ≡ᵇ τ
 ... | true rewrite ≡ᵇ-refl (obj ph) | ng | ∧-falseʳ true = refl
 ... | false rewrite obj≠ (obj r) lt ≤-refl = refl
@@ -983,6 +987,7 @@ frame-bd : ∀ {n} τ ph f → Bound n (frameRefs f) → obj ph < n →
 frame-bd τ ph (ar _) b olt = b
 frame-bd τ ph su b olt = b
 frame-bd τ ph (mt _ _ _) b olt = b
+frame-bd τ ph (seg _) b olt = b
 frame-bd τ ph (fn r) (bcons lt rest) olt with obj r ≡ᵇ τ
 ... | true = bcons olt rest
 ... | false = bcons lt rest
@@ -1299,7 +1304,7 @@ flush-refs τ (pr (go done _ _ _ _)) _ ()
 flush-refs τ (pr (go (send _ _ _) _ _ _ _)) _ ()
 flush-refs τ (pr (go (recv _ _ _) _ _ _ _)) _ ()
 flush-refs τ (pr (go (spawn _ _ _) _ _ _ _)) _ ()
-flush-refs τ (pr (go (seq _ _) _ _ _ _)) _ ()
+flush-refs τ (pr (go (seq _ _ _) _ _ _ _)) _ ()
 flush-refs τ (pr (go (await _ _) _ _ _ _)) _ ()
 flush-refs τ (pr (go (ignore _ _) _ _ _ _)) _ ()
 flush-refs τ (pr (go (nignore _ _) _ _ _ _)) _ ()
@@ -1319,7 +1324,7 @@ await-refs τ (pr (go done _ _ _ _)) _ ()
 await-refs τ (pr (go (send _ _ _) _ _ _ _)) _ ()
 await-refs τ (pr (go (recv _ _ _) _ _ _ _)) _ ()
 await-refs τ (pr (go (spawn _ _ _) _ _ _ _)) _ ()
-await-refs τ (pr (go (seq _ _) _ _ _ _)) _ ()
+await-refs τ (pr (go (seq _ _ _) _ _ _ _)) _ ()
 await-refs τ (pr (go (await _ _) _ _ _ _)) _ ()
 await-refs τ (pr (go (ignore _ _) _ _ _ _)) _ ()
 await-refs τ (pr (go (nignore _ _) _ _ _ _)) _ ()
@@ -1339,7 +1344,7 @@ peek-refs τ (pr (go done _ _ _ _)) _ ()
 peek-refs τ (pr (go (send _ _ _) _ _ _ _)) _ ()
 peek-refs τ (pr (go (recv _ _ _) _ _ _ _)) _ ()
 peek-refs τ (pr (go (spawn _ _ _) _ _ _ _)) _ ()
-peek-refs τ (pr (go (seq _ _) _ _ _ _)) _ ()
+peek-refs τ (pr (go (seq _ _ _) _ _ _ _)) _ ()
 peek-refs τ (pr (go (await _ _) _ _ _ _)) _ ()
 peek-refs τ (pr (go (ignore _ _) _ _ _ _)) _ ()
 peek-refs τ (pr (go (nignore _ _) _ _ _ _)) _ ()
@@ -1367,7 +1372,7 @@ flush-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
@@ -1605,7 +1610,7 @@ await-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
@@ -1654,7 +1659,7 @@ npeek-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
@@ -1692,7 +1697,7 @@ recv-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go done _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
@@ -1969,7 +1974,7 @@ done-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = ⊥-elim (nothing≢just eqc)
@@ -2151,6 +2156,7 @@ mutual
   pullFrames-drop (su ∷ ks) f fs' eq = frame-tail su ks f fs' eq
   pullFrames-drop (mt a b c ∷ ks) f fs' eq = frame-tail (mt a b c) ks f fs' eq
   pullFrames-drop (bd env ∷ ks) f fs' eq = frame-tail (bd env) ks f fs' eq
+  pullFrames-drop (seg ds ∷ ks) f fs' eq = frame-tail (seg ds) ks f fs' eq
 
 pullCtl-drop : ∀ c f c1 → pullCtl c ≡ just (f , c1) →
   Drop (flightRef f) (ctlRefs c) (ctlRefs c1)
@@ -2731,7 +2737,7 @@ emit-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go done _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
@@ -3039,7 +3045,7 @@ spawn-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (pr (go done _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
-    onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
+    onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc
     onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = no eqc

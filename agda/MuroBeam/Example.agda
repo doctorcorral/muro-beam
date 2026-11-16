@@ -28,6 +28,7 @@ open import Muro.Grade using
   ; grade-once; grade-twice; grade-match-once; grade-match-many )
 
 open import MuroBeam.Grade using (selfKept)
+open import MuroBeam.BTm using (embed)
 open import MuroBeam.Heap using
   ( Obj; cell; Status; live; free; payload; status
   ; Ref; ref; residual; checked; obj; count
@@ -205,7 +206,7 @@ ex-recv-still-unique = refl
 
 lamBack : (c t : Grade) (b : GTm 1) → Sys
 lamBack c t b =
-  sys (cell (clo [] (zero , glam c t b)) live ∷ [])
+  sys (cell (clo [] (zero , embed (glam c t b))) live ∷ [])
       (proc zero ready [] [] (rv (ref zero gω gω (selfKept gω)) [] []) ∷ [])
 
 once : Checked

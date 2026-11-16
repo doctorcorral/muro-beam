@@ -30,6 +30,7 @@ open import Muro.Grade using
   ( Grade; Point; fin; inf; pt; iv; g0; g1
   ; GTm; gapp; gze )
 
+open import MuroBeam.BTm using (embed)
 open import MuroBeam.Cex using (cex; lowerTm)
 open import MuroBeam.Emit using
   ( Run; ran; Pop; pop-spawn; pop-emit; pop-deliver; pop-recv
@@ -263,7 +264,7 @@ twoG1 =
     ∷ [])
 
 emitZe : Sys
-emitZe = sys [] (proc zero ready [] [] (ev (gze {zero}) [] []) ∷ [])
+emitZe = sys [] (proc zero ready [] [] (ev (embed (gze {zero})) [] []) ∷ [])
 
 lone : Sys
 lone = sys tripH0 (proc zero ready [] [] idle ∷ [])

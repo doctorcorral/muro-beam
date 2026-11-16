@@ -13,8 +13,9 @@ open import Data.List.Base using (List; []; _∷_; _++_)
 open import Data.Nat.Base using (ℕ; zero; suc; _≡ᵇ_)
 open import Data.Product.Base using (_×_; _,_)
 
-open import Muro.Grade using (Grade; GTm)
+open import Muro.Grade using (Grade)
 
+open import MuroBeam.BTm using (BTm)
 open import MuroBeam.Heap using (Ref; obj)
 
 ------------------------------------------------------------------------
@@ -38,7 +39,7 @@ data PTm (n : ℕ) : Set where
   send    : ℕ → Fin n → PTm n → PTm n
   recv    : Grade → Grade → PTm (suc n) → PTm n
   spawn   : ∀ {m} → Thin m n → PTm m → PTm n → PTm n
-  seq     : GTm n → PTm (suc n) → PTm n
+  seq     : List (BTm 0) → BTm n → PTm (suc n) → PTm n
   await   : Fin n → PTm n → PTm n
   ignore  : Fin n → PTm n → PTm n
   nignore : Fin n → PTm n → PTm n

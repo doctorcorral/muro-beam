@@ -24,8 +24,10 @@ open import Muro.Base using
 open import Muro.Grade using
   ( Grade; g0; g1; gω; gze; Count; finᶜ; many; Point; fin; pt
   ; sat; checkGrade
-  ; Pair; gp; Spent; sp; Uses; GCtx; GTm
-  ; decide; under; hold; addU; oneS; charge; zeros; pcomp )
+  ; Pair; gp; Spent; sp; Uses; GCtx
+  ; under; hold; addU; oneS; charge; zeros; pcomp )
+
+open import MuroBeam.BTm using (BTm; embed; decideB)
 
 open import MuroBeam.Boundary using (inB?; Cxt)
 open import MuroBeam.Grade using (kind; Kind; Kmove; Kcopy)
@@ -129,9 +131,25 @@ merge i (keep th) (gp c t ∷ Γ) (v ∷ cu)  (u ∷ pu) tm =
   merge (suc i) th Γ cu pu tm >>= λ rest → ok (w ∷ rest)
 
 ------------------------------------------------------------------------
--- The checker. `seq` asks `decide` and `inB?`. A recv binder is `under`.
+-- The checker. `seq` asks `decideB` and `inB?`. A recv binder is `under`.
 -- A send is one computational use, gated by `sat` or `checkGrade`.
+--
+-- Definitions are checked once, in order. Definition i may mention
+-- itself and every earlier definition (`gref` below `suc i`). A later
+-- index is `bad gref`. The entry is not a definition: its bound is
+-- the length of the table, so it may call every definition and may
+-- not call itself under a fresh index.
 ------------------------------------------------------------------------
+
+checkDef : ℕ → BTm 0 → Result ⊤
+checkDef bound d =
+  boundaryOk (inB? [] d) >>
+  decideB bound run [] d >>= λ _ →
+  ok tt
+
+checkDefs : ℕ → List (BTm 0) → Result ⊤
+checkDefs _ nil = ok tt
+checkDefs i (d ∷ₗ ds) = checkDef (suc i) d >> checkDefs (suc i) ds
 
 checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
 checkP {n} Γ done = ok (zeros {n})
@@ -147,9 +165,10 @@ checkP Γ (spawn th ch pa) =
   checkP Γ' ch >>= λ cu →
   checkP Γ pa >>= λ pu →
   merge zero th Γ cu pu pa
-checkP Γ (seq e k) =
+checkP Γ (seq ds e k) =
+  checkDefs zero ds >>
   boundaryOk (inB? (comps Γ) e) >>
-  decide run Γ e >>= λ eu →
+  decideB (length ds) run Γ e >>= λ eu →
   checkP (gp gω g0 ∷ Γ) k >>= λ uk →
   under run gω g0 uk >>= λ ku →
   ok (addU eu ku)
@@ -221,7 +240,7 @@ round-checks : checkP g1ctx roundProg ≡ ok (sp (finᶜ 1) (finᶜ 0) ∷ [])
 round-checks = refl
 
 closedSeq : PTm 0
-closedSeq = seq gze (done {1})
+closedSeq = seq nil (embed gze) (done {1})
 
 closed-checks : checkP [] closedSeq ≡ ok []
 closed-checks = refl

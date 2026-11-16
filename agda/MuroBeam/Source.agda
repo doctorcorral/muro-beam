@@ -24,8 +24,9 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 open import Relation.Nullary.Decidable.Core using (Dec; yes; no)
 
 open import Muro.Base using (run) renaming (ok to okR)
-open import Muro.Grade using
-  ( Grade; aff; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; decide )
+open import Muro.Grade using (Grade; aff; GTm; decide)
+open import MuroBeam.BTm using
+  ( BTm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
 open import MuroBeam.Grade using (isG1)
 
 record Checked : Set where
@@ -44,17 +45,18 @@ g1InScope []      = false
 g1InScope (g ∷ Γ) = isG1 g ∨ g1InScope Γ
 
 -- Same predecessor grade `predPair` uses. A variable inherits its
--- binder. Anything else is the affine interval, which is not g1.
-predG : ∀ {n} → Vec Grade n → GTm n → Grade
+-- binder. Anything else, including `gref`, is the affine interval.
+predG : ∀ {n} → Vec Grade n → BTm n → Grade
 predG Γ (gvar x) = lookup Γ x
 predG _ _        = aff
 
 ------------------------------------------------------------------------
 -- No λ under a g1 binder. Open terms carry the context the walk has
--- entered. `NoEscape` is the closed predicate.
+-- entered. `NoEscape` is that predicate on a gref-free closed term.
+-- `gref` captures nothing.
 ------------------------------------------------------------------------
 
-data NoEsc {n} (Γ : Vec Grade n) : GTm n → Set where
+data NoEsc {n} (Γ : Vec Grade n) : BTm n → Set where
   ne-var : (x : Fin n) → NoEsc Γ (gvar x)
   ne-typ : (x : Fin n) → NoEsc Γ (gtyp x)
   ne-ze  : NoEsc Γ gze
@@ -65,15 +67,16 @@ data NoEsc {n} (Γ : Vec Grade n) : GTm n → Set where
            NoEsc Γ (glam c t b)
   ne-mat : ∀ {e z s} → NoEsc Γ e → NoEsc Γ z →
            NoEsc (predG Γ e ∷ Γ) s → NoEsc Γ (gmatch e z s)
+  ne-ref : ∀ {k} → NoEsc Γ (gref k)
 
 NoEscape : GTm 0 → Set
-NoEscape e = NoEsc [] e
+NoEscape e = NoEsc [] (embed e)
 
 private
   boom : true ≡ false → ⊥
   boom ()
 
-noEsc? : ∀ {n} (Γ : Vec Grade n) (e : GTm n) → Dec (NoEsc Γ e)
+noEsc? : ∀ {n} (Γ : Vec Grade n) (e : BTm n) → Dec (NoEsc Γ e)
 noEsc? Γ (gvar x) = yes (ne-var x)
 noEsc? Γ (gtyp x) = yes (ne-typ x)
 noEsc? Γ gze = yes ne-ze
@@ -99,6 +102,7 @@ noEsc? Γ (gmatch e z s) with noEsc? Γ e | noEsc? Γ z | noEsc? (predG Γ e ∷
 ... | no ¬e  | _      | _      = no (λ { (ne-mat pe _ _) → ¬e pe })
 ... | yes _  | no ¬z  | _      = no (λ { (ne-mat _ pz _) → ¬z pz })
 ... | yes _  | yes _  | no ¬s  = no (λ { (ne-mat _ _ ps) → ¬s ps })
+noEsc? Γ (gref _) = yes ne-ref
 
 noEscape? : (e : GTm 0) → Dec (NoEscape e)
-noEscape? e = noEsc? [] e
+noEscape? e = noEsc? [] (embed e)

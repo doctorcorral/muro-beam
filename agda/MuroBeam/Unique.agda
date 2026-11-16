@@ -26,8 +26,9 @@ open import Data.Product.Base using (_×_; _,_; Σ; proj₁; proj₂)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
 open import Muro.Base using (run)
-open import Muro.Grade using
-  ( Grade; g0; g1; gω; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch )
+open import Muro.Grade using (Grade; g0; g1; gω)
+open import MuroBeam.BTm using
+  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
 open import MuroBeam.Grade using
   ( isG1; isZeroGrade; selfKept; Kind; Kmove; Kcopy; kind; kind-g1; copy-not-g1
   ; spend ; Spent )
@@ -63,7 +64,8 @@ open import MuroBeam.Process using
   ; poke; length-poke; reuse; reuseFrom; reuseOk
   ; preOf; ctlRefsPs; ctlEq-putRoot; ctlEq-update; eval1
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; saved; ctlRefs; framesRefs
+  ; Frame; ar; fn; su; mt; saved; seg; ctlRefs; framesRefs
+  ; lookupDef
   ; setProc; install; pass; snoc; freshRef; regrade
   ; anyG1; badG1; predComp; payloadAt; setPayload
   ; evalHere; evalTm; evalRet; useVar; beta; onMatch )
@@ -2423,7 +2425,7 @@ regroup : ∀ (e L env fr R rs : List Ref) →
   (e ++ (L ++ ((env ++ fr) ++ R))) ++ rs ≡
   (e ++ L) ++ env ++ (fr ++ (R ++ rs))
 regroup e L env fr R rs =
-  trans (++-assoc e seg rs)
+  trans (++-assoc e pre rs)
   (trans (cong (e ++_) (++-assoc L mid rs))
   (trans (sym (++-assoc e L (mid ++ rs)))
          (cong ((e ++ L) ++_)
@@ -2431,7 +2433,7 @@ regroup e L env fr R rs =
                   (++-assoc env fr (R ++ rs))))))
   where
   mid = (env ++ fr) ++ R
-  seg = L ++ mid
+  pre = L ++ mid
 
 data SplitCtl (ps : List Proc) (p : Proc) : Set where
   spl : (L R : List Ref) →
@@ -3059,9 +3061,13 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
               (sym (cong (hasG1 q) ceq))
       bLoc = bcons (fresh-< nH) (monoS (subst (Bound nH) ceq bHere))
 
-    onTm : ∀ {n} (tm : GTm n) env k →
+    onTm : ∀ {n} (tm : BTm n) env k →
       ctl p ≡ ev tm env k →
       evalTm h ps i tm env k ≡ just t → WF t
+    onTm (gref idx) env k eqp e′ with lookupDef k idx
+    ... | nothing = stuck-just e′
+    ... | just code =
+      push (ev code [] (frameBd env ∷ k)) (sym (cong ctlRefs eqp)) e′
     onTm (gapp f a) env k eqp e′ =
       push (ev f env (ar a ∷ k)) (sym (cong ctlRefs eqp)) e′
     onTm (gsu e0) env k eqp e′ =
@@ -3261,7 +3267,7 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
             eo = spendRef-obj r r′ sm
             ec = spendRef-checked r r′ sm
 
-    rotAr : ∀ r env {n} (a : GTm n) k →
+    rotAr : ∀ r env {n} (a : BTm n) k →
       ctl p ≡ rv r env (ar a ∷ k) →
       install h ps i (ev a env (fn r ∷ k)) ≡ just t → WF t
     rotAr r env a k eqp e′ = xfer-ctl c cq hq bc e′
@@ -3353,6 +3359,7 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
       opened (just (clo envC (nb , gze))) eP pv rewrite pv = stuck-just eP
       opened (just (clo envC (nb , gsu _))) eP pv rewrite pv = stuck-just eP
       opened (just (clo envC (nb , gmatch _ _ _))) eP pv rewrite pv = stuck-just eP
+      opened (just (clo envC (nb , gref _))) eP pv rewrite pv = stuck-just eP
       opened (just (clo envC (nb , glam cG ty body))) eP pv rewrite pv =
         let inner = install h ps i (ev body (regrade ra cG ∷ envC) (frameBd env ∷ k))
             outer = pass-ok (not (badG1 cG (obj ra) (refsOf (sys h ps))))
@@ -3491,7 +3498,7 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
                 objSplit true eob = byGate eob geb hn
                 objSplit false eob = byMiss (missObj eob) hn
 
-    matchGo : ∀ r env {n} (e0 : GTm n) (z : GTm n) (s : GTm (suc n)) k →
+    matchGo : ∀ r env {n} (e0 : BTm n) (z : BTm n) (s : BTm (suc n)) k →
       ctl p ≡ rv r env (mt e0 z s ∷ k) →
       onMatch h ps i r env e0 z s k (payloadAt h (obj r)) ≡ just t → WF t
     matchGo r env e0 z s k eqp eM = onV (payloadAt h (obj r)) eM refl
@@ -3633,6 +3640,8 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
     onRet r env (mt e0 z s ∷ k) eqp e′ = matchGo r env e0 z s k eqp e′
     onRet r env (frameBd env0 ∷ k) eqp e′ = popGo r env env0 k eqp e′
     onRet r env (saved _ ∷ k) eqp e′ with e′
+    ... | ()
+    onRet r env (seg _ ∷ k) eqp e′ with e′
     ... | ()
 
     on : (c : Ctl) → evalHere h ps i c ≡ just t → ctl p ≡ c → WF t
