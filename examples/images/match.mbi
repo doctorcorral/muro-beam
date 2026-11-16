@@ -1,0 +1,1 @@
+(muro-beam-image 1 (boundary 1) (entry (seq (gmatch gze gze (gvar 0)) (done))))

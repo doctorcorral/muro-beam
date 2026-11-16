@@ -586,7 +586,7 @@ Implication for muro-beam: the runtime must not assume that argument uses are sc
 
 ## Open questions
 
-- **Image format.** v1a runs a `GTm` in the CEK. It does not choose bytecode or a backend. There is still no emitter.
+- **Image format.** v1 is the S-expression muro emits (`docs/IMAGE.md`). The loader, the parser, and the round trip are Agda (`MuroBeam.Image`, `MuroBeam.Parse`, `MuroBeam.Load`). The book is untouched. A test harness runs a pure image on pid 0. There is still no `muro-beam` binary; that is a later CLI.
 - **Scheduling policy.** v0 fixes only the one-step relation. Reduction counting, preemption, and per-process heaps are open. v0 uses one shared heap.
 - **Intervals as usage budgets.** v0 keeps them. A later collector could spend inside an interval once the checker and the runtime agree on a decrement that stays inside `≤ᵍ`.
 - **Supervision beyond one monitor.** Peer death and one failure arm are in this book (`MuroBeam.Death`). Restart, a supervisor tree, links, and distribution are open.
