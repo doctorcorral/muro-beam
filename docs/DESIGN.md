@@ -319,14 +319,14 @@ The check is conservative. A `glam` under a `g1` binder is refused even when a p
 
 ### Muro side
 
-A program imports the boundary. The implementation stays here. The Muro-side spelling, once an emitter exists, is:
+A program imports the boundary. The implementation stays here. `book/` is already the pure Muro mirror of this boundary, and the emitter is muro's `--backend mbi`, outside this book. Still future is the client spelling:
 
 ```
 import beam "muro-beam-boundary"
 def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
 ```
 
-That is not a muro term in this repository. A pure Muro mirror of the boundary comes later. The Agda predicate is on a closed `GTm`, the run image. The Π above is the intended client spelling. It is not a type in this book.
+That import is not a muro term in this repository, and it is not in `book/`. The Agda predicate is on a closed `GTm`, the run image. The Π above is the intended client spelling. It is not a type in this book.
 
 ## v1b / processes
 
@@ -515,7 +515,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **No fairness.** `Step` is one step of some process, or one `eval1`, or `collect`. The book does not prove that a ready process eventually runs, and it does not count reductions. Fuel in `runFor` is a bound supplied by the trace, not a liveness theorem.
 - **No distribution.** One shared heap, one list of processes, no locations, no network.
 - **No FPGA and no LVA.** Binder grades are used as written. There is no second analysis and no hardware emitter.
-- **No muro→muro-beam emitter, and no core `Tm`.** v1a lowers a `GTm` that `decide run` already accepted. It does not read `Muro.Reduction`, and muro `v0.20.32` has no `erase : Tm → GTm`.
+- **The emitter is `muro --backend mbi`, outside this book. No core `Tm` here.** v1a lowers a `GTm` that `decide run` already accepted. It does not read `Muro.Reduction`, and the pin muro `v0.20.32` has no `erase : Tm → GTm`.
 - **Application is additive.** As recorded below from the review of murolang/muro#211, the graded judgment adds use vectors and does not scale an argument by the binder's computational grade. The runtime follows that choice. The counterexample in the v1 section is accepted by `decide` and gets stuck on the machine. Send does not multiply. A finite point grade is moved whole, residual included. `ω` and intervals are aliased. They are not scaled.
 - **Payloads are `nat`, `suc↑`, and `clo`.** A `nat` is copied on dereference. A `suc↑` or a `clo` is a reference payload. Reachability in `collect-safe` is `Reach`, not the reference alone.
 - **Capture of `g1` does not alias.** Building a closure that would put a second graded reference on a `g1` object is not a step. Programs that do that get stuck safely. `NoEscape` is that restriction. It does not stop `badG1` from refusing a grade-1 β of a value that is already aliased, and `alias` is the witness.
@@ -528,7 +528,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **`decide-sound` is binder discharge.** The counts are the uses `decide` computed for the body. It is not the false free-variable reading recorded in the v1c section.
 - **`lower-sim` is not a theorem.** The grade-free machine takes the β that `badG1` refuses. Backward simulation and determinacy are not in this book.
 - **`bind1` resumes one frame.** `seq` produces that shape. A nested `saved` stack is not resumed.
-- **Not in this book.** No executable runtime, no extraction, no bytecode. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
+- **Not in this book.** A pid-0 harness runs one pure image (`MuroBeam.RunImage`). There is no CLI yet (B3) and no scheduler for an arbitrary program yet (B2). No bytecode. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
 
 ## Runtime book
 

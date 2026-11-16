@@ -31,8 +31,23 @@ accepts format 1 and `boundary-version`, then runs `checkP`. A success
 is a `CheckedP`, built only after that check returns `ok []`.
 `lowerP-wf` and `lowerP-safe` apply to anything loaded. The emitter
 is outside the TCB for those two. Non-consequences of `load`:
-`lower-safe` (pure `lower` of a `Checked`), `budget-adequate` (needs
-`NoEscape` and `MatchFree`), and `no-stray-reply` (needs `ReplyDone`).
+`lower-safe` is not on the `lowerP` path (`Step* (lower e)` for a
+pure `Checked`). `budget-adequate` is
+
+```agda
+(e : Checked) {s : Sys} →
+NoEscape (term e) → MatchFree (term e) →
+Step* (lower e) s → Inv tight s
+```
+
+`checkP` on `seq` runs `boundaryOk (inB? (comps Γ) e)`. `load` calls
+that at `Γ = []` on the entry, so a success implies `InBoundary` of
+the entry, and `inBoundary→noEscape` gives `NoEscape`. What is missing
+is `MatchFree` (`match.mbi` loads and contains `gmatch`; `MatchFree`
+has no `gmatch` clause) and the theorem's path: pure `Checked` /
+`lower` / `Step*`, not `CheckedP` / `lowerP` / `PStep*`.
+`no-stray-reply` needs `ReplyDone`.
+
 The round trip `parse-show` is proved on the character list `render`
 produces. `toList ∘ fromList` is not a `--safe` lemma, so the String
 statement is not the theorem.

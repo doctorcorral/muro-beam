@@ -7,8 +7,18 @@
 -- is outside the TCB for those two.
 --
 -- Non-consequences of `load`:
--- `lower-safe` (pure `lower` of a `Checked`),
--- `budget-adequate` (needs `NoEscape` and `MatchFree`),
+-- `lower-safe` is not on the `lowerP` path. It is `Step* (lower e)`
+-- for a pure `Checked`.
+-- `budget-adequate` is
+-- `(e : Checked) {s : Sys} → NoEscape (term e) → MatchFree (term e) →
+--  Step* (lower e) s → Inv tight s`
+-- (`MuroBeam.Budget`). `checkP` on `seq` runs
+-- `boundaryOk (inB? (comps Γ) e)`. `load` calls that at `Γ = []` on
+-- the entry, so a success implies `InBoundary` of the entry, and
+-- `inBoundary→noEscape` gives `NoEscape`. What is missing is
+-- `MatchFree` (`match.mbi` loads and contains `gmatch`; `MatchFree`
+-- has no `gmatch` clause) and the theorem's path: pure `Checked` /
+-- `lower` / `Step*`, not `CheckedP` / `lowerP` / `PStep*`.
 -- `no-stray-reply` (needs `ReplyDone`).
 ------------------------------------------------------------------------
 
