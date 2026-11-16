@@ -53,3 +53,8 @@ import MuroBeam.Event
 import MuroBeam.Emit
 import MuroBeam.Death
 import MuroBeam.Conform
+-- Image loading is Agda-side. Not opened: the names stay off the v1c API.
+import MuroBeam.Image
+import MuroBeam.Parse
+import MuroBeam.Load
+import MuroBeam.RunImage

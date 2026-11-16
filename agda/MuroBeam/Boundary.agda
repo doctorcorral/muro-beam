@@ -9,8 +9,9 @@
 -- Dependency. The arrow runs from Boundary into the v1a modules.
 -- Those modules do not import Boundary, so there is no cycle.
 -- MuroBeam.Example is the client: it decides `grade-once` and the §2B
--- term. A pure Muro mirror of this module is later work. The intended
--- Muro-side spelling, once an emitter exists, is
+-- term. The pure Muro mirror of this boundary is `book/`. The emitter
+-- is muro's `--backend mbi`, outside this book. Still future is the
+-- client spelling
 --
 --   import beam "muro-beam-boundary"
 --   def myProc : run Π (r : BeamGrade) → InBoundary r → Proc

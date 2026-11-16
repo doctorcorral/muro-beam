@@ -319,14 +319,14 @@ The check is conservative. A `glam` under a `g1` binder is refused even when a p
 
 ### Muro side
 
-A program imports the boundary. The implementation stays here. The Muro-side spelling, once an emitter exists, is:
+A program imports the boundary. The implementation stays here. `book/` is already the pure Muro mirror of this boundary, and the emitter is muro's `--backend mbi`, outside this book. Still future is the client spelling:
 
 ```
 import beam "muro-beam-boundary"
 def myProc : run Π (r : BeamGrade) → InBoundary r → Proc
 ```
 
-That is not a muro term in this repository. A pure Muro mirror of the boundary comes later. The Agda predicate is on a closed `GTm`, the run image. The Π above is the intended client spelling. It is not a type in this book.
+That import is not a muro term in this repository, and it is not in `book/`. The Agda predicate is on a closed `GTm`, the run image. The Π above is the intended client spelling. It is not a type in this book.
 
 ## v1b / processes
 
@@ -355,7 +355,7 @@ A process instruction is a `Code`: the `PTm`, the environment, an ether of fligh
 
 `recv` on an empty mailbox is no longer stuck as `nothing` when the instruction is the process `recv`. The process moves to `waiting`. A delivery sets it back to `ready`. The v0 function `recv` is unchanged and still returns `nothing` on an empty mailbox. `waiting` is used only by the process-layer steps. A finished process stays in the list, in `done`. `done` drops its environment and its roots and keeps the ether, so a reply already emitted can still be delivered.
 
-`lowerP` starts pid 0 on an empty heap, in `pr`. `lowerP-safe` says every state reachable by `PStep*` is well-formed: the bound, `grade1-unique`, and `AllInv` on `refsOf`. `spawn-preserves-grade1` is the handover case of that proof (v0's move and copy facts, through `grow-unique`). `spawn-preserves-residual` is `AllInv (refsOf t)`, the same strength as `send-preserves-residual`: every reference still carries `Kept`.
+`lowerP` starts pid 0 on an empty heap, in `pr`. A runner must step `seq` (`seq1`) before `runFor`, since `eval1` does not step `pr`. `lowerP-safe` says every state reachable by `PStep*` is well-formed: the bound, `grade1-unique`, and `AllInv` on `refsOf`. `spawn-preserves-grade1` is the handover case of that proof (v0's move and copy facts, through `grow-unique`). `spawn-preserves-residual` is `AllInv (refsOf t)`, the same strength as `send-preserves-residual`: every reference still carries `Kept`.
 
 ### v1b / no-stray-reply
 
@@ -515,7 +515,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **No fairness.** `Step` is one step of some process, or one `eval1`, or `collect`. The book does not prove that a ready process eventually runs, and it does not count reductions. Fuel in `runFor` is a bound supplied by the trace, not a liveness theorem.
 - **No distribution.** One shared heap, one list of processes, no locations, no network.
 - **No FPGA and no LVA.** Binder grades are used as written. There is no second analysis and no hardware emitter.
-- **No muro→muro-beam emitter, and no core `Tm`.** v1a lowers a `GTm` that `decide run` already accepted. It does not read `Muro.Reduction`, and muro `v0.20.32` has no `erase : Tm → GTm`.
+- **The emitter is `muro --backend mbi`, outside this book. No core `Tm` here.** v1a lowers a `GTm` that `decide run` already accepted. It does not read `Muro.Reduction`, and the pin muro `v0.20.32` has no `erase : Tm → GTm`.
 - **Application is additive.** As recorded below from the review of murolang/muro#211, the graded judgment adds use vectors and does not scale an argument by the binder's computational grade. The runtime follows that choice. The counterexample in the v1 section is accepted by `decide` and gets stuck on the machine. Send does not multiply. A finite point grade is moved whole, residual included. `ω` and intervals are aliased. They are not scaled.
 - **Payloads are `nat`, `suc↑`, and `clo`.** A `nat` is copied on dereference. A `suc↑` or a `clo` is a reference payload. Reachability in `collect-safe` is `Reach`, not the reference alone.
 - **Capture of `g1` does not alias.** Building a closure that would put a second graded reference on a `g1` object is not a step. Programs that do that get stuck safely. `NoEscape` is that restriction. It does not stop `badG1` from refusing a grade-1 β of a value that is already aliased, and `alias` is the witness.
@@ -528,7 +528,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 - **`decide-sound` is binder discharge.** The counts are the uses `decide` computed for the body. It is not the false free-variable reading recorded in the v1c section.
 - **`lower-sim` is not a theorem.** The grade-free machine takes the β that `badG1` refuses. Backward simulation and determinacy are not in this book.
 - **`bind1` resumes one frame.** `seq` produces that shape. A nested `saved` stack is not resumed.
-- **Not in this book.** No executable runtime, no extraction, no bytecode. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
+- **Not in this book.** A pid-0 harness runs one pure image (`MuroBeam.RunImage`). There is no CLI yet (B3) and no scheduler for an arbitrary program yet (B2). No bytecode. No `erase`, and no adequacy against `Muro.Reduction`. `checkP` does not accept every interval: a copied grade must pass `checkGrade` at `U0`, `U1`, or `Uω`. No multiplicative application.
 
 ## Runtime book
 
@@ -536,7 +536,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 
 ## Goals beyond v0
 
-- Execute a real muro run image, once an emitter exists.
+- Run a loaded image from a CLI. The format, the loader, and the pid-0 harness exist. The production runner is B3.
 - Read computational grades as static multiplicity: `0` drop, `1` move, `ω` reuse, and an exact natural or an interval when the checker knew more. v0 does the `0` / `1` / `ω` cases and keeps intervals. It does not yet spend a finite point above 1 down to zero inside a larger runtime.
 - Treat a missing grade pair as the affine interval `[0, 1]`. The lattice already contains that interval (`aff`). v0 keeps it alive with the other intervals.
 - Honor type-level grades only where they constrain the runtime. v0 accounts for the computational component. It does not keep a second dynamic counter for the type-level grade.
@@ -584,9 +584,14 @@ If a later runtime needs the multiplicative reading, it can be added as an expli
 
 Implication for muro-beam: the runtime must not assume that argument uses are scaled by the binder's computational grade. v0 does not scale. A send of a finite point moves the residual that remains. A send of `ω` or an interval aliases that same grade. If muro-beam needs the multiplicative reading, it is added as an explicit extension on top of the judgment in murolang/muro, so books that check today keep checking.
 
+## Decisions
+
+### Done
+
+- **Image format.** v1 is the S-expression muro emits (`docs/IMAGE.md`). The loader, the parser, and the round trip are Agda (`MuroBeam.Image`, `MuroBeam.Parse`, `MuroBeam.Load`). The book is untouched. A test harness runs a pure image on pid 0. There is still no `muro-beam` binary. The production runner is B3.
+
 ## Open questions
 
-- **Image format.** v1a runs a `GTm` in the CEK. It does not choose bytecode or a backend. There is still no emitter.
 - **Scheduling policy.** v0 fixes only the one-step relation. Reduction counting, preemption, and per-process heaps are open. v0 uses one shared heap.
 - **Intervals as usage budgets.** v0 keeps them. A later collector could spend inside an interval once the checker and the runtime agree on a decrement that stays inside `≤ᵍ`.
 - **Supervision beyond one monitor.** Peer death and one failure arm are in this book (`MuroBeam.Death`). Restart, a supervisor tree, links, and distribution are open.

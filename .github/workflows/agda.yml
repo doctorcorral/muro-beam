@@ -176,3 +176,59 @@ jobs:
             echo "MAlonzo cache miss; cold compile"
             make conformance
           fi
+
+  # Load and run the checked-in images. Separate cache from conformance:
+  # the conform-v4 key stays put.
+  images:
+    name: image loader
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/cache@v4
+        id: images-cache
+        with:
+          path: |
+            MAlonzo
+            vendor/agda-stdlib
+          key: images-v1-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/run_image.py', 'examples/images/**') }}
+
+      - name: Install Agda 2.8.0
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          asset="Agda-v2.8.0-linux.tar.xz"
+          curl -fL --retry 5 -o "$tmp/$asset" \
+            "https://github.com/agda/agda/releases/download/v2.8.0/${asset}"
+          tar -xJf "$tmp/$asset" -C "$tmp"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$tmp/agda" "$HOME/.local/bin/agda"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          agda --version
+          agda --setup
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.8.4"
+          cabal-version: "3.12.1.0"
+
+      - name: Fetch Agda standard library 2.3
+        if: steps.images-cache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch v2.3 https://github.com/agda/agda-stdlib.git vendor/agda-stdlib
+
+      - name: Run images
+        run: |
+          set -euo pipefail
+          agda --version
+          ghc --version
+          if [ "${{ steps.images-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "MAlonzo cache hit; relink and run"
+            python3 scripts/run_image.py
+          else
+            echo "MAlonzo cache miss; cold compile"
+            make images
+          fi
