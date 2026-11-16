@@ -27,10 +27,15 @@ process form. A program that needs those is not an image.
 `MuroBeam.Image` is the record (`format`, `boundary`, the `<gtm>`) and
 the printer. `MuroBeam.Parse` reads `String` to `Maybe Image`, and
 refuses an index that does not fit its scope. `MuroBeam.Load.load`
-accepts format 1 and `boundary-version`, then runs `checkP`. `lowerP`
-is the initial system. The round trip `parse-show` is proved on the
-character list `render` produces. `toList ∘ fromList` is not a
-`--safe` lemma, so the String statement is not the theorem.
+accepts format 1 and `boundary-version`, then runs `checkP`. A success
+is a `CheckedP`, built only after that check returns `ok []`.
+`lowerP-wf` and `lowerP-safe` apply to anything loaded. The emitter
+is outside the TCB for those two. Non-consequences of `load`:
+`lower-safe` (pure `lower` of a `Checked`), `budget-adequate` (needs
+`NoEscape` and `MatchFree`), and `no-stray-reply` (needs `ReplyDone`).
+The round trip `parse-show` is proved on the character list `render`
+produces. `toList ∘ fromList` is not a `--safe` lemma, so the String
+statement is not the theorem.
 
 The plan's sketch said `--backend beam` and an arbitrary `PTm` entry.
 The emitter writes `--backend mbi` and only `(seq <gtm> (done))`. The

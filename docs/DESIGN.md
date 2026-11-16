@@ -355,7 +355,7 @@ A process instruction is a `Code`: the `PTm`, the environment, an ether of fligh
 
 `recv` on an empty mailbox is no longer stuck as `nothing` when the instruction is the process `recv`. The process moves to `waiting`. A delivery sets it back to `ready`. The v0 function `recv` is unchanged and still returns `nothing` on an empty mailbox. `waiting` is used only by the process-layer steps. A finished process stays in the list, in `done`. `done` drops its environment and its roots and keeps the ether, so a reply already emitted can still be delivered.
 
-`lowerP` starts pid 0 on an empty heap, in `pr`. `lowerP-safe` says every state reachable by `PStep*` is well-formed: the bound, `grade1-unique`, and `AllInv` on `refsOf`. `spawn-preserves-grade1` is the handover case of that proof (v0's move and copy facts, through `grow-unique`). `spawn-preserves-residual` is `AllInv (refsOf t)`, the same strength as `send-preserves-residual`: every reference still carries `Kept`.
+`lowerP` starts pid 0 on an empty heap, in `pr`. A runner must step `seq` (`seq1`) before `runFor`, since `eval1` does not step `pr`. `lowerP-safe` says every state reachable by `PStep*` is well-formed: the bound, `grade1-unique`, and `AllInv` on `refsOf`. `spawn-preserves-grade1` is the handover case of that proof (v0's move and copy facts, through `grow-unique`). `spawn-preserves-residual` is `AllInv (refsOf t)`, the same strength as `send-preserves-residual`: every reference still carries `Kept`.
 
 ### v1b / no-stray-reply
 
@@ -536,7 +536,7 @@ Backward simulation and determinacy are not stated. Adequacy against `Muro.Reduc
 
 ## Goals beyond v0
 
-- Execute a real muro run image, once an emitter exists.
+- Run a loaded image from a CLI. The format, the loader, and the pid-0 harness exist. The production runner is B3.
 - Read computational grades as static multiplicity: `0` drop, `1` move, `ω` reuse, and an exact natural or an interval when the checker knew more. v0 does the `0` / `1` / `ω` cases and keeps intervals. It does not yet spend a finite point above 1 down to zero inside a larger runtime.
 - Treat a missing grade pair as the affine interval `[0, 1]`. The lattice already contains that interval (`aff`). v0 keeps it alive with the other intervals.
 - Honor type-level grades only where they constrain the runtime. v0 accounts for the computational component. It does not keep a second dynamic counter for the type-level grade.
@@ -584,9 +584,14 @@ If a later runtime needs the multiplicative reading, it can be added as an expli
 
 Implication for muro-beam: the runtime must not assume that argument uses are scaled by the binder's computational grade. v0 does not scale. A send of a finite point moves the residual that remains. A send of `ω` or an interval aliases that same grade. If muro-beam needs the multiplicative reading, it is added as an explicit extension on top of the judgment in murolang/muro, so books that check today keep checking.
 
+## Decisions
+
+### Done
+
+- **Image format.** v1 is the S-expression muro emits (`docs/IMAGE.md`). The loader, the parser, and the round trip are Agda (`MuroBeam.Image`, `MuroBeam.Parse`, `MuroBeam.Load`). The book is untouched. A test harness runs a pure image on pid 0. There is still no `muro-beam` binary. The production runner is B3.
+
 ## Open questions
 
-- **Image format.** v1 is the S-expression muro emits (`docs/IMAGE.md`). The loader, the parser, and the round trip are Agda (`MuroBeam.Image`, `MuroBeam.Parse`, `MuroBeam.Load`). The book is untouched. A test harness runs a pure image on pid 0. There is still no `muro-beam` binary; that is a later CLI.
 - **Scheduling policy.** v0 fixes only the one-step relation. Reduction counting, preemption, and per-process heaps are open. v0 uses one shared heap.
 - **Intervals as usage budgets.** v0 keeps them. A later collector could spend inside an interval once the checker and the runtime agree on a decrement that stays inside `≤ᵍ`.
 - **Supervision beyond one monitor.** Peer death and one failure arm are in this book (`MuroBeam.Death`). Restart, a supervisor tree, links, and distribution are open.

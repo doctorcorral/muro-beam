@@ -1,12 +1,15 @@
 ------------------------------------------------------------------------
 -- Load an image. Parse, then demand format 1 and this tree's
--- boundary version, then re-run `checkP`. The emitter is outside
--- the safety TCB: `load-sound` is the checked equation.
+-- boundary version, then re-run `checkP`.
 --
 -- `lowerP` (in `MuroBeam.PTm`) is the initial system. `lowerP-wf`
--- and `lowerP-safe` apply to anything `load` accepts.
--- `budget-adequate` also needs `NoEscape` and `MatchFree` on a
--- pure `Checked` term, so it does not follow from `load` alone.
+-- and `lowerP-safe` apply to anything `load` accepts. The emitter
+-- is outside the TCB for those two.
+--
+-- Non-consequences of `load`:
+-- `lower-safe` (pure `lower` of a `Checked`),
+-- `budget-adequate` (needs `NoEscape` and `MatchFree`),
+-- `no-stray-reply` (needs `ReplyDone`).
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -47,5 +50,9 @@ load s with parseR s
 ... | false = fail "bad boundary version"
 ... | true = admit (seq (term i) (done {1})) (checkP [] (seq (term i) (done {1}))) refl
 
+-- The equation is `CheckedP.okp`. It holds for every `CheckedP`,
+-- and this proof does not use `load s ≡ ok p`. The real guarantee
+-- is the return type: `admit` builds `checkedP` only after `checkP`
+-- has returned `ok []`.
 load-sound : ∀ s p → load s ≡ ok p → checkP [] (CheckedP.prog p) ≡ ok []
 load-sound _ p _ = CheckedP.okp p

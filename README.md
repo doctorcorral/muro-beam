@@ -10,6 +10,8 @@ v1b adds `PTm`: `spawn`, `send`, `recv`, `seq`, and `done`, plus `await` and `ig
 
 v1c is the adequacy layer. `NoEscape` is the capture restriction already used by the machine: no λ is placed where a grade-1 binder is in scope. `InBoundary` implies it (`inBoundary→noEscape`) and is still only a syntactic filter. `decide-sound` is binder discharge for `decide run`. `budget-adequate` says that on every `Step*` from `lower` of a match-free `NoEscape` term, a checked grade-1 slot is spent at most once, and `exact-exhausts` says the residual is `g0` when that binder is popped. `done-collect-empty` says an empty live set frees every heap slot. `MuroBeam.Ref` is a grade-free CBV machine. Forward `lower-sim` is not a theorem: `alias` is in `NoEscape`, the reference machine β-reduces, and the CEK refuses that β because the argument is aliased. The limits are in [docs/DESIGN.md](docs/DESIGN.md).
 
+An image is the S-expression muro writes for `--backend mbi`; the parser, the loader, and a pid-0 harness are Agda ([docs/IMAGE.md](docs/IMAGE.md)).
+
 ## Boundary v1
 
 `MuroBeam.Boundary` is the contract, not the implementation. The implementation is the v1a machine. The boundary re-exports it: three grades, the payloads, and the theorems a client cites (`collect-safe`, `lower-safe`, and the others named in [docs/DESIGN.md](docs/DESIGN.md)). It is versioned. This book exports boundary v1 (`boundary-version` is 1).
