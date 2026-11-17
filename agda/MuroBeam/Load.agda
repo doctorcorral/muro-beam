@@ -1,26 +1,31 @@
 ------------------------------------------------------------------------
 -- Load an image. Parse, then demand format 1 or 2 and this tree's
 -- boundary version, then re-run `checkP` on the definitions and the
--- entry. A definition is checked once there. `gref` is checked again
--- only as a use, at grade ω, by that same pass.
+-- entry. A definition is checked once there. A `gref` in that pass
+-- is `ok zeros`: the use vector is zeros. It is not a discharge of
+-- a local binder.
 --
 -- `lowerP` (in `MuroBeam.PTm`) is the initial system. `lowerP-wf`
 -- and `lowerP-safe` apply to anything `load` accepts. The emitter
--- is outside the TCB for those two.
+-- is outside the TCB for those two. `lower-safe` is not that claim.
+-- It is `Step* (lower e)` for a pure `Checked`.
 --
 -- Non-consequences of `load`:
--- `lower-safe` is not on the `lowerP` path. It is `Step* (lower e)`
--- for a pure `Checked`.
 -- `budget-adequate` is
 -- `(e : Checked) {s : Sys} → NoEscape (term e) → MatchFree (term e) →
 --  Step* (lower e) s → Inv tight s`
 -- (`MuroBeam.Budget`). `checkP` on `seq` runs
 -- `boundaryOk (inB? (comps Γ) e)`. `load` calls that at `Γ = []` on
--- the entry, so a success implies `InBoundary` of the entry, and
--- `inBoundary→noEscape` gives `NoEscape`. What is missing is
--- `MatchFree` (`match.mbi` loads and contains `gmatch`; `MatchFree`
--- has no `gmatch` clause) and the theorem's path: pure `Checked` /
--- `lower` / `Step*`, not `CheckedP` / `lowerP` / `PStep*`.
+-- the entry term `e`. That decision is `InB [] e`. The capture
+-- predicate on the same term is `NoEsc [] e`. `InBoundary` and
+-- `NoEscape` are those two predicates on `embed` of a `GTm`, and
+-- `inBoundary→noEscape` has that `GTm` type. There is no theorem
+-- `load s ≡ ok p → InB [] e`, and none `load s ≡ ok p → NoEsc [] e`.
+-- The public adequacy predicates stay `GTm`-only. What is also
+-- missing is `MatchFree` (`match.mbi` loads and contains `gmatch`;
+-- `MatchFree` has no `gmatch` clause; `mf-ref` is a clause of `Mf`)
+-- and the theorem's path: pure `Checked` / `lower` / `Step*`, not
+-- `CheckedP` / `lowerP` / `PStep*`.
 -- `no-stray-reply` (needs `ReplyDone`).
 ------------------------------------------------------------------------
 

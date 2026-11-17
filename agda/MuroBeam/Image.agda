@@ -3,8 +3,10 @@
 -- one line, tokens separated by one space, a trailing newline, and
 -- `(seq <term> (done))` with no definitions. v2 is that line plus a
 -- `(defs <term> …)` section between the boundary and the entry.
--- An empty definition list is printed as v1, so a v1 file round-trips
--- to the same bytes. Grades are points or `(iv a b)`. `w` is ω.
+-- An empty definition list is printed in the v1 shape, with no defs
+-- section. The format number is the number that was read, not a
+-- forced 1, so a v1 file round-trips to the same bytes. Grades are
+-- points or `(iv a b)`. `w` is ω.
 -- `gze` is bare. De Bruijn indices and `gref` indices are decimal,
 -- with no leading zero except 0.
 --
@@ -496,9 +498,10 @@ showDefs [] = []
 showDefs (t ∷ []) = showB t
 showDefs (t ∷ t2 ∷ ts) = showB t ++ (toList " " ++ showDefs (t2 ∷ ts))
 
--- Empty `defs` is the v1 byte string. A cons is format v2's section.
+-- Empty `defs` omits the section. A cons prints the defs section.
 -- The format number is the field, not this choice: a v1 file has
--- empty `defs` and reprints without a section.
+-- empty `defs` and reprints without a section, and a format-2
+-- record with an empty list reprints number 2.
 renderWith : List (BTm 0) → ℕ → ℕ → BTm 0 → List Char
 renderWith [] fv bv tm =
   toList "(muro-beam-image " ++ showNat fv

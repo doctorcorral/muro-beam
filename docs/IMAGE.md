@@ -56,10 +56,9 @@ refuses a de Bruijn index that does not fit its scope. `MuroBeam.Load.load`
 accepts format 1 or 2 and `boundary-version`, then runs `checkP` on
 `seq defs term done`. A success is a `CheckedP`, built only after that
 check returns `ok []`. `lowerP-wf` and `lowerP-safe` apply to anything
-loaded. The emitter is outside the TCB for those two. Non-consequences
-of `load`:
-`lower-safe` is not on the `lowerP` path (`Step* (lower e)` for a
-pure `Checked`). `budget-adequate` is
+loaded. The emitter is outside the TCB for those two. `lower-safe` is
+not that claim: it is `Step* (lower e)` for a pure `Checked`.
+Non-consequences of `load`: `budget-adequate` is
 
 ```agda
 (e : Checked) {s : Sys} →
@@ -68,14 +67,18 @@ Step* (lower e) s → Inv tight s
 ```
 
 `checkP` on `seq` runs `boundaryOk (inB? (comps Γ) e)`. `load` calls
-that at `Γ = []` on the entry, so a success implies `InBoundary` of
-the entry, and `inBoundary→noEscape` gives `NoEscape`. What is missing
+that at `Γ = []` on the entry term `e`. That decision is `InB [] e`.
+The capture predicate on the same term is `NoEsc [] e`. `InBoundary`
+and `NoEscape` are those two predicates on `embed` of a `GTm`, and
+`inBoundary→noEscape` has that `GTm` type. There is no theorem
+`load s ≡ ok p → InB [] e`, and none `load s ≡ ok p → NoEsc [] e`.
+The public adequacy predicates stay `GTm`-only. What is also missing
 is `MatchFree` (`match.mbi` loads and contains `gmatch`; `MatchFree`
-has no `gmatch` clause) and the theorem's path: pure `Checked` /
-`lower` / `Step*`, not `CheckedP` / `lowerP` / `PStep*`. A
-successful `gref` step needs the `seg` frame `seq1` pushes, and that
-frame is not on the pure path, so `budget-adequate` does not follow
-it. `no-stray-reply` needs `ReplyDone`.
+has no `gmatch` clause; `mf-ref` is a clause of `Mf`) and the theorem's
+path: pure `Checked` / `lower` / `Step*`, not `CheckedP` / `lowerP` /
+`PStep*`. A successful `gref` step needs the `seg` frame `seq1` pushes,
+and that frame is not on the pure path, so `budget-adequate` does not
+follow it. `no-stray-reply` needs `ReplyDone`.
 
 The round trip `parse-show` is proved on the character list `render`
 produces. `toList ∘ fromList` is not a `--safe` lemma, so the String
