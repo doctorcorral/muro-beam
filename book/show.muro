@@ -4,7 +4,8 @@
 -- show-stuck, show-alloc, show-deref, show-send, show-step,
 -- show-collect, show-wide, show-down, show-down-again,
 -- show-down-done, show-abandon, show-send-dead,
--- show-settle-after-exit, and the show-sched-* lines. Each one is a
+-- show-settle-after-exit, the show-sched-* lines, show-sched-up,
+-- show-sched-stray, and show-sched-empty. Each one is a
 -- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
@@ -557,3 +558,142 @@ def downLine : run Π (name : String) → Π (+ noted : Bool) → String :=
 def show-sched-down : run String := downLine "sched-down" false
 
 def show-sched-down-again : run String := downLine "sched-down-again" true
+
+def shBool : run Π (b : Bool) → String :=
+  λ (b : Bool) →
+    match b motive (λ _ → String)
+      | true => "true"
+      | false => "false"
+
+-- `none` is no enabled wrapper. It is not the absence of a PStep.
+def shEn : run Π (+ s : Sys) → String :=
+  λ (+ s : Sys) →
+    match (noHit s) motive (λ _ → String)
+      | true => "none"
+      | false => "some"
+
+def boxHas : run Π (ms : List Msg) → Π (+ tag : Nat) → Bool :=
+  λ (ms : List Msg) → λ (+ tag : Nat) →
+    match ms motive (λ _ → Bool)
+      | nil => false
+      | cons m ms1 =>
+          (match m motive (λ _ → Bool)
+            | msg r => orB (natEq (obj r) tag) (boxHas ms1 tag))
+
+def mailAt : run Π (ps : List Proc) → Π (+ i : Nat) → Π (+ tag : Nat) → Bool :=
+  λ (ps : List Proc) → λ (+ i : Nat) → λ (+ tag : Nat) →
+    match (lookup Proc i ps) motive (λ _ → Bool)
+      | nothing => false
+      | just p =>
+          (match p motive (λ _ → Bool)
+            | proc pid st rs mb c => boxHas mb tag)
+
+def freeCell : run Π (o : Obj) → Bool :=
+  λ (o : Obj) →
+    match o motive (λ _ → Bool)
+      | cell v st =>
+          (match v motive (λ _ → Bool)
+            | nat n =>
+                (match n motive (λ _ → Bool)
+                  | 0 =>
+                      (match st motive (λ _ → Bool)
+                        | live => false
+                        | free => true)
+                  | suc n1 => false)
+            | suc-up r => false
+            | clo rs tm => false)
+
+def allFreeB : run Π (os : List Obj) → Bool :=
+  λ (os : List Obj) →
+    match os motive (λ _ → Bool)
+      | nil => true
+      | cons o os1 => andB (freeCell o) (allFreeB os1)
+
+-- A meeting list is affine. The printer spends it and adds no text.
+def sinkMs : run Π (ms : List Meet) → String :=
+  λ (ms : List Meet) →
+    match ms motive (λ _ → String)
+      | nil => ""
+      | cons m ms1 => sinkMs ms1
+
+-- Delivered payload is suc-up of nat 0. The kept nat is 1.
+def up0 : run Ref := ref 0 grade0 grade0 (selfKept grade0)
+
+def up1 : run Ref := ref 1 grade0 grade0 (selfKept grade0)
+
+def upSys : run Sys :=
+  sys (cons (cell (nat 0) live) (cons (cell (suc-up up0) live) nil))
+    (cons (proc 0 ready nil (cons (msg up1) nil)
+            (pr (go 0 (recv 0 grade0 grade0 (pdone (suc 0))) nil nil nil nil)))
+      nil)
+
+def show-sched-up : run String :=
+  match upSys motive (λ _ → String)
+    | sys h ps => driveLine "sched-up" (sys h ps) nil
+
+-- Tag 0 is dead and unreferenced. The child holds a g0 placeholder
+-- and an empty ether, so it cannot put tag 0 back. mail is mailHas
+-- of that tag. en is the enabled scan on the final system.
+def slot1 : run Ref := ref 1 grade0 grade0 (selfKept grade0)
+
+def straySys : run Sys :=
+  sys (cons (cell (nat 0) live) (cons (cell (nat 0) live) nil))
+    (cons (proc 0 ready nil nil
+            (pr (go 0 (pdone 0) nil nil (cons 0 nil) nil)))
+      (cons (proc 1 ready nil nil
+              (pr (go (suc 0)
+                    (send (suc 0) 0 (fzero 0) (pdone (suc 0)))
+                    (cons slot1 nil) nil nil nil)))
+        nil))
+
+def strayLine : run Π (+ s : Sys) → String :=
+  λ (+ s : Sys) →
+    match (driveSys s nil) motive (λ _ → String)
+      | drv t o ev ms v =>
+          (match t motive (λ _ → String)
+            | sys h ps =>
+                strCat (sinkMs ms)
+                  (strCat "sched-stray: "
+                    (strCat (shOc o)
+                      (strCat " "
+                        (strCat (shEvents ev)
+                          (strCat " "
+                            (strCat (shFp (sys h ps))
+                              (strCat " "
+                                (strCat (shVal v)
+                                  (strCat " mail "
+                                    (strCat (shBool (mailAt ps 0 0))
+                                      (strCat " en "
+                                        (strCat (shEn (sys h ps)) "\n")))))))))))))
+
+def show-sched-stray : run String :=
+  match straySys motive (λ _ → String)
+    | sys h ps => strayLine (sys h ps)
+
+-- One already-done process and an orphan live cell. Halt collects.
+-- free is the boolean image of every final cell being nat 0 and free.
+def emptySys : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 done nil nil idle) nil)
+
+def emptyLine : run Π (+ s : Sys) → String :=
+  λ (+ s : Sys) →
+    match (driveSys s nil) motive (λ _ → String)
+      | drv t o ev ms v =>
+          (match t motive (λ _ → String)
+            | sys h ps =>
+                strCat (sinkMs ms)
+                  (strCat "sched-empty: "
+                    (strCat (shOc o)
+                      (strCat " "
+                        (strCat (shEvents ev)
+                          (strCat " "
+                            (strCat (shFp (sys h ps))
+                              (strCat " "
+                                (strCat (shVal v)
+                                  (strCat " free "
+                                    (strCat (shBool (allFreeB h)) "\n")))))))))))
+
+def show-sched-empty : run String :=
+  match emptySys motive (λ _ → String)
+    | sys h ps => emptyLine (sys h ps)

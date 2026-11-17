@@ -842,8 +842,12 @@ drive (suc fuel) c ms v s with allDone (procs s) in eq
   ... | just f = use (got f)
   ... | nothing = fallback
 
--- The final system of a run is reached by process steps and, at
--- halt, by `step-collect`. Meeting events add no `PStep`.
+-- `drive` returns `Drive s`: the final `Drove` paired with a `PStep*`
+-- from the start to `final`. `drive-sound` is that second component,
+-- transported along `final d ≡ t`. It does not rebuild the trace.
+-- The content is the steps `drive` constructs: `use` prepends the
+-- wrapper step, `haltOf` prepends `step-collect`, and a meeting
+-- update prepends nothing.
 drive-sound : ∀ {n c ms v s t} {o : Outcome t} {es ms' v'} →
   proj₁ (drive n c ms v s) ≡ drv t o es ms' v' → PStep* s t
 drive-sound {n} {c} {ms} {v} {s} eq =

@@ -11,7 +11,10 @@
 -- The fingerprint is h<heap length>l<live cells>p<process count>.
 -- It is not the system. The older lines do not compare payloads,
 -- grades, or control. A scheduled line also prints the outcome and
--- the first nat the driver kept (`v-` when it kept none).
+-- the first nat the driver kept (`v-` when it kept none). `sched-up`
+-- keeps a delivered `suc↑`. `sched-stray` also prints `mailHas` and
+-- whether any wrapper is enabled. `sched-empty` prints the final
+-- heap's freeness.
 --
 -- Example, Lower, Unique, PExample, Stray, and PWf are not imported.
 -- The closed cex term and lowerTm live in MuroBeam.Cex.
@@ -22,7 +25,7 @@
 module MuroBeam.Conform where
 
 open import Data.Fin.Base using () renaming (zero to fzero)
-open import Data.Bool.Base using (Bool; true; false)
+open import Data.Bool.Base using (Bool; true; false; _∧_)
 open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _≤_; z≤n; s≤s)
@@ -48,11 +51,14 @@ open import MuroBeam.Event using
   ( Event; tr-alloc; tr-spend; tr-send; tr-recv; tr-spawn; tr-step; tr-collect; tr-down
   ; Why; killed; crash; normal; abandon )
 open import MuroBeam.Grade using (Kept; fin-kept; ω-kept; iv-kept; selfKept; Kind; Kmove; Kcopy)
-open import MuroBeam.Heap using (Obj; cell; nat; live; free; Ref; ref)
+open import MuroBeam.Heap using (Obj; cell; nat; suc↑; live; free; Ref; ref)
 open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; await; ignore; go)
-open import MuroBeam.Process using (Sys; sys; Proc; proc; ready; idle; ev; pr; eval1; runFor; msg)
+open import MuroBeam.PRun using (mailHas)
+open import MuroBeam.Process using
+  ( Sys; sys; heap; Proc; proc; ready; idle; ev; pr; procs; eval1; runFor; msg )
+  renaming (done to pstDone)
 open import MuroBeam.Sched using
-  ( drive; Drove; final; oc; evs; val
+  ( drive; Drove; final; oc; evs; val; findHit
   ; Outcome; plain; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 
 ------------------------------------------------------------------------
@@ -403,6 +409,74 @@ schedDown noted =
      true zero (suc zero) ph-run ph-run
      false true killed true false noted killed
 
+-- Boolean image of `AllFree`: every cell is `nat 0` and `free`.
+freeCell : Obj → Bool
+freeCell (cell (nat zero) free) = true
+freeCell (cell _ _) = false
+
+allFreeB : List Obj → Bool
+allFreeB [] = true
+allFreeB (o ∷ os) = freeCell o ∧ allFreeB os
+
+showBool : Bool → String
+showBool true = "true"
+showBool false = "false"
+
+-- `none` is `findHit ≡ nothing`: no `At` step. It is not `¬ PStep`.
+showEn : Sys → String
+showEn s with findHit s
+... | nothing = "none"
+... | just _  = "some"
+
+-- Delivered payload is `suc↑` of `nat 0`. The kept nat is 1.
+up0 : Ref
+up0 = ref zero g0 g0 (selfKept g0)
+
+up1 : Ref
+up1 = ref (suc zero) g0 g0 (selfKept g0)
+
+upSys : Sys
+upSys =
+  sys (cell (nat zero) live ∷ cell (suc↑ up0) live ∷ [])
+    (proc zero ready [] (msg up1 ∷ [])
+      (pr (go (recv g0 g0 (done {suc zero})) [] [] [] []))
+    ∷ [])
+
+-- Tag 0 is dead and unreferenced (`ReplyDone` in `SchedThm`). The
+-- child holds a g0 placeholder and an empty ether, so it cannot put
+-- tag 0 back in a mailbox. `mail` is `mailHas` of that tag. `en` is
+-- the enabled scan on the final system.
+ph1 : Ref
+ph1 = ref (suc zero) g0 g0 (selfKept g0)
+
+straySys : Sys
+straySys =
+  sys (cell (nat zero) live ∷ cell (nat zero) live ∷ [])
+    ( proc zero ready [] []
+        (pr (go (done {zero}) [] [] (zero ∷ []) []))
+    ∷ proc (suc zero) ready [] []
+        (pr (go (send zero (fzero {zero}) (done {suc zero}))
+              (ph1 ∷ []) [] [] []))
+    ∷ [])
+
+strayBody : String
+strayBody =
+  let d = proj₁ (drive driveFuel zero [] nothing straySys) in
+  showDrove d ++ " mail " ++ showBool (mailHas (procs (final d)) zero zero)
+    ++ " en " ++ showEn (final d)
+
+-- One already-done process and an orphan live cell. Halt collects.
+-- `free` is the boolean image of `AllFree` on the final heap.
+emptySys : Sys
+emptySys =
+  sys (cell (nat zero) live ∷ [])
+    (proc zero pstDone [] [] idle ∷ [])
+
+emptyBody : String
+emptyBody =
+  let d = proj₁ (drive driveFuel zero [] nothing emptySys) in
+  showDrove d ++ " free " ++ showBool (allFreeB (heap (final d)))
+
 -- The older lines, then the scheduled ones. The driver prints this
 -- and nothing else.
 ------------------------------------------------------------------------
@@ -431,4 +505,7 @@ report =
   line "sched-two" (schedBody twoSys []) ++
   line "sched-three" (schedBody threeSys []) ++
   line "sched-down" (schedBody (sys downH schedDownPs) (schedDown false ∷ [])) ++
-  line "sched-down-again" (schedBody (sys downH schedDownPs) (schedDown true ∷ []))
+  line "sched-down-again" (schedBody (sys downH schedDownPs) (schedDown true ∷ [])) ++
+  line "sched-up" (schedBody upSys []) ++
+  line "sched-stray" strayBody ++
+  line "sched-empty" emptyBody

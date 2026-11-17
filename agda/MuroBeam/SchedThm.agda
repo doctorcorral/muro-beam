@@ -1,45 +1,52 @@
 ------------------------------------------------------------------------
 -- What a driven run preserves.
 --
--- `drive-sound` in `MuroBeam.Sched` is the `PStep*` to the final
--- system. These lemmas read that trace. There is no bounded-wait
--- fact. `AllInv` is `residual-inv-refs`, which holds of every system.
--- `no-stray-reply` needs `ReplyDone` at the start. Heap emptiness
--- needs `liveRefs` of the pre-collect system to be empty.
+-- `drive-sound` in `MuroBeam.Sched` projects the `PStep*` that `drive`
+-- packages with the final system. It does not rebuild the trace.
+-- There is no bounded-wait fact. `AllInv` is `residual-inv-refs`,
+-- which holds of every system, so it is not a property of `drive`
+-- and it is not stated here. `no-stray-reply` needs `ReplyDone` at
+-- the start. Heap emptiness is `done-collect-empty` when `drive`
+-- returns `halted` and `liveRefs` of that pre-collect system are
+-- empty. It is not a consequence of the word halted alone.
 --
 -- `emit1` returning a system is not proved to be `emitEmit` returning
 -- that system. `At` is the wrapper that succeeded. A `done1` of a
--- process that is already `pstDone` is not an `At` step.
+-- process that is already `pstDone` is not an `At` step. `¬ At` is
+-- not `¬ PStep`.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
 
 module MuroBeam.SchedThm where
 
-open import Data.Bool.Base using (false)
+open import Data.Bool.Base using (false; true)
 open import Data.Fin.Base using () renaming (zero to fzero)
 open import Data.List.Base using (List; _∷_) renaming ([] to nil)
-open import Data.Maybe.Base using (nothing)
-open import Data.Nat.Base using (ℕ; zero; suc)
+open import Data.Maybe.Base using (just; nothing)
+open import Data.Nat.Base using (ℕ; zero; suc; _<_; s≤s; z≤n)
 open import Data.Product.Base using (proj₁; proj₂)
 open import Data.Vec.Base using ([])
-open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; subst)
 
 open import Muro.Base using (ok)
 open import Muro.Grade using (g0; g1)
 
 open import MuroBeam.Adequacy using (AllFree; done-collect-empty)
 open import MuroBeam.Collect using (collect)
+open import MuroBeam.Grade using (selfKept)
+open import MuroBeam.Heap using (Obj; cell; nat; suc↑; live; Ref; ref; count)
 open import MuroBeam.Process using
-  ( Sys; sys; heap; proc; ready; pr; procs; refsOf; AllInv
-  ; residual-inv-refs; liveRefs )
-open import MuroBeam.PRun using (mailHas)
+  ( Sys; sys; heap; proc; ready; idle; pr; procs; refsOf; liveRefs; msg )
+  renaming (done to pstDone)
+open import MuroBeam.PRun using (mailHas; deadAt)
 open import MuroBeam.PSyntax using (PTm; t[]; done; spawn; recv; send; go)
 open import MuroBeam.PTm using (CheckedP; checkedP; checkP; lowerP)
 open import MuroBeam.PWf using (psteps)
 open import MuroBeam.Sched using
-  ( drive; final; oc; plain; plain-halted; plain-deadlock; plain-stuck )
-open import MuroBeam.Stray using (ReplyDone; no-stray-reply)
+  ( drive; final; oc; val; plain; plain-halted; plain-deadlock; plain-stuck
+  ; halted; allDone )
+open import MuroBeam.Stray using (ReplyDone; replied; no-stray-reply)
 open import MuroBeam.Unique using (WF)
 
 ------------------------------------------------------------------------
@@ -51,20 +58,28 @@ drive-wf : ∀ {n c ms v s} →
 drive-wf {n} {c} {ms} {v} {s} wf =
   psteps (proj₂ (drive n c ms v s)) wf
 
-drive-inv : ∀ {n c ms v s} →
-  AllInv (refsOf (final (proj₁ (drive n c ms v s))))
-drive-inv {n} {c} {ms} {v} {s} =
-  residual-inv-refs (final (proj₁ (drive n c ms v s)))
-
 drive-stray : ∀ {n c ms v s i τ} →
   ReplyDone s i τ →
   mailHas (procs (final (proj₁ (drive n c ms v s)))) i τ ≡ false
 drive-stray {n} {c} {ms} {v} {s} d =
   no-stray-reply (proj₂ (drive n c ms v s)) d
 
-halted-empty : ∀ {pre t} →
-  t ≡ collect pre → liveRefs pre ≡ nil → AllFree (heap t)
-halted-empty {pre} col emp rewrite col = done-collect-empty pre emp
+-- `halted pre doneEq col` is the outcome `drive` returned. `col` is
+-- `final ≡ collect pre`. Emptiness is the pre-state's live refs, not
+-- a fact the word halted has on its own.
+halted-empty :
+  ∀ {n c ms v s pre}
+    {doneEq : allDone (procs pre) ≡ true}
+    {col : final (proj₁ (drive n c ms v s)) ≡ collect pre} →
+    oc (proj₁ (drive n c ms v s)) ≡ halted pre doneEq col →
+    liveRefs pre ≡ nil →
+    AllFree (heap (final (proj₁ (drive n c ms v s))))
+-- `col` is the equality stored in the `halted` outcome. Matching that
+-- outcome does not compute: `oc (proj₁ (drive …))` stays stuck, and
+-- `rewrite` then ill-types the outcome equality. `subst` moves
+-- emptiness from `collect pre` onto `final`.
+halted-empty {pre = pre} {col = col} _ emp =
+  subst (λ t → AllFree (heap t)) (sym col) (done-collect-empty pre emp)
 
 ------------------------------------------------------------------------
 -- Closed programs. `checkP` accepts spawn of `done`, `lowerP` is that
@@ -139,3 +154,84 @@ stuck-at :
   plain (oc (proj₁ (drive driveFuel zero nil nothing stuckSys)))
     ≡ plain-stuck zero
 stuck-at = refl
+
+------------------------------------------------------------------------
+-- A delivered `suc↑` is one more than the nat it points at. The book
+-- `readNat` must apply the same bump, or this value disagrees.
+------------------------------------------------------------------------
+
+up0 : Ref
+up0 = ref zero g0 g0 (selfKept g0)
+
+up1 : Ref
+up1 = ref (suc zero) g0 g0 (selfKept g0)
+
+upH : List Obj
+upH = cell (nat zero) live ∷ cell (suc↑ up0) live ∷ nil
+
+upSys : Sys
+upSys =
+  sys upH
+    (proc zero ready nil (msg up1 ∷ nil)
+      (pr (go (recv g0 g0 (done {suc zero})) nil nil nil nil))
+    ∷ nil)
+
+up-val :
+  val (proj₁ (drive driveFuel zero nil nothing upSys)) ≡ just (suc zero)
+up-val = refl
+
+------------------------------------------------------------------------
+-- ReplyDone, then a step that can still deliver a different object.
+-- Tag 0 is dead and unreferenced. The child holds a g0 placeholder,
+-- so it cannot emit, and its ether is empty, so it cannot deliver.
+-- `mailHas` of tag 0 stays false. That is `drive-stray` on this run.
+------------------------------------------------------------------------
+
+ph1 : Ref
+ph1 = ref (suc zero) g0 g0 (selfKept g0)
+
+strayH : List Obj
+strayH = cell (nat zero) live ∷ cell (nat zero) live ∷ nil
+
+straySys : Sys
+straySys =
+  sys strayH
+    ( proc zero ready nil nil
+        (pr (go (done {zero}) nil nil (zero ∷ nil) nil))
+    ∷ proc (suc zero) ready nil nil
+        (pr (go (send zero (fzero {zero}) (done {suc zero}))
+              (ph1 ∷ nil) nil nil nil))
+    ∷ nil)
+
+stray-done : ReplyDone straySys zero zero
+stray-done = replied refl (s≤s z≤n) refl
+
+stray-clear :
+  mailHas (procs (final (proj₁ (drive driveFuel zero nil nothing straySys)))) zero zero
+    ≡ false
+stray-clear = drive-stray {driveFuel} {zero} {nil} {nothing} stray-done
+
+------------------------------------------------------------------------
+-- Halt of a system whose live refs are already empty. The orphan cell
+-- is freed. `empty-halt` names the `halted` outcome `drive` returns.
+------------------------------------------------------------------------
+
+emptyH : List Obj
+emptyH = cell (nat zero) live ∷ nil
+
+emptySys : Sys
+emptySys = sys emptyH (proc zero pstDone nil nil idle ∷ nil)
+
+empty-live : liveRefs emptySys ≡ nil
+empty-live = refl
+
+empty-halt :
+  oc (proj₁ (drive driveFuel zero nil nothing emptySys))
+    ≡ halted emptySys refl refl
+empty-halt = refl
+
+empty-free :
+  AllFree (heap (final (proj₁ (drive driveFuel zero nil nothing emptySys))))
+empty-free =
+  halted-empty {n = driveFuel} {c = zero} {ms = nil} {v = nothing}
+    {s = emptySys} {pre = emptySys} empty-halt empty-live
