@@ -10,8 +10,11 @@ spec, and the binder's type grade does not pay for the use.
 `make images` records the reason.
 
 `once` applied to `suc 0` is not an emitter golden. The harness
-builds that image itself. The Elixir value for the same def, from a
-throwaway build of this commit, is 1.
+builds that image itself. On muro `3f1cae2`, compiled with
+`MIX_BUILD_PATH=/private/tmp/beam-b2-build`, `Muro.Load.file` then
+`Muro.Session.eval_run("once", [1], book)` and
+`eval_run("applied", [], book)` both returned `1`. `drive` of that
+image stops `stuck 0` and keeps `v1`.
 
 `plus.mbi`, `half.mbi`, and `iseven.mbi` are not emitter goldens.
 They are written by hand in the v2 shape: one closed definition,
@@ -28,6 +31,11 @@ On muro `e41936b` (`v0.20.15-3-ge41936b`), compiled with
 - `plus` `[2, 3]` → `{:run, "plus", [2, 3]}` (prelude and `half_ok`)
 - `half` `[0]`, `[1]`, `[4]`, `[5]` → `{:run, "half", args}`
 - `IsEven` `[0]`, `[1]`, `[4]`, `[5]` → `{:run, "IsEven", args}`
+
+The same `plus` and `half` calls on muro `3f1cae2`
+(`MIX_BUILD_PATH=/private/tmp/beam-b2-build`, `examples/half_ok.muro`)
+returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
+`{:run, "half", [0]}`, and `{:run, "half", [5]}`.
 
 `plus` and `half` are `run` definitions. `eval_def` asks `calls_out?`
 of the whole body, including both match arms, and returns

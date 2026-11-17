@@ -24,8 +24,8 @@ conformance: book-show
 		agda/MuroBeam/Conform.agda
 	python3 scripts/conform.py
 
-# The Muro book. smoke.muro imports the rest, and muro flattens imports,
-# so this one check covers book/ except the conformance printer.
+# The Muro book. smoke.muro imports the runtime book except the
+# scheduler and the conformance printer. book/show.muro imports both.
 # The archive is Hex muro 0.20.33. show.muro is book-show, so a printer
 # typo fails that target and does not have to ride inside smoke.muro.
 book:

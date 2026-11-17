@@ -123,10 +123,10 @@ Later parts follow this rule.
 
 - Terms are an inductive datatype, a pure mirror of `GTm` and `PTm`.
 - Every primitive operation is one `run` function, structurally recursive on its inputs: `alloc`, `deref` / `spend`, `send`, `recv`, `spawn`, one CEK step, and total ordered `collect`. No termination pragma. No hand-written well-founded recursion.
-- Multi-step evaluation is driven from outside. Either an explicit fuel argument, `runFor fuel state`, or an external scheduler that applies one process step at a time, in the style of Agda's `PStep`.
+- Multi-step evaluation is a fuelled `run`. `runFor fuel state` steps pid 0. `drive fuel cursor meetings value system` is round-robin: one scan from the cursor, then a scan from pid 0, and the recursive call is on the predecessor of the fuel. It builds no coinductive loop.
 - No internal unbounded loop.
 
-`inBoundary` and `noEscape` follow the rule: they recurse on the term, and they take no fuel. `alloc`, `deref`, `sendRoot`, and `reuse` follow it too. `eval1` does not call itself. Its helpers are one `run` each. `runFor` recurses on the fuel and stops when `eval1` returns `nothing`. `collect` is one `run` from `Sys` to `Sys`, structural on the heap and the process list, with no internal loop. `recvRoot` walks one mailbox. `spawn1` walks one thinning. `emit1`, `deliver1`, `recv1`, `seq1`, `bind1`, `done1`, and `arm1` each walk one process list or one stack. `finRebuild` walks one `Fin`, with the bound erased so the `Fin` is the argument it descends on. `runPops` and `emitPops` walk one `Pop` list and apply one step, then the tail. `runDs` walks one `DOp` list the same way. `stepMon`, `stepExit`, `observeExit`, `stepRecv`, `stepSend`, `stepDone`, `stepAbandon`, and `stepSettle` do not call themselves. `observe` calls `observeExit` once. None of them is an internal unbounded loop.
+`inBoundary` and `noEscape` follow the rule: they recurse on the term, and they take no fuel. `alloc`, `deref`, `sendRoot`, and `reuse` follow it too. `eval1` does not call itself. Its helpers are one `run` each. `runFor` recurses on the fuel and stops when `eval1` returns `nothing`. `collect` is one `run` from `Sys` to `Sys`, structural on the heap and the process list, with no internal loop. `recvRoot` walks one mailbox. `spawn1` walks one thinning. `emit1`, `deliver1`, `recv1`, `seq1`, `bind1`, `done1`, and `arm1` each walk one process list or one stack. `finRebuild` walks one `Fin`, with the bound erased so the `Fin` is the argument it descends on. `runPops` and `emitPops` walk one `Pop` list and apply one step, then the tail. `drive` recurses only on the fuel; one step scans the process list a bounded number of times and does not call `drive`. `runDs` walks one `DOp` list the same way. `stepMon`, `stepExit`, `observeExit`, `stepRecv`, `stepSend`, `stepDone`, `stepAbandon`, and `stepSettle` do not call themselves. `observe` calls `observeExit` once. None of them is an internal unbounded loop.
 
 ## Four parts
 
@@ -221,7 +221,7 @@ The OTP image in muro 0.21.0 (`Muro.Emit.Otp` at tag `v0.21.0`) is the behaviour
 - `d-send` models only the consumed put. It is `nothing` on the halt path, where `dead` is false. OTP's `peer_dead` is the failure mark, not the halt mark. A successful enqueue is still the existing send.
 - One monitor and two processes. A third process, a monitor set, credit, and acks are not in this meeting.
 - The steps are not `PStep`. `no-stray-reply` does not quantify over them. `d-done` sets the state and the halt flag. It does not run `done1`, so it does not clear roots.
-- This is not a runnable VM. The image and the loader are Agda (`docs/IMAGE.md`, `MuroBeam.Load`). The emitter is muro's `--backend mbi`, outside this book. A harness runs one pure image on pid 0. There is no scheduler for an arbitrary program, no CLI, and no I/O.
+- This is not a runnable VM. The image and the loader are Agda (`docs/IMAGE.md`, `MuroBeam.Load`). The emitter is muro's `--backend mbi`, outside this book. A harness runs one pure image on pid 0. `drive` runs a system it is given, on fuel. The file image has no process form. There is no CLI and no I/O. There is no bounded-wait theorem.
 
 ## Names
 

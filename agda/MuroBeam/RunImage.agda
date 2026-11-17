@@ -11,6 +11,7 @@ module MuroBeam.RunImage where
 open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc)
+open import Data.Product.Base using (proj₁)
 open import Data.String.Base using (String; _++_; fromList)
 open import Muro.Base using (Result; ok; fail)
 
@@ -21,6 +22,9 @@ open import MuroBeam.Load using (load)
 open import MuroBeam.Parse using (parse)
 open import MuroBeam.PRun using (seq1)
 open import MuroBeam.PTm using (lowerP)
+open import MuroBeam.Sched using
+  ( drive; oc; val; plain; Outcome
+  ; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 open import MuroBeam.Process using
   ( Sys; heap; procs; Proc; ctl; Ctl; rv
   ; Frame; saved; seg; eval1; runFor; payloadAt )
@@ -79,3 +83,34 @@ echoImage : String → String
 echoImage s with parse s
 ... | just i = showImage i
 ... | nothing = "no"
+
+-- Fuelled drive of a loaded image. The file has one process. `seq1`
+-- pushes `saved` over `seg`, and `bind1` does not resume that stack,
+-- so a pure entry can stop `stuck` with the nat already in `rv`.
+-- The text is the outcome and the nat `drive` kept.
+
+dbl : ℕ → ℕ
+dbl zero = zero
+dbl (suc n) = suc (suc (dbl n))
+
+-- 32.
+imgFuel : ℕ
+imgFuel = dbl (dbl (dbl (dbl (dbl (suc zero)))))
+
+ocText : ∀ {t} → Outcome t → String
+ocText o with plain o
+... | plain-halted   = "halted"
+... | plain-deadlock = "deadlock"
+... | plain-stuck i  = "stuck " ++ fromList (showNat i)
+... | plain-fuel     = "fuel"
+
+valText : Maybe ℕ → String
+valText nothing  = "v-"
+valText (just n) = "v" ++ fromList (showNat n)
+
+driveImage : String → String
+driveImage src with load src
+... | fail e = "refuse: " ++ e
+... | ok p   =
+  let d = proj₁ (drive imgFuel zero [] nothing (lowerP p))
+  in ocText (oc d) ++ " " ++ valText (val d)

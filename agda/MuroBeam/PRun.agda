@@ -159,31 +159,33 @@ blocked ps j τ with lookup ps j
 ... | nothing = true
 ... | just q  = hasTag τ (deadInCtl (ctl q)) ∨ hasTag τ (demoInCtl (ctl q))
 
+-- Top-level so a caller can name the same term `emit1` reduces to
+-- once the process has been found.
+emitCtl : List Obj → List Proc → ℕ → Ctl → Maybe Sys
+emitCtl h ps i (pr (go (send j x k) env eth d dm)) =
+  lookup env (toℕ x) >>= λ r →
+  if isZeroGrade (residual r) then nothing
+  else if blocked ps j (obj r) then nothing
+  else sendAs (kind (checked r)) r j k env eth d dm
+  where
+  sendAs : Maybe Kind → Ref → ℕ → ∀ {n} → PTm n → List Ref →
+           List Flight → List ℕ → List ℕ → Maybe Sys
+  sendAs nothing _ _ _ _ _ _ _ = nothing
+  sendAs (just Kmove) r j k env eth d dm =
+    let ph  = placeholder h
+        h'  = snoc h (nat zero)
+        env' = repl (toℕ x) ph env
+        c'  = pr (go k env' (eth ++ flight j r ∷ []) d dm)
+    in setProc ps i c' >>= λ ps' → just (sys h' ps')
+  sendAs (just Kcopy) r j k env eth d dm =
+    let c' = pr (go k env (eth ++ flight j r ∷ []) d dm)
+    in setProc ps i c' >>= λ ps' → just (sys h ps')
+emitCtl _ _ _ _ = nothing
+
 emit1 : Sys → ℕ → Maybe Sys
 emit1 (sys h ps) i =
   lookup ps i >>= λ p →
-  emitted (ctl p)
-  where
-  emitted : Ctl → Maybe Sys
-  emitted (pr (go (send j x k) env eth d dm)) =
-    lookup env (toℕ x) >>= λ r →
-    if isZeroGrade (residual r) then nothing
-    else if blocked ps j (obj r) then nothing
-    else sendAs (kind (checked r)) r j k env eth d dm
-    where
-    sendAs : Maybe Kind → Ref → ℕ → ∀ {n} → PTm n → List Ref →
-             List Flight → List ℕ → List ℕ → Maybe Sys
-    sendAs nothing _ _ _ _ _ _ _ = nothing
-    sendAs (just Kmove) r j k env eth d dm =
-      let ph  = placeholder h
-          h'  = snoc h (nat zero)
-          env' = repl (toℕ x) ph env
-          c'  = pr (go k env' (eth ++ flight j r ∷ []) d dm)
-      in setProc ps i c' >>= λ ps' → just (sys h' ps')
-    sendAs (just Kcopy) r j k env eth d dm =
-      let c' = pr (go k env (eth ++ flight j r ∷ []) d dm)
-      in setProc ps i c' >>= λ ps' → just (sys h ps')
-  emitted _ = nothing
+  emitCtl h ps i (ctl p)
 
 ------------------------------------------------------------------------
 -- Deliver. Pull one flight from `pr`, or from a `saved` frame while
@@ -611,16 +613,19 @@ bind1 (sys h ps) i =
     just (sys h ps')
   bound _ = nothing
 
+-- Top-level so a proof can pass the process it found. `done1` is
+-- this function after lookup. The control match is the whole story:
+-- an already `pstDone` process still ends.
+doneStep : List Obj → List Proc → ℕ → Proc → Ctl → Maybe Sys
+doneStep h ps i p (pr (go {n} done _ eth d dm)) =
+  let p' = record p { state = pstDone ; roots = [] ; ctl = pr (go {n} done [] eth d dm) }
+  in update i p' ps >>= λ ps' → just (sys h ps')
+doneStep _ _ _ _ _ = nothing
+
 done1 : Sys → ℕ → Maybe Sys
 done1 (sys h ps) i =
   lookup ps i >>= λ p →
-  ended p (ctl p)
-  where
-  ended : Proc → Ctl → Maybe Sys
-  ended p (pr (go {n} done _ eth d dm)) =
-    let p' = record p { state = pstDone ; roots = [] ; ctl = pr (go {n} done [] eth d dm) }
-    in update i p' ps >>= λ ps' → just (sys h ps')
-  ended _ _ = nothing
+  doneStep h ps i p (ctl p)
 
 ------------------------------------------------------------------------
 -- v1b step. `lift` is every v0/v1a step, including atomic send.

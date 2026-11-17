@@ -6,7 +6,7 @@
 -- iv are copied. Spawn appends the child and always snocs one fresh
 -- g0 cell, shared by the moved parent slots.
 -- Deliver reads dead tags only. A demo tag does not drop a flight.
--- await, flush, npeek, and ndemon are not in this file: flush blanks
+-- await, flush, npeek, and ndemon live in book/await.muro: flush blanks
 -- heap edges, and that walk is not this part.
 -- This file does not emit events. book/emit.muro does.
 

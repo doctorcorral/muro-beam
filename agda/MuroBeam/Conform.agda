@@ -9,8 +9,9 @@
 -- line is ran.
 --
 -- The fingerprint is h<heap length>l<live cells>p<process count>.
--- It is not the system. Success lines still do not compare payloads,
--- grades, or control.
+-- It is not the system. The older lines do not compare payloads,
+-- grades, or control. A scheduled line also prints the outcome and
+-- the first nat the driver kept (`v-` when it kept none).
 --
 -- Example, Lower, Unique, PExample, Stray, and PWf are not imported.
 -- The closed cex term and lowerTm live in MuroBeam.Cex.
@@ -21,9 +22,11 @@
 module MuroBeam.Conform where
 
 open import Data.Fin.Base using () renaming (zero to fzero)
+open import Data.Bool.Base using (Bool; true; false)
 open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _≤_; z≤n; s≤s)
+open import Data.Product.Base using (proj₁)
 open import Data.String.Base using (String; _++_)
 
 open import Muro.Grade using
@@ -36,7 +39,8 @@ open import MuroBeam.Emit using
   ( Run; ran; Pop; pop-spawn; pop-emit; pop-deliver; pop-recv
   ; emitPops; emitAlloc; emitDeref; emitSendRoot; emitEval; emitCollect )
 open import MuroBeam.Death using
-  ( DRun; dran; base; runDs
+  ( Meet; mt; ph-run; downH; downρ
+  ; DRun; dran; base; runDs
   ; downOps; againOps; doneOps; abandonOps; sendOps
   ; settleAfterOps
   ; meetMail; meetEmpty; meetNormal )
@@ -45,8 +49,11 @@ open import MuroBeam.Event using
   ; Why; killed; crash; normal; abandon )
 open import MuroBeam.Grade using (Kept; fin-kept; ω-kept; iv-kept; selfKept; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using (Obj; cell; nat; live; free; Ref; ref)
-open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; go)
-open import MuroBeam.Process using (Sys; sys; proc; ready; idle; ev; pr; eval1; runFor)
+open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; await; ignore; go)
+open import MuroBeam.Process using (Sys; sys; Proc; proc; ready; idle; ev; pr; eval1; runFor; msg)
+open import MuroBeam.Sched using
+  ( drive; Drove; final; oc; evs; val
+  ; Outcome; plain; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 
 ------------------------------------------------------------------------
 -- Decimal, same division as book/show.muro. Eight digits is enough
@@ -315,8 +322,89 @@ asRun : Maybe DRun → Maybe Run
 asRun nothing = nothing
 asRun (just (dran m es)) = just (ran (base m) es)
 
--- Seven examples, the printer check, then the death schedules.
--- The driver prints this and nothing else.
+-- Scheduled runs. The driver chooses every pop. Fuel 16 is the
+-- book's driveFuel. The cursor starts at 0 and the kept nat starts
+-- empty. No pop list is written down.
+------------------------------------------------------------------------
+
+driveFuel : ℕ
+driveFuel =
+  suc (suc (suc (suc
+  (suc (suc (suc (suc
+  (suc (suc (suc (suc
+  (suc (suc (suc (suc zero)))))))))))))))
+
+showOc : ∀ {t} → Outcome t → String
+showOc o with plain o
+... | plain-halted    = "halted"
+... | plain-deadlock  = "deadlock"
+... | plain-stuck i   = "stuck " ++ showℕ i
+... | plain-fuel      = "fuel"
+
+showVal : Maybe ℕ → String
+showVal nothing  = "v-"
+showVal (just n) = "v" ++ showℕ n
+
+showDrove : Drove → String
+showDrove d =
+  showOc (oc d) ++ " " ++ showEvents (evs d) ++ " " ++
+  showFp (final d) ++ " " ++ showVal (val d)
+
+schedBody : Sys → List Meet → String
+schedBody s ms = showDrove (proj₁ (drive driveFuel zero ms nothing s))
+
+igTm : PTm (suc zero)
+igTm = spawn (keep t[]) tripChild (ignore (fzero {zero}) (done {suc zero}))
+
+ig0 : Sys
+ig0 = sys tripH0 (proc zero ready [] [] (pr (go igTm (ρ ∷ []) [] [] [])) ∷ [])
+
+awTm : PTm (suc zero)
+awTm = spawn (keep t[]) tripChild (await (fzero {zero}) (done {suc zero}))
+
+aw0 : Sys
+aw0 = sys tripH0 (proc zero ready [] [] (pr (go awTm (ρ ∷ []) [] [] [])) ∷ [])
+
+deadSys : Sys
+deadSys =
+  sys []
+    (proc zero ready [] []
+      (pr (go (recv g1 g0 (done {suc zero})) [] [] [] [])) ∷ [])
+
+stuckSys : Sys
+stuckSys =
+  sys []
+    (proc zero ready [] []
+      (pr (go (send zero (fzero {zero}) (done {suc zero})) [] [] [] [])) ∷ [])
+
+twoTm : PTm zero
+twoTm = spawn t[] (done {zero}) (done {zero})
+
+twoSys : Sys
+twoSys = sys [] (proc zero ready [] [] (pr (go twoTm [] [] [] [])) ∷ [])
+
+threeTm : PTm zero
+threeTm = spawn t[] (done {zero}) (spawn t[] (done {zero}) (done {zero}))
+
+threeSys : Sys
+threeSys = sys [] (proc zero ready [] [] (pr (go threeTm [] [] [] [])) ∷ [])
+
+schedDownPs : List Proc
+schedDownPs =
+  proc zero ready [] (msg downρ ∷ [])
+    (pr (go (recv g1 g0 (done {suc zero})) [] [] [] []))
+  ∷ proc (suc zero) ready [] []
+    (pr (go (done {zero}) [] [] [] []))
+  ∷ []
+
+schedDown : Bool → Meet
+schedDown noted =
+  mt (sys downH schedDownPs)
+     true zero (suc zero) ph-run ph-run
+     false true killed true false noted killed
+
+-- The older lines, then the scheduled ones. The driver prints this
+-- and nothing else.
 ------------------------------------------------------------------------
 
 report : String
@@ -334,4 +422,13 @@ report =
   line "down-done" (showMaybe (asRun (runDs doneOps meetEmpty))) ++
   line "abandon" (showMaybe (asRun (runDs abandonOps meetEmpty))) ++
   line "send-dead" (showMaybe (asRun (runDs sendOps meetEmpty))) ++
-  line "settle-after-exit" (showMaybe (asRun (runDs settleAfterOps meetNormal)))
+  line "settle-after-exit" (showMaybe (asRun (runDs settleAfterOps meetNormal))) ++
+  line "sched-trip" (schedBody s0 []) ++
+  line "sched-ignore" (schedBody ig0 []) ++
+  line "sched-await" (schedBody aw0 []) ++
+  line "sched-dead" (schedBody deadSys []) ++
+  line "sched-stuck" (schedBody stuckSys []) ++
+  line "sched-two" (schedBody twoSys []) ++
+  line "sched-three" (schedBody threeSys []) ++
+  line "sched-down" (schedBody (sys downH schedDownPs) (schedDown false ∷ [])) ++
+  line "sched-down-again" (schedBody (sys downH schedDownPs) (schedDown true ∷ []))

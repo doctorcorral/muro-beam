@@ -225,8 +225,39 @@ def emitSeq : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
 def emitBind : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
   λ (s : Sys) → λ (+ i : Nat) → emitQuiet (bind1 s i)
 
+-- done1 still succeeds on a process that is already done. The
+-- scheduler must not stutter on that, so this wrapper refuses it.
+def doneState : run Π (s : Sys) → Π (+ i : Nat) → Bool :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Bool)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Bool)
+            | nothing => false
+            | just p =>
+                (match (state p) motive (λ _ → Bool)
+                  | ready => false
+                  | waiting => false
+                  | done => true))
+
 def emitDone : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
-  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (done1 s i)
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Run)
+      | sys h ps =>
+          (match (doneState (sys h ps) i) motive (λ _ → Maybe Run)
+            | true => nothing
+            | false => emitQuiet (done1 (sys h ps) i))
+
+def emitAwait : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (await1 s i)
+
+def emitFlush : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (flush1 s i)
+
+def emitNpeek : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (npeek1 s i)
+
+def emitNdemon : run Π (s : Sys) → Π (+ i : Nat) → Maybe Run :=
+  λ (s : Sys) → λ (+ i : Nat) → emitQuiet (ndemon1 s i)
 
 def emitOp : run Π (+ s : Sys) → Π (op : Op) → Maybe Run :=
   λ (+ s : Sys) → λ (op : Op) →
@@ -246,10 +277,15 @@ def emitPop : run Π (s : Sys) → Π (p : Pop) → Maybe Run :=
       | pop-emit i => emitEmit s i
       | pop-deliver i => emitDeliver s i
       | pop-recv i => emitRecv1 s i
+      | pop-await i => emitAwait s i
       | pop-arm i => emitArm s i
+      | pop-flush i => emitFlush s i
+      | pop-npeek i => emitNpeek s i
+      | pop-ndemon i => emitNdemon s i
       | pop-seq i => emitSeq s i
       | pop-bind i => emitBind s i
       | pop-done i => emitDone s i
+      | pop-eval i => emitEval s i
       | pop-lift op =>
           (match s motive (λ _ → Maybe Run)
             | sys h ps => emitOp (sys h ps) op)

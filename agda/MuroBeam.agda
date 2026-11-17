@@ -52,6 +52,8 @@ import MuroBeam.Cex
 import MuroBeam.Event
 import MuroBeam.Emit
 import MuroBeam.Death
+import MuroBeam.Sched
+import MuroBeam.SchedThm
 import MuroBeam.Conform
 -- Image loading is Agda-side. Not opened: the names stay off the v1c API.
 import MuroBeam.Image

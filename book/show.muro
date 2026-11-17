@@ -3,8 +3,8 @@
 -- scripts/book_show.exs loads this file and normalises show-trip,
 -- show-stuck, show-alloc, show-deref, show-send, show-step,
 -- show-collect, show-wide, show-down, show-down-again,
--- show-down-done, show-abandon, show-send-dead, and
--- show-settle-after-exit. Each one is a
+-- show-down-done, show-abandon, show-send-dead,
+-- show-settle-after-exit, and the show-sched-* lines. Each one is a
 -- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
@@ -42,6 +42,7 @@
 -- make book checks smoke.muro. make book-show checks this file.
 
 import "smoke.muro"
+import "drive.muro"
 
 data ShPair : Type where
   sh-pair : Π (+ q : Nat) → Π (+ r : Nat) → ShPair
@@ -430,3 +431,129 @@ def show-send-dead : run String :=
 
 def show-settle-after-exit : run String :=
   strCat "settle-after-exit: " (strCat (shMaybe (asRun (runDs settleAfterOps meetNormal))) "\n")
+
+-- Scheduled runs. The driver chooses every pop. The line is the
+-- outcome, the events, the fingerprint of the final system, and the
+-- first nat it kept. v- means it kept none.
+def shOc : run Π (o : Outcome) → String :=
+  λ (o : Outcome) →
+    match o motive (λ _ → String)
+      | oc-halted => "halted"
+      | oc-deadlock => "deadlock"
+      | oc-stuck i => strCat "stuck " (shNat i)
+      | oc-fuel => "fuel"
+
+def shVal : run Π (v : Maybe Nat) → String :=
+  λ (v : Maybe Nat) →
+    match v motive (λ _ → String)
+      | nothing => "v-"
+      | just n => strCat "v" (shNat n)
+
+def shDrive : run Π (d : Drove) → String :=
+  λ (d : Drove) →
+    match d motive (λ _ → String)
+      | drv t o ev ms v =>
+          strCat (shOc o)
+            (strCat " "
+              (strCat (shEvents ev)
+                (strCat " "
+                  (strCat (shFp t)
+                    (strCat " " (shVal v))))))
+
+def driveSys : run Π (+ s : Sys) → Π (ms : List Meet) → Drove :=
+  λ (+ s : Sys) → λ (ms : List Meet) →
+    drive driveFuel 0 ms nothing s
+
+def driveLine : run Π (name : String) → Π (+ s : Sys) → Π (ms : List Meet) → String :=
+  λ (name : String) → λ (+ s : Sys) → λ (ms : List Meet) →
+    strCat name (strCat ": " (strCat (shDrive (driveSys s ms)) "\n"))
+
+def show-sched-trip : run String :=
+  match s0 motive (λ _ → String)
+    | sys h ps => driveLine "sched-trip" (sys h ps) nil
+
+def show-sched-ignore : run String :=
+  match ig0 motive (λ _ → String)
+    | sys h ps => driveLine "sched-ignore" (sys h ps) nil
+
+def awParent : run PTm (suc 0) :=
+  await (suc 0) (fzero 0) (pdone (suc 0))
+
+def awTm : run PTm (suc 0) :=
+  spawn (suc 0) (suc 0) (keep 0 0 tnil) tripChild awParent
+
+def aw0 : run Sys :=
+  sys tripH0
+    (cons (proc 0 ready nil nil (pr (go (suc 0) awTm (cons rho nil) nil nil nil))) nil)
+
+def show-sched-await : run String :=
+  match aw0 motive (λ _ → String)
+    | sys h ps => driveLine "sched-await" (sys h ps) nil
+
+def deadSys : run Sys :=
+  sys nil
+    (cons (proc 0 ready nil nil
+      (pr (go 0 (recv 0 grade1 grade0 (pdone (suc 0))) nil nil nil nil))) nil)
+
+def show-sched-dead : run String :=
+  match deadSys motive (λ _ → String)
+    | sys h ps => driveLine "sched-dead" (sys h ps) nil
+
+def stuckSys : run Sys :=
+  sys nil
+    (cons (proc 0 ready nil nil
+      (pr (go (suc 0) (send (suc 0) 0 (fzero 0) (pdone (suc 0))) nil nil nil nil))) nil)
+
+def show-sched-stuck : run String :=
+  match stuckSys motive (λ _ → String)
+    | sys h ps => driveLine "sched-stuck" (sys h ps) nil
+
+def twoSys : run Sys :=
+  sys nil
+    (cons (proc 0 ready nil nil
+      (pr (go 0 (spawn 0 0 tnil (pdone 0) (pdone 0)) nil nil nil nil))) nil)
+
+def show-sched-two : run String :=
+  match twoSys motive (λ _ → String)
+    | sys h ps => driveLine "sched-two" (sys h ps) nil
+
+def threeSys : run Sys :=
+  sys nil
+    (cons (proc 0 ready nil nil
+      (pr (go 0
+        (spawn 0 0 tnil (pdone 0)
+          (spawn 0 0 tnil (pdone 0) (pdone 0)))
+        nil nil nil nil))) nil)
+
+def show-sched-three : run String :=
+  match threeSys motive (λ _ → String)
+    | sys h ps => driveLine "sched-three" (sys h ps) nil
+
+def downCode : run Code :=
+  go 0 (recv 0 grade1 grade0 (pdone (suc 0))) nil nil nil nil
+
+def downPeer : run Code :=
+  go 0 (pdone 0) nil nil nil nil
+
+def downPs : run List Proc :=
+  cons (proc 0 ready nil (cons (msg downRho) nil) (pr downCode))
+    (cons (proc 1 ready nil nil (pr downPeer)) nil)
+
+-- Match a parameter. A freshly built `sys` is not a scrutinee.
+-- `h` and `ps` are reusable, so the drive argument and the meeting
+-- base are the same processes.
+def downOf : run Π (s : Sys) → Π (name : String) → Π (+ noted : Bool) → String :=
+  λ (s : Sys) → λ (name : String) → λ (+ noted : Bool) →
+    match s motive (λ _ → String)
+      | sys h ps =>
+          driveLine name (sys h ps)
+            (cons (meeting (sys h ps) true 0 1 ph-run ph-run
+                     false true killed true false noted killed) nil)
+
+def downLine : run Π (name : String) → Π (+ noted : Bool) → String :=
+  λ (name : String) → λ (+ noted : Bool) →
+    downOf (sys downH downPs) name noted
+
+def show-sched-down : run String := downLine "sched-down" false
+
+def show-sched-down-again : run String := downLine "sched-down-again" true

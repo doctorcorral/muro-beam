@@ -1,0 +1,452 @@
+-- await, flush, npeek, and ndemon.
+--
+-- consume blanks every heap payload that still holds the tag, then
+-- snocs one live nat 0. The placeholder is a fresh g0 ref at that
+-- new index. It replaces the tag in environments and frames. Roots,
+-- mailbox messages, and flights that carry the tag are dropped.
+-- The placeholder is not written into a heap edge: an edge that held
+-- the tag becomes nat 0, which has no children.
+--
+-- await consumes a reply that has arrived and parks ready otherwise.
+-- flush and a hitting npeek consume. A missing npeek becomes ndemon.
+-- ndemon rewrites the term and records the tag. None of these emit.
+
+import "prun.muro"
+
+data Finish : Type where
+  fin-flush : Finish
+  fin-await : Finish
+  fin-peek : Finish
+
+def scrubOne : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (r : Ref) → Ref :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (r : Ref) →
+    match r motive (λ _ → Ref)
+      | ref o c g k =>
+          (match (natEq o tag) motive (λ _ → Ref)
+            | true => phRef h
+            | false => ref o c g k)
+
+def scrubRefs : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (rs : List Ref) → List Ref :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (rs : List Ref) →
+    match rs motive (λ _ → List Ref)
+      | nil => nil
+      | cons r rs1 => cons (scrubOne tag h r) (scrubRefs tag h rs1)
+
+def dropRefs : run Π (+ tag : Nat) → Π (rs : List Ref) → List Ref :=
+  λ (+ tag : Nat) → λ (rs : List Ref) →
+    match rs motive (λ _ → List Ref)
+      | nil => nil
+      | cons r rs1 =>
+          (match r motive (λ _ → List Ref)
+            | ref o c g k =>
+                (match (natEq o tag) motive (λ _ → List Ref)
+                  | true => dropRefs tag rs1
+                  | false => cons (ref o c g k) (dropRefs tag rs1)))
+
+def dropMsgs : run Π (+ tag : Nat) → Π (ms : List Msg) → List Msg :=
+  λ (+ tag : Nat) → λ (ms : List Msg) →
+    match ms motive (λ _ → List Msg)
+      | nil => nil
+      | cons m ms1 =>
+          (match m motive (λ _ → List Msg)
+            | msg r =>
+                (match r motive (λ _ → List Msg)
+                  | ref o c g k =>
+                      (match (natEq o tag) motive (λ _ → List Msg)
+                        | true => dropMsgs tag ms1
+                        | false => cons (msg (ref o c g k)) (dropMsgs tag ms1))))
+
+def dropFlights : run Π (+ tag : Nat) → Π (fs : List Flight) → List Flight :=
+  λ (+ tag : Nat) → λ (fs : List Flight) →
+    match fs motive (λ _ → List Flight)
+      | nil => nil
+      | cons f fs1 =>
+          (match f motive (λ _ → List Flight)
+            | flight j r =>
+                (match r motive (λ _ → List Flight)
+                  | ref o c g k =>
+                      (match (natEq o tag) motive (λ _ → List Flight)
+                        | true => dropFlights tag fs1
+                        | false => cons (flight j (ref o c g k)) (dropFlights tag fs1))))
+
+def scrubCode : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (cd : Code) → Code :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (cd : Code) →
+    match cd motive (λ _ → Code)
+      | go n tm env eth d dm =>
+          go n tm (scrubRefs tag h env) (dropFlights tag eth) d dm
+
+def scrubFrame : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (f : Frame) → Frame :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (f : Frame) →
+    match f motive (λ _ → Frame)
+      | ar n tm => ar n tm
+      | fn r => fn (scrubOne tag h r)
+      | su => su
+      | mt n a z s => mt n a z s
+      | bd env => bd (scrubRefs tag h env)
+      | saved cd => saved (scrubCode tag h cd)
+
+def scrubFrames : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (ks : List Frame) → List Frame :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (ks : List Frame) →
+    match ks motive (λ _ → List Frame)
+      | nil => nil
+      | cons f fs => cons (scrubFrame tag h f) (scrubFrames tag h fs)
+
+def scrubCtl : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (c : Ctl) → Ctl :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (c : Ctl) →
+    match c motive (λ _ → Ctl)
+      | idle => idle
+      | ev n t e ks => ev n t (scrubRefs tag h e) (scrubFrames tag h ks)
+      | rv r e ks => rv (scrubOne tag h r) (scrubRefs tag h e) (scrubFrames tag h ks)
+      | pr cd => pr (scrubCode tag h cd)
+
+def scrubProc : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (p : Proc) → Proc :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (p : Proc) →
+    match p motive (λ _ → Proc)
+      | proc pid st rs mb c =>
+          proc pid st (dropRefs tag rs) (dropMsgs tag mb) (scrubCtl tag h c)
+
+def scrubAll : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (ps : List Proc) → List Proc :=
+  λ (+ tag : Nat) → λ (+ h : List Obj) → λ (ps : List Proc) →
+    match ps motive (λ _ → List Proc)
+      | nil => nil
+      | cons p ps1 => cons (scrubProc tag h p) (scrubAll tag h ps1)
+
+def holdsRebuild : run Π (+ tag : Nat) → Π (rs : List Ref) → (Bool × List Ref) :=
+  λ (+ tag : Nat) → λ (rs : List Ref) →
+    match rs motive (λ _ → (Bool × List Ref))
+      | nil => (false, nil)
+      | cons r rs1 =>
+          (let (b, rs2) = holdsRebuild tag rs1 in
+            (match r motive (λ _ → (Bool × List Ref))
+              | ref o c g k =>
+                  (orB (natEq o tag) b, cons (ref o c g k) rs2)))
+
+def blankVal : run Π (+ tag : Nat) → Π (v : Val) → Val :=
+  λ (+ tag : Nat) → λ (v : Val) →
+    match v motive (λ _ → Val)
+      | nat k => nat k
+      | suc-up r =>
+          (match r motive (λ _ → Val)
+            | ref o c g k =>
+                (match (natEq o tag) motive (λ _ → Val)
+                  | true => nat 0
+                  | false => suc-up (ref o c g k)))
+      | clo rs tm =>
+          (let (b, rs2) = holdsRebuild tag rs in
+            (match b motive (λ _ → Val)
+              | true => nat 0
+              | false => clo rs2 tm))
+
+def blankObj : run Π (+ tag : Nat) → Π (o : Obj) → Obj :=
+  λ (+ tag : Nat) → λ (o : Obj) →
+    match o motive (λ _ → Obj)
+      | cell v st => cell (blankVal tag v) st
+
+def blankEdges : run Π (+ tag : Nat) → Π (os : List Obj) → List Obj :=
+  λ (+ tag : Nat) → λ (os : List Obj) →
+    match os motive (λ _ → List Obj)
+      | nil => nil
+      | cons o os1 => cons (blankObj tag o) (blankEdges tag os1)
+
+def setCtlState : run Π (ps : List Proc) → Π (i : Nat) → Π (st : PState) →
+    Π (c : Ctl) → Maybe (List Proc) :=
+  λ (ps : List Proc) → λ (i : Nat) → λ (st : PState) → λ (c : Ctl) →
+    match ps motive (λ _ → Maybe (List Proc))
+      | nil => nothing
+      | cons p ps1 =>
+          (match i motive (λ _ → Maybe (List Proc))
+            | 0 =>
+                (match p motive (λ _ → Maybe (List Proc))
+                  | proc pid old rs mb oldC => just (cons (proc pid st rs mb c) ps1))
+            | suc i1 => mapCons Proc p (setCtlState ps1 i1 st c))
+
+def finishTm : run Π (fin : Finish) → Π (+ tag : Nat) → Π (+ n : Nat) →
+    Π (tm : PTm n) → Π (+ env : List Ref) → Π (eth : List Flight) →
+    Π (+ d : List Nat) → Π (dm : List Nat) → Maybe Ctl :=
+  λ (fin : Finish) → λ (+ tag : Nat) → λ (+ n : Nat) →
+  λ (tm : PTm n) → λ (+ env : List Ref) → λ (eth : List Flight) →
+  λ (+ d : List Nat) → λ (dm : List Nat) →
+    match fin motive (λ _ → Maybe Ctl)
+      | fin-flush =>
+          (match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Ctl)
+            | pdone k => nothing
+            | send k dst x body => nothing
+            | recv k c g body => nothing
+            | spawn k m th ch pa => nothing
+            | seq k e body => nothing
+            | await k x body => nothing
+            | ignore k x body => nothing
+            | nignore k x body => nothing
+            | awaitT k tag1 body => nothing
+            | ignoreT k tag1 body => nothing
+            | flushT k tag1 body =>
+                (match (natEq tag tag1) motive (λ _ → Maybe Ctl)
+                  | true => just (pr (go k body env eth (cons tag d) dm))
+                  | false => nothing)
+            | ncheckT k tag1 body => nothing
+            | ndemonT k tag1 body => nothing)
+      | fin-await =>
+          (match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Ctl)
+            | pdone k => nothing
+            | send k dst x body => nothing
+            | recv k c g body => nothing
+            | spawn k m th ch pa => nothing
+            | seq k e body => nothing
+            | await k x body => nothing
+            | ignore k x body => nothing
+            | nignore k x body => nothing
+            | awaitT k tag1 body =>
+                (match (natEq tag tag1) motive (λ _ → Maybe Ctl)
+                  | true => just (pr (go k body env eth (cons tag d) dm))
+                  | false => nothing)
+            | ignoreT k tag1 body => nothing
+            | flushT k tag1 body => nothing
+            | ncheckT k tag1 body => nothing
+            | ndemonT k tag1 body => nothing)
+      | fin-peek =>
+          (match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Ctl)
+            | pdone k => nothing
+            | send k dst x body => nothing
+            | recv k c g body => nothing
+            | spawn k m th ch pa => nothing
+            | seq k e body => nothing
+            | await k x body => nothing
+            | ignore k x body => nothing
+            | nignore k x body => nothing
+            | awaitT k tag1 body => nothing
+            | ignoreT k tag1 body => nothing
+            | flushT k tag1 body => nothing
+            | ncheckT k tag1 body =>
+                (match (natEq tag tag1) motive (λ _ → Maybe Ctl)
+                  | true => just (pr (go k body env eth (cons tag d) dm))
+                  | false => nothing)
+            | ndemonT k tag1 body => nothing)
+
+def finishOf : run Π (fin : Finish) → Π (+ tag : Nat) → Π (c : Ctl) → Maybe Ctl :=
+  λ (fin : Finish) → λ (+ tag : Nat) → λ (c : Ctl) →
+    match c motive (λ _ → Maybe Ctl)
+      | idle => nothing
+      | ev n t e ks => nothing
+      | rv r e ks => nothing
+      | pr cd =>
+          (match cd motive (λ _ → Maybe Ctl)
+            | go n tm env eth d dm => finishTm fin tag n tm env eth d dm)
+
+def consumeSys : run Π (s : Sys) → Π (+ i : Nat) → Π (+ tag : Nat) →
+    Π (fin : Finish) → Maybe Sys :=
+  λ (s : Sys) → λ (+ i : Nat) → λ (+ tag : Nat) → λ (fin : Finish) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h1 ps1 =>
+          (match (lookup Proc i ps1) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just p =>
+                (match p motive (λ _ → Maybe Sys)
+                  | proc pid st rs mb c =>
+                      (match (finishOf fin tag c) motive (λ _ → Maybe Sys)
+                        | nothing => nothing
+                        | just c1 => mapSys h1 (setCtlState ps1 i ready c1))))
+
+def consume : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (+ tag : Nat) → Π (fin : Finish) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (+ tag : Nat) → λ (fin : Finish) →
+    consumeSys (sys (snoc (blankEdges tag h) (nat 0)) (scrubAll tag h ps))
+      i tag fin
+
+def inboxHas : run Π (ms : List Msg) → Π (+ tag : Nat) → Bool :=
+  λ (ms : List Msg) → λ (+ tag : Nat) →
+    match ms motive (λ _ → Bool)
+      | nil => false
+      | cons m ms1 =>
+          (match m motive (λ _ → Bool)
+            | msg r => orB (natEq (obj r) tag) (inboxHas ms1 tag))
+
+def awaitPark : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (st : PState) → Π (+ n : Nat) → Π (+ tag : Nat) → Π (body : PTm n) →
+    Π (+ env : List Ref) → Π (eth : List Flight) → Π (+ d : List Nat) →
+    Π (dm : List Nat) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (st : PState) → λ (+ n : Nat) → λ (+ tag : Nat) → λ (body : PTm n) →
+  λ (+ env : List Ref) → λ (eth : List Flight) → λ (+ d : List Nat) →
+  λ (dm : List Nat) →
+    match st motive (λ _ → Maybe Sys)
+      | ready =>
+          mapSys h
+            (setCtlState ps i waiting
+              (pr (go n (awaitT n tag body) env eth d dm)))
+      | waiting => nothing
+      | done => nothing
+
+def awaitTm : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (st : PState) → Π (mb : List Msg) → Π (+ n : Nat) → Π (tm : PTm n) →
+    Π (+ env : List Ref) → Π (eth : List Flight) → Π (+ d : List Nat) →
+    Π (dm : List Nat) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (st : PState) → λ (mb : List Msg) → λ (+ n : Nat) → λ (tm : PTm n) →
+  λ (+ env : List Ref) → λ (eth : List Flight) → λ (+ d : List Nat) →
+  λ (dm : List Nat) →
+    match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Sys)
+      | pdone k => nothing
+      | send k dst x body => nothing
+      | recv k c g body => nothing
+      | spawn k m th ch pa => nothing
+      | seq k e body => nothing
+      | await k x body => nothing
+      | ignore k x body => nothing
+      | nignore k x body => nothing
+      | awaitT k tag body =>
+          (match (inboxHas mb tag) motive (λ _ → Maybe Sys)
+            | true => consume h ps i tag fin-await
+            | false => awaitPark h ps i st k tag body env eth d dm)
+      | ignoreT k tag body => nothing
+      | flushT k tag body => nothing
+      | ncheckT k tag body => nothing
+      | ndemonT k tag body => nothing
+
+def awaitFrom : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (p : Proc) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) → λ (p : Proc) →
+    match p motive (λ _ → Maybe Sys)
+      | proc pid st rs mb c =>
+          (match (focus c) motive (λ _ → Maybe Sys)
+            | focused n tm env eth d dm =>
+                awaitTm h ps i st mb n tm env eth d dm
+            | blurred => nothing)
+
+def await1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Sys :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just p => awaitFrom h ps i p)
+
+def flushTm : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (+ n : Nat) → Π (tm : PTm n) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (+ n : Nat) → λ (tm : PTm n) →
+    match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Sys)
+      | pdone k => nothing
+      | send k dst x body => nothing
+      | recv k c g body => nothing
+      | spawn k m th ch pa => nothing
+      | seq k e body => nothing
+      | await k x body => nothing
+      | ignore k x body => nothing
+      | nignore k x body => nothing
+      | awaitT k tag body => nothing
+      | ignoreT k tag body => nothing
+      | flushT k tag body => consume h ps i tag fin-flush
+      | ncheckT k tag body => nothing
+      | ndemonT k tag body => nothing
+
+def flushFrom : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (p : Proc) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) → λ (p : Proc) →
+    match p motive (λ _ → Maybe Sys)
+      | proc pid st rs mb c =>
+          (match (focus c) motive (λ _ → Maybe Sys)
+            | focused n tm env eth d dm => flushTm h ps i n tm
+            | blurred => nothing)
+
+def flush1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Sys :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just p => flushFrom h ps i p)
+
+def npeekMiss : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (+ n : Nat) → Π (+ tag : Nat) → Π (body : PTm n) →
+    Π (+ env : List Ref) → Π (eth : List Flight) → Π (+ d : List Nat) →
+    Π (dm : List Nat) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (+ n : Nat) → λ (+ tag : Nat) → λ (body : PTm n) →
+  λ (+ env : List Ref) → λ (eth : List Flight) → λ (+ d : List Nat) →
+  λ (dm : List Nat) →
+    emitSet h (setProc ps i (pr (go n (ndemonT n tag body) env eth d dm)))
+
+def npeekTm : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (mb : List Msg) → Π (+ n : Nat) → Π (tm : PTm n) →
+    Π (+ env : List Ref) → Π (eth : List Flight) → Π (+ d : List Nat) →
+    Π (dm : List Nat) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (mb : List Msg) → λ (+ n : Nat) → λ (tm : PTm n) →
+  λ (+ env : List Ref) → λ (eth : List Flight) → λ (+ d : List Nat) →
+  λ (dm : List Nat) →
+    match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Sys)
+      | pdone k => nothing
+      | send k dst x body => nothing
+      | recv k c g body => nothing
+      | spawn k m th ch pa => nothing
+      | seq k e body => nothing
+      | await k x body => nothing
+      | ignore k x body => nothing
+      | nignore k x body => nothing
+      | awaitT k tag body => nothing
+      | ignoreT k tag body => nothing
+      | flushT k tag body => nothing
+      | ncheckT k tag body =>
+          (match (inboxHas mb tag) motive (λ _ → Maybe Sys)
+            | true => consume h ps i tag fin-peek
+            | false => npeekMiss h ps i k tag body env eth d dm)
+      | ndemonT k tag body => nothing
+
+def npeekFrom : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (p : Proc) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) → λ (p : Proc) →
+    match p motive (λ _ → Maybe Sys)
+      | proc pid st rs mb c =>
+          (match (focus c) motive (λ _ → Maybe Sys)
+            | focused n tm env eth d dm =>
+                npeekTm h ps i mb n tm env eth d dm
+            | blurred => nothing)
+
+def npeek1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Sys :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just p => npeekFrom h ps i p)
+
+def ndemonTm : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (+ n : Nat) → Π (tm : PTm n) → Π (+ env : List Ref) →
+    Π (eth : List Flight) → Π (+ d : List Nat) → Π (dm : List Nat) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) →
+  λ (+ n : Nat) → λ (tm : PTm n) → λ (+ env : List Ref) →
+  λ (eth : List Flight) → λ (+ d : List Nat) → λ (dm : List Nat) →
+    match tm motive (λ (k : Nat) → λ (_ : PTm k) → Maybe Sys)
+      | pdone k => nothing
+      | send k dst x body => nothing
+      | recv k c g body => nothing
+      | spawn k m th ch pa => nothing
+      | seq k e body => nothing
+      | await k x body => nothing
+      | ignore k x body => nothing
+      | nignore k x body => nothing
+      | awaitT k tag body => nothing
+      | ignoreT k tag body => nothing
+      | flushT k tag body => nothing
+      | ncheckT k tag body => nothing
+      | ndemonT k tag body =>
+          emitSet h (setProc ps i (pr (go k body env eth d (cons tag dm))))
+
+def ndemonFrom : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (+ i : Nat) →
+    Π (p : Proc) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (+ i : Nat) → λ (p : Proc) →
+    match p motive (λ _ → Maybe Sys)
+      | proc pid st rs mb c =>
+          (match (focus c) motive (λ _ → Maybe Sys)
+            | focused n tm env eth d dm =>
+                ndemonTm h ps i n tm env eth d dm
+            | blurred => nothing)
+
+def ndemon1 : run Π (s : Sys) → Π (+ i : Nat) → Maybe Sys :=
+  λ (s : Sys) → λ (+ i : Nat) →
+    match s motive (λ _ → Maybe Sys)
+      | sys h ps =>
+          (match (lookup Proc i ps) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just p => ndemonFrom h ps i p)
