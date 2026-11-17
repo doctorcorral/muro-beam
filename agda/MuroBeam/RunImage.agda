@@ -23,7 +23,7 @@ open import MuroBeam.PRun using (seq1)
 open import MuroBeam.PTm using (lowerP)
 open import MuroBeam.Process using
   ( Sys; heap; procs; Proc; ctl; Ctl; rv
-  ; Frame; saved; eval1; runFor; payloadAt )
+  ; Frame; saved; seg; eval1; runFor; payloadAt )
 
 data Halt : Set where
   hnat  : ℕ → Halt
@@ -53,6 +53,9 @@ renderV hstuck   = "stuck"
 valueCtl : List Obj → Ctl → String
 valueCtl h (rv r _ []) = renderV (readRef h (suc (length h)) (obj r))
 valueCtl h (rv r _ (saved _ ∷ [])) = renderV (readRef h (suc (length h)) (obj r))
+-- `seq1` parks the value on `saved` and leaves the code segment under it.
+valueCtl h (rv r _ (saved _ ∷ seg _ ∷ [])) =
+  renderV (readRef h (suc (length h)) (obj r))
 valueCtl _ _ = "stuck"
 
 finish : Sys → String

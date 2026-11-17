@@ -1,36 +1,63 @@
-# Image format v1
+# Image format
 
-An image is the S-expression muro writes for `--backend mbi`. The
-grammar and the byte-level rules are muro's `manual/mbi.md` at commit
-`3f1cae2ae987d1ad27b301e0b1e1ddb03abdd988`. The printer is
-`Muro.Beam.showPure`. This repository parses that text. It does not
-define a second format.
+v1 is the S-expression muro writes for `--backend mbi` today. The
+grammar and the byte-level rules of that line are muro's
+`manual/mbi.md` at commit
+`3f1cae2ae987d1ad27b301e0b1e1ddb03abdd988`. The printer there is
+`Muro.Beam.showPure`. v2 is the same line with a `(defs …)` section
+between the boundary and the entry. This repository parses both.
+The emitter that writes the defs section is not in this repository.
 
 One line, tokens separated by one space, a trailing newline. Naturals
 are decimal with no leading zero except `0`. `w` is ω.
 
 ```
-image ::= (muro-beam-image 1 (boundary 1) (entry <prog>))
-prog  ::= (seq <gtm> (done))
-gtm   ::= (gvar <nat>) | (gtyp <nat>) | (glam <pair> <gtm>) | (gpi <pair> <gtm>)
-        | (gapp <gtm> <gtm>) | gze | (gsu <gtm>) | (gmatch <gtm> <gtm> <gtm>)
+image ::= (muro-beam-image <version> (boundary 1) (entry <prog>))
+        | (muro-beam-image <version> (boundary 1) (defs <btm>+) (entry <prog>))
+prog  ::= (seq <btm> (done))
+btm   ::= (gvar <nat>) | (gtyp <nat>) | (glam <pair> <btm>) | (gpi <pair> <btm>)
+        | (gapp <btm> <btm>) | gze | (gsu <btm>) | (gmatch <btm> <btm> <btm>)
+        | (gref <nat>)
 pair  ::= (<grade> <grade>)
 grade ::= <point> | (iv <point> <point>)
 point ::= <nat> | w
 ```
 
-De Bruijn index 0 is the nearest binder. Domain types, annotations,
-and match motives are not in the file. The grammar has `gtyp` even
-though the emitter does not write it today. v1 has no `def` and no
-process form. A program that needs those is not an image.
+`<version>` is `1` or `2`. Any other number is `bad version`. A file
+with no defs section has an empty definition list, whatever the
+number is. An empty `(defs)` nest, with no term inside it, is `junk`.
+The printer chooses the bytes from the list, not from the number: an
+empty list is reprinted as the four-sexp line, and the number it
+prints is the number it read. A cons is reprinted with `(defs …)`.
 
-`MuroBeam.Image` is the record (`format`, `boundary`, the `<gtm>`) and
-the printer. `MuroBeam.Parse` reads `String` to `Maybe Image`, and
-refuses an index that does not fit its scope. `MuroBeam.Load.load`
-accepts format 1 and `boundary-version`, then runs `checkP`. A success
-is a `CheckedP`, built only after that check returns `ok []`.
-`lowerP-wf` and `lowerP-safe` apply to anything loaded. The emitter
-is outside the TCB for those two. Non-consequences of `load`:
+De Bruijn index 0 is the nearest binder. A `gref` index is a raw
+natural. The parser does not check it against the definition list.
+`decideB` does, at load. Domain types, annotations, and match motives
+are not in the file. The grammar has `gtyp` even though the emitter
+does not write it today. There is no process form in the entry. The
+entry is `(seq <btm> (done))`.
+
+Definitions are closed terms, in order. Definition i may `gref` its
+own index or an earlier one. A later index is `bad gref`. The entry
+may `gref` any definition and is not itself a definition. Each
+definition is checked once, closed, against `inB? []` and `decideB`.
+The entry is checked after that, at bound `length defs`.
+
+What a later `muro emit --backend mbi` must write, when it learns
+definitions: format 2, a `(defs …)` section of those closed terms in
+dependency order, then `(entry (seq <btm> (done)))`. Grades stay
+`(c t)`, with `w` and `(iv a b)`. De Bruijn indices, no domain types,
+no motives, no annotations. This loader re-checks, so that emitter
+stays outside the TCB. A v1 file with no defs section stays valid.
+
+`MuroBeam.Image` is the record (`format`, `boundary`, `defs`, `term`)
+and the printer. `MuroBeam.Parse` reads `String` to `Maybe Image`, and
+refuses a de Bruijn index that does not fit its scope. `MuroBeam.Load.load`
+accepts format 1 or 2 and `boundary-version`, then runs `checkP` on
+`seq defs term done`. A success is a `CheckedP`, built only after that
+check returns `ok []`. `lowerP-wf` and `lowerP-safe` apply to anything
+loaded. The emitter is outside the TCB for those two. Non-consequences
+of `load`:
 `lower-safe` is not on the `lowerP` path (`Step* (lower e)` for a
 pure `Checked`). `budget-adequate` is
 
@@ -45,16 +72,19 @@ that at `Γ = []` on the entry, so a success implies `InBoundary` of
 the entry, and `inBoundary→noEscape` gives `NoEscape`. What is missing
 is `MatchFree` (`match.mbi` loads and contains `gmatch`; `MatchFree`
 has no `gmatch` clause) and the theorem's path: pure `Checked` /
-`lower` / `Step*`, not `CheckedP` / `lowerP` / `PStep*`.
-`no-stray-reply` needs `ReplyDone`.
+`lower` / `Step*`, not `CheckedP` / `lowerP` / `PStep*`. A
+successful `gref` step needs the `seg` frame `seq1` pushes, and that
+frame is not on the pure path, so `budget-adequate` does not follow
+it. `no-stray-reply` needs `ReplyDone`.
 
 The round trip `parse-show` is proved on the character list `render`
 produces. `toList ∘ fromList` is not a `--safe` lemma, so the String
 statement is not the theorem.
 
 The plan's sketch said `--backend beam` and an arbitrary `PTm` entry.
-The emitter writes `--backend mbi` and only `(seq <gtm> (done))`. The
-emitted text is the one parsed here.
+The emitter writes `--backend mbi` and `(seq <btm> (done))`, and today
+it writes no defs section. v1 text is still what this parser accepts.
+v2 adds the section above. The round trip `parse-show` covers both.
 
 A complete sexp with no trailing newline, or a file that ends inside
 an open sexp, is `truncated`. A newline while a sexp is still open is

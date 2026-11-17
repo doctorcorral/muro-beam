@@ -23,8 +23,9 @@ open import Data.Product.Base using (_×_; _,_; proj₁; proj₂)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
 open import Muro.Base using (run)
-open import Muro.Grade using
-  ( Grade; g0; gω; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch )
+open import Muro.Grade using (Grade; g0; gω)
+open import MuroBeam.BTm using
+  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
 
 open import MuroBeam.Grade using
   ( selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy )
@@ -42,7 +43,7 @@ open import MuroBeam.Lib using
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; bd; saved
+  ; Frame; ar; fn; su; mt; bd; saved; seg; lookupDef
   ; roots; inbox; state; Msg; msg; mapRef
   ; refsP; refsPs; refsOf; ctlRefs; ctlRefsPs; framesRefs; frameRefs
   ; preOf; mapSys; post; putRoot; setProc; install; pass; snoc
@@ -429,6 +430,7 @@ module Preserve (τ : ℕ) where
   scrubFrame-keep _ _ (ar _) _ eq = eq
   scrubFrame-keep _ _ su _ eq = eq
   scrubFrame-keep _ _ (mt _ _ _) _ eq = eq
+  scrubFrame-keep _ _ (seg _) _ eq = eq
 
   scrubFrames-keep _ _ [] _ _ = refl
   scrubFrames-keep τf ph (k ∷ ks) np eq =
@@ -526,6 +528,7 @@ module Preserve (τ : ℕ) where
   scrubFrame-kill _ (ar _) _ = refl
   scrubFrame-kill _ su _ = refl
   scrubFrame-kill _ (mt _ _ _) _ = refl
+  scrubFrame-kill _ (seg _) _ = refl
 
   scrubFrames-kill _ [] _ = refl
   scrubFrames-kill ph (k ∷ ks) np =
@@ -577,7 +580,7 @@ module Preserve (τ : ℕ) where
     walk (pr (go (send _ _ _) _ _ _ _)) ()
     walk (pr (go (recv _ _ _) _ _ _ _)) ()
     walk (pr (go (spawn _ _ _) _ _ _ _)) ()
-    walk (pr (go (seq _ _) _ _ _ _)) ()
+    walk (pr (go (seq _ _ _) _ _ _ _)) ()
     walk (pr (go (await _ _) _ _ _ _)) ()
     walk (pr (go (ignore _ _) _ _ _ _)) ()
     walk (pr (go (nignore _ _) _ _ _ _)) ()
@@ -600,7 +603,7 @@ module Preserve (τ : ℕ) where
     walk (pr (go (send _ _ _) _ _ _ _)) ()
     walk (pr (go (recv _ _ _) _ _ _ _)) ()
     walk (pr (go (spawn _ _ _) _ _ _ _)) ()
-    walk (pr (go (seq _ _) _ _ _ _)) ()
+    walk (pr (go (seq _ _ _) _ _ _ _)) ()
     walk (pr (go (await _ _) _ _ _ _)) ()
     walk (pr (go (ignore _ _) _ _ _ _)) ()
     walk (pr (go (nignore _ _) _ _ _ _)) ()
@@ -623,7 +626,7 @@ module Preserve (τ : ℕ) where
     walk (pr (go (send _ _ _) _ _ _ _)) ()
     walk (pr (go (recv _ _ _) _ _ _ _)) ()
     walk (pr (go (spawn _ _ _) _ _ _ _)) ()
-    walk (pr (go (seq _ _) _ _ _ _)) ()
+    walk (pr (go (seq _ _ _) _ _ _ _)) ()
     walk (pr (go (await _ _) _ _ _ _)) ()
     walk (pr (go (ignore _ _) _ _ _ _)) ()
     walk (pr (go (nignore _ _) _ _ _ _)) ()
@@ -650,7 +653,7 @@ module Preserve (τ : ℕ) where
     walk (pr (go (send _ _ _) _ _ _ _)) ()
     walk (pr (go (recv _ _ _) _ _ _ _)) ()
     walk (pr (go (spawn _ _ _) _ _ _ _)) ()
-    walk (pr (go (seq _ _) _ _ _ _)) ()
+    walk (pr (go (seq _ _ _) _ _ _ _)) ()
     walk (pr (go (await _ _) _ _ _ _)) ()
     walk (pr (go (ignore _ _) _ _ _ _)) ()
     walk (pr (go (nignore _ _) _ _ _ _)) ()
@@ -674,7 +677,7 @@ module Preserve (τ : ℕ) where
     walk (pr (go (send _ _ _) _ _ _ _)) ()
     walk (pr (go (recv _ _ _) _ _ _ _)) ()
     walk (pr (go (spawn _ _ _) _ _ _ _)) ()
-    walk (pr (go (seq _ _) _ _ _ _)) ()
+    walk (pr (go (seq _ _ _) _ _ _ _)) ()
     walk (pr (go (await _ _) _ _ _ _)) ()
     walk (pr (go (ignore _ _) _ _ _ _)) ()
     walk (pr (go (nignore _ _) _ _ _ _)) ()
@@ -738,6 +741,7 @@ module Preserve (τ : ℕ) where
     pullFrames-free (su ∷ ks) f ks' eq z = pullRest su ks f ks' eq z
     pullFrames-free (mt e0 z0 s ∷ ks) f ks' eq z = pullRest (mt e0 z0 s) ks f ks' eq z
     pullFrames-free (bd env ∷ ks) f ks' eq z = pullRest (bd env) ks f ks' eq z
+    pullFrames-free (seg ds ∷ ks) f ks' eq z = pullRest (seg ds) ks f ks' eq z
 
     -- A non-saved frame has no ether of its own, so the flight is deeper.
     pullRest : ∀ k ks f ks' →
@@ -1103,9 +1107,14 @@ module Preserve (τ : ℕ) where
       where
       here = lookup-ctl0 i ps p lk zctl
 
-      onTm : ∀ {n} (tm : GTm n) env k →
+      onTm : ∀ {n} (tm : BTm n) env k →
              count τ env ≡ 0 → count τ (framesRefs k) ≡ 0 →
              evalTm h ps i tm env k ≡ just t → Clear t
+      onTm (gref idx) env k ze0 zf eqt with lookupDef k idx
+      ... | nothing = stuck-just eqt
+      ... | just code =
+        seal h (ev code [] (bd env ∷ k)) ze
+          (0++ env (framesRefs k) ze0 zf) fit eqt
       onTm (gapp f a) env k ze0 zf eqt =
         seal h (ev f env (ar a ∷ k)) ze (0++ env (framesRefs k) ze0 zf) fit eqt
       onTm (gsu e0) env k ze0 zf eqt =
@@ -1215,6 +1224,7 @@ module Preserve (τ : ℕ) where
           opened (just (clo envC (_ , gze))) eqp pv rewrite pv = stuck-just eqp
           opened (just (clo envC (_ , gsu _))) eqp pv rewrite pv = stuck-just eqp
           opened (just (clo envC (_ , gmatch _ _ _))) eqp pv rewrite pv = stuck-just eqp
+          opened (just (clo envC (_ , gref _))) eqp pv rewrite pv = stuck-just eqp
           opened (just (clo envC (nb , glam cG ty body))) eqp pv rewrite pv =
             let inner = install h ps i (ev body (regrade r cG ∷ envC) (bd env ∷ k))
                 outer = pass-ok (not (badG1 cG (obj r) (refsOf (sys h ps))))
@@ -1271,6 +1281,7 @@ module Preserve (τ : ℕ) where
         let z0 , zf' = ++0 env0 (framesRefs k) zf
         in seal h (rv r env0 k) ze (cons0 r (env0 ++ framesRefs k) nr (0++ env0 (framesRefs k) z0 zf')) fit eqt
       onRet r env (saved _ ∷ _) _ _ _ eqt = stuck-just eqt
+      onRet r env (seg _ ∷ _) _ _ _ eqt = stuck-just eqt
 
       on : (c : Ctl) → evalHere h ps i c ≡ just t → ctl p ≡ c → Clear t
       on idle eqh _ = stuck-just eqh
@@ -1492,7 +1503,7 @@ module Preserve (τ : ℕ) where
   spawn-as h ps i p (pr (go done _ _ _ _)) lk refl rewrite lk = refl
   spawn-as h ps i p (pr (go (send _ _ _) _ _ _ _)) lk refl rewrite lk = refl
   spawn-as h ps i p (pr (go (recv _ _ _) _ _ _ _)) lk refl rewrite lk = refl
-  spawn-as h ps i p (pr (go (seq _ _) _ _ _ _)) lk refl rewrite lk = refl
+  spawn-as h ps i p (pr (go (seq _ _ _) _ _ _ _)) lk refl rewrite lk = refl
   spawn-as h ps i p (pr (go (await _ _) _ _ _ _)) lk refl rewrite lk = refl
   spawn-as h ps i p (pr (go (ignore _ _) _ _ _ _)) lk refl rewrite lk = refl
   spawn-as h ps i p (pr (go (nignore _ _) _ _ _ _)) lk refl rewrite lk = refl
@@ -1527,7 +1538,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go done _ _ _ _)) eqc refl = nope eqc
       onC (pr (go (send _ _ _) _ _ _ _)) eqc refl = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc refl = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc refl = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc refl = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc refl = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc refl = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc refl = nope eqc
@@ -1597,7 +1608,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go done _ _ _ _)) eqc lk refl rewrite lk = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk refl rewrite lk = nope eqc
@@ -1735,7 +1746,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go done _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 refl rewrite lk0 = nope eqc
@@ -1802,7 +1813,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk ec rewrite lk | ec = nope eqc
@@ -1859,7 +1870,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -1890,7 +1901,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -1923,7 +1934,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -1965,7 +1976,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -2006,10 +2017,10 @@ module Preserve (τ : ℕ) where
       onC (pr (go (flushT _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ncheckT _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ndemonT _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (pr (go (seq e k) env eth d dm)) eqc lk0 ec rewrite lk0 | ec =
+      onC (pr (go (seq ds e k) env eth d dm)) eqc lk0 ec rewrite lk0 | ec =
         sealProc h ps i t c' ze zctl zr fit znew eqc
         where
-        c' = ev e env (saved (go k [] eth d dm) ∷ [])
+        c' = ev e env (saved (go k [] eth d dm) ∷ seg ds ∷ [])
         ze0 = proj₁ (++0 env (flightRefs eth) (ctl0 ec here))
         zfl = proj₂ (++0 env (flightRefs eth) (ctl0 ec here))
         znew = 0++ env (flightRefs eth ++ []) ze0 (trans (count-idʳ (flightRefs eth)) zfl)
@@ -2038,6 +2049,7 @@ module Preserve (τ : ℕ) where
       onC (rv _ _ (su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (seg _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv r env (saved (go k cenv eth d dm) ∷ [])) eqc lk0 ec rewrite lk0 | ec =
         sealProc h ps i t c' ze zctl zr fit znew eqc
@@ -2076,7 +2088,7 @@ module Preserve (τ : ℕ) where
       onC (pr (go (send _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (recv _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (spawn _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (pr (go (seq _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (pr (go (seq _ _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (await _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (ignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (pr (go (nignore _ _) _ _ _ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc

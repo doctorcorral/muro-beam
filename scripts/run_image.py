@@ -49,6 +49,15 @@ EXPECT = {
     "twice": "closure",
 }
 
+# Hand-written v2 images, not emitter goldens. The strings are what
+# the CEK harness prints. Elixir's eval_run does not return these
+# nats; see examples/images/README.md.
+HAND = {
+    "plus": "nat 5",
+    "half": "nat 2",
+    "iseven": "nat 1",
+}
+
 # once (suc 0). Elixir, muro 3f1cae2 (0.21.11), MIX_BUILD_PATH
 # /private/tmp/beam-b1b-build, Muro.Load.file of a one-shot book then
 # Muro.Session.eval_run("once", [1], book) and eval_run("applied", [], book)
@@ -64,6 +73,23 @@ CEX = (
     "(muro-beam-image 1 (boundary 1) (entry (seq (glam (1 0) "
     "(gapp (glam (w 0) (gapp (gvar 0) (gvar 0))) "
     "(glam ((iv 0 1) 0) (gvar 1)))) (done))))\n"
+)
+
+# Format 2 with no defs section. The printer keeps the number and
+# reprints the four-sexp line.
+V2_EMPTY = "(muro-beam-image 2 (boundary 1) (entry (seq gze (done))))\n"
+
+# A definition whose body is a lam under a live g1.
+OUT_DEF = (
+    "(muro-beam-image 2 (boundary 1) (defs (glam (1 0) "
+    "(glam (w 0) (gref 0)))) (entry (seq gze (done))))\n"
+)
+
+# First of two definitions names the second. Ordered recursion refuses it.
+FORWARD = (
+    "(muro-beam-image 2 (boundary 1) (defs "
+    "(glam ((iv 0 1) 0) (gref 1)) gze) "
+    "(entry (seq gze (done))))\n"
 )
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
@@ -164,6 +190,20 @@ def check(name, got, want):
     print("ok " + name)
 
 
+def nat(n):
+    s = "gze"
+    for _ in range(n):
+        s = "(gsu " + s + ")"
+    return s
+
+
+def with_arg(src, old, new):
+    text = src.replace(old, new, 1)
+    if text == src:
+        fail("argument not found: " + old)
+    return text
+
+
 def main():
     if not os.path.isfile(BIN) or os.path.getmtime(HS) > os.path.getmtime(BIN):
         build()
@@ -178,12 +218,60 @@ def main():
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
             print("ok echo " + name)
             check(name, call("run", path), EXPECT[name])
+        for name, want in HAND.items():
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            check(name, call("run", path), want)
+        check("plus-fuel", call("run", os.path.join(IMG, "plus.mbi"), "20"), "fuel")
+        # Same definitions, other arguments. Numbers are the CEK print.
+        half = open(os.path.join(IMG, "half.mbi"), encoding="utf-8").read()
+        even = open(os.path.join(IMG, "iseven.mbi"), encoding="utf-8").read()
+        plus = open(os.path.join(IMG, "plus.mbi"), encoding="utf-8").read()
+        h4 = "(gsu (gsu (gsu (gsu gze))))"
+        p23 = "(gapp (gapp (gref 0) (gsu (gsu gze))) (gsu (gsu (gsu gze))))"
+        calls = [
+            ("half-0", with_arg(half, "(gapp (gref 0) " + h4 + ")", "(gapp (gref 0) " + nat(0) + ")"), "nat 0"),
+            ("half-1", with_arg(half, "(gapp (gref 0) " + h4 + ")", "(gapp (gref 0) " + nat(1) + ")"), "nat 0"),
+            ("half-5", with_arg(half, "(gapp (gref 0) " + h4 + ")", "(gapp (gref 0) " + nat(5) + ")"), "nat 2"),
+            ("iseven-0", with_arg(even, "(gapp (gref 0) " + h4 + ")", "(gapp (gref 0) " + nat(0) + ")"), "nat 1"),
+            ("iseven-1", with_arg(even, "(gapp (gref 0) " + h4 + ")", "(gapp (gref 0) " + nat(1) + ")"), "nat 0"),
+            ("iseven-5", with_arg(even, "(gapp (gref 0) " + h4 + ")", "(gapp (gref 0) " + nat(5) + ")"), "nat 0"),
+            ("plus-0-3", with_arg(plus, p23, "(gapp (gapp (gref 0) gze) (gsu (gsu (gsu gze))))"), "nat 3"),
+            ("plus-2-0", with_arg(plus, p23, "(gapp (gapp (gref 0) (gsu (gsu gze))) gze)"), "nat 2"),
+        ]
+        for name, text, want in calls:
+            path = write_tmp(text)
+            echoed = call("echo", path)
+            if echoed != text:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(text))
+            check(name, call("run", path), want)
         path = write_tmp(ONCE_APP)
         check("once-app", call("run", path), "nat 1")
         path = write_tmp(CEX)
         check("cex", call("run", path), "refuse: outside the boundary")
+        path = write_tmp(V2_EMPTY)
+        echoed = call("echo", path)
+        if echoed != V2_EMPTY:
+            fail("v2-empty echo: got " + repr(echoed) + " want " + repr(V2_EMPTY))
+        print("ok echo v2-empty")
+        check("v2-empty", call("run", path), "nat 0")
         cases = [
-            ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 2 ", 1), "refuse: bad version"),
+            ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 3 ", 1), "refuse: bad version"),
+            ("bad-gref", WRAP.format(body="(gref 0)"), "refuse: bad gref"),
+            ("bad-gref-index",
+             "(muro-beam-image 2 (boundary 1) (defs (glam ((iv 0 1) 0) (gref 3))) "
+             "(entry (seq gze (done))))\n",
+             "refuse: bad gref"),
+            ("forward-gref", FORWARD, "refuse: bad gref"),
+            ("out-def", OUT_DEF, "refuse: outside the boundary"),
+            ("empty-defs",
+             "(muro-beam-image 2 (boundary 1) (defs) (entry (seq gze (done))))\n",
+             "refuse: junk"),
             ("bad-boundary", WRAP.format(body="gze").replace("(boundary 1)", "(boundary 2)", 1), "refuse: bad boundary version"),
             ("out-of-scope", WRAP.format(body="(gvar 0)"), "refuse: out of scope"),
             ("truncated", WRAP.format(body="gze").rstrip("\n"), "refuse: truncated"),

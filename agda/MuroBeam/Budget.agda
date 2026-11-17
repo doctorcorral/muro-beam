@@ -28,20 +28,29 @@ open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; []; _∷_; _++_; length; map)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _⊔_; _≡ᵇ_; z≤n; s≤s)
+open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _⊔_; _≡ᵇ_; _<ᵇ_; z≤n; s≤s)
 open import Data.Product.Base using (_×_; _,_; Σ; ∃; proj₁; proj₂)
 open import Data.String.Base using (String)
 open import Data.Unit.Base using (⊤; tt)
 open import Data.Vec.Base as Vec using (Vec) renaming ([] to []ᵥ; _∷_ to _∷ᵥ_; lookup to vlookup)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
-open import Muro.Base using (run; spec; Result; fail; _>>=_; _>>_) renaming (ok to okR)
+open import Muro.Base using (Mode; run; spec; Result; fail; _>>=_; _>>_) renaming (ok to okR)
 open import Muro.Grade using
   ( Grade; g0; g1; Count; finᶜ; many; Spent; sp; Pair; gp
-  ; Uses; GCtx; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch
-  ; sat; decide; under; hold; checkCount; checkType
-  ; predPair; pcomp; ptype; refuse; typeRefuse
+  ; Uses; GCtx; GTm
+  ; sat; under; hold; checkCount; checkType
+  ; pcomp; ptype; refuse; typeRefuse
   ; zeros; oneS; charge; addU; maxU; addᶜ; maxᶜ ; gω )
+open import MuroBeam.BTm using
+  ( BTm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref
+  ; decideB; decide-embed; predPair )
+
+-- The pure path has an empty code table. `decide` here is `decideB`
+-- at bound 0, so a `gref` is refused. `decide-embed` is the agreement
+-- with muro's `decide` on the gref-free fragment.
+decide : ∀ {n} → Mode → GCtx n → BTm n → Result (Uses n)
+decide = decideB 0
 
 open import MuroBeam.Grade using
   ( Kept; fin-kept; isG1; isG1-sound; isG1-complete; selfKept; spend; spent
@@ -52,9 +61,9 @@ open import MuroBeam.Heap using
   ; spendRef-zero; spendRef-checked; count; childrenBelow )
 open import MuroBeam.Lib using
   ( lookup; update; removeAt; +-assoc; +-identityʳ; ≡ᵇ-refl; ≡ᵇ-sound
-  ; ∨-false; ≤-refl; ≤-trans ) renaming (lower to lower≤)
+  ; ∨-false; ≤-refl; ≤-trans; <ᵇzero ) renaming (lower to lower≤)
 open import MuroBeam.Process using
-  ( anyG1; Frame; ar; fn; su; mt; bd; saved
+  ( anyG1; Frame; ar; fn; su; mt; bd; saved; seg; lookupDef
   ; Sys; sys; Proc; proc; ctl; roots; inbox; Msg; msg; Ctl; idle; ev; rv; pr
   ; eval1; evalTm; evalRet; useVar; beta; pass; install; freshRef; snoc
   ; regrade; badG1; payloadAt; deref; send; recv; alloc; reuse; poke
@@ -79,7 +88,7 @@ open Checked public
 -- branch. A λ counts free uses of the captured env. A Π is erased.
 ------------------------------------------------------------------------
 
-occ : ∀ {n} → ℕ → GTm n → ℕ
+occ : ∀ {n} → ℕ → BTm n → ℕ
 occ i (gvar x) = if toℕ x ≡ᵇ i then suc zero else zero
 occ _ (gtyp _) = zero
 occ i (glam _ _ b) = occ (suc i) b
@@ -88,6 +97,7 @@ occ i (gapp f a) = occ i f + occ i a
 occ _ gze = zero
 occ i (gsu e) = occ i e
 occ i (gmatch e z s) = occ i e + (occ i z ⊔ occ (suc i) s)
+occ _ (gref _) = zero
 
 debtF : ℕ → List Frame → ℕ
 debtF _ [] = zero
@@ -97,6 +107,7 @@ debtF i (su ∷ k) = debtF i k
 debtF i (mt _ z s ∷ k) = (occ i z ⊔ occ (suc i) s) + debtF i k
 debtF _ (bd _ ∷ _) = zero
 debtF _ (saved _ ∷ _) = zero
+debtF i (seg _ ∷ k) = debtF i k
 
 ------------------------------------------------------------------------
 -- The checker's computational count is `occ`.
@@ -225,51 +236,55 @@ private
     step (fsuc _) fzero = refl
     step (fsuc y) (fsuc j) = comp-oneS y j c ty
 
-  spec-zero : ∀ {n} (Γ : GCtx n) (e : GTm n) (us : Uses n) →
-              decide spec Γ e ≡ okR us →
+  spec-zero : ∀ {n} (w : ℕ) (Γ : GCtx n) (e : BTm n) (us : Uses n) →
+              decideB w spec Γ e ≡ okR us →
               (i : Fin n) → compAt us i ≡ finᶜ zero
-  spec-zero _ (gvar x) us eq i rewrite sym (ok-inj eq) =
+  spec-zero w _ (gvar x) us eq i rewrite sym (ok-inj eq) =
     trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
           (both-zero (toℕ x ≡ᵇ toℕ i))
-  spec-zero _ (gtyp x) us eq i rewrite sym (ok-inj eq) =
+  spec-zero w _ (gtyp x) us eq i rewrite sym (ok-inj eq) =
     trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
           (both-zero (toℕ x ≡ᵇ toℕ i))
-  spec-zero _ gze us eq i rewrite sym (ok-inj eq) = comp-zeros i
-  spec-zero Γ (gsu e) us eq = spec-zero Γ e us eq
-  spec-zero Γ (gapp f a) us eq with decide spec Γ f in fq
+  spec-zero w _ gze us eq i rewrite sym (ok-inj eq) = comp-zeros i
+  spec-zero w Γ (gref k) us eq i with k <ᵇ w
+  ... | false = ⊥-elim (fail≢ok eq)
+  ... | true =
+    trans (cong (λ u → compAt u i) (sym (ok-inj eq))) (comp-zeros i)
+  spec-zero w Γ (gsu e) us eq = spec-zero w Γ e us eq
+  spec-zero w Γ (gapp f a) us eq with decideB w spec Γ f in fq
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR fu with decide spec Γ a in aq
+  ... | okR fu with decideB w spec Γ a in aq
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR au = λ i →
     trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
       (trans (comp-add fu au i)
-        (trans (cong₂ addᶜ (spec-zero Γ f fu fq i) (spec-zero Γ a au aq i))
+        (trans (cong₂ addᶜ (spec-zero w Γ f fu fq i) (spec-zero w Γ a au aq i))
                (fin-add zero zero)))
-  spec-zero {n} Γ (glam c t b) out eq with decide spec (gp c t ∷ᵥ Γ) b in bq
+  spec-zero {n} w Γ (glam c t b) out eq with decideB w spec (gp c t ∷ᵥ Γ) b in bq
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR bus = from bus bq eq
     where
     from : (bus : Uses (suc n)) →
-           decide spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
+           decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
            under spec c t bus ≡ okR out →
            (i : Fin n) → compAt out i ≡ finᶜ zero
     from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
-    ... | refl = spec-zero (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-  spec-zero {n} Γ (gpi c t b) out eq with decide spec (gp c t ∷ᵥ Γ) b in bq
+    ... | refl = spec-zero w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
+  spec-zero {n} w Γ (gpi c t b) out eq with decideB w spec (gp c t ∷ᵥ Γ) b in bq
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR bus = from bus bq eq
     where
     from : (bus : Uses (suc n)) →
-           decide spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
+           decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
            under spec c t bus ≡ okR out →
            (i : Fin n) → compAt out i ≡ finᶜ zero
     from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
-    ... | refl = spec-zero (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-  spec-zero {n} Γ (gmatch e z s) out eq with decide spec Γ e in eqe
+    ... | refl = spec-zero w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
+  spec-zero {n} w Γ (gmatch e z s) out eq with decideB w spec Γ e in eqe
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR eu with decide spec Γ z in eqz
+  ... | okR eu with decideB w spec Γ z in eqz
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR zu with decide spec (predPair Γ e ∷ᵥ Γ) s in eqs
+  ... | okR zu with decideB w spec (predPair Γ e ∷ᵥ Γ) s in eqs
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR suU with under spec (pcomp (predPair Γ e)) (ptype (predPair Γ e)) suU in equ
   ... | fail _ = ⊥-elim (fail≢ok eq)
@@ -278,7 +293,7 @@ private
     pc = pcomp (predPair Γ e)
     pt = ptype (predPair Γ e)
     from : (suU : Uses (suc n)) →
-           decide spec (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
+           decideB w spec (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
            under spec pc pt suU ≡ okR srest →
            ∀ i → compAt out i ≡ finᶜ zero
     from (sp co ty ∷ᵥ rest) eqs' uq i with under-tail pc pt co ty rest srest uq
@@ -286,58 +301,62 @@ private
       trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
         (trans (comp-add eu (maxU zu rest) i)
           (trans (cong₂ addᶜ
-                    (spec-zero Γ e eu eqe i)
+                    (spec-zero w Γ e eu eqe i)
                     (trans (comp-max zu rest i)
                       (cong₂ maxᶜ
-                        (spec-zero Γ z zu eqz i)
-                        (spec-zero (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) eqs' (fsuc i)))))
+                        (spec-zero w Γ z zu eqz i)
+                        (spec-zero w (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) eqs' (fsuc i)))))
                  zero-arith))
 
-count-sound : ∀ {n} (Γ : GCtx n) e us →
-              decide run Γ e ≡ okR us →
+count-sound : ∀ {n} (w : ℕ) (Γ : GCtx n) (e : BTm n) us →
+              decideB w run Γ e ≡ okR us →
               ∀ i → compAt us i ≡ finᶜ (occ (toℕ i) e)
-count-sound Γ (gvar x) us eq i rewrite sym (ok-inj eq) =
+count-sound w Γ (gvar x) us eq i rewrite sym (ok-inj eq) =
   trans (comp-oneS x i (finᶜ (suc zero)) (finᶜ zero))
         (fin-if (toℕ x ≡ᵇ toℕ i) (suc zero) zero)
-count-sound Γ (gtyp x) us eq i rewrite sym (ok-inj eq) =
+count-sound w Γ (gtyp x) us eq i rewrite sym (ok-inj eq) =
   trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
         (both-zero (toℕ x ≡ᵇ toℕ i))
-count-sound Γ gze us eq i rewrite sym (ok-inj eq) = comp-zeros i
-count-sound Γ (gsu e) us eq = count-sound Γ e us eq
-count-sound Γ (gapp f a) us eq with decide run Γ f in fq
+count-sound w Γ gze us eq i rewrite sym (ok-inj eq) = comp-zeros i
+count-sound w Γ (gref k) us eq i with k <ᵇ w
+... | false = ⊥-elim (fail≢ok eq)
+... | true =
+  trans (cong (λ u → compAt u i) (sym (ok-inj eq))) (comp-zeros i)
+count-sound w Γ (gsu e) us eq = count-sound w Γ e us eq
+count-sound w Γ (gapp f a) us eq with decideB w run Γ f in fq
 ... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR fu with decide run Γ a in aq
+... | okR fu with decideB w run Γ a in aq
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR au = λ i →
   trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
     (trans (comp-add fu au i)
-      (trans (cong₂ addᶜ (count-sound Γ f fu fq i) (count-sound Γ a au aq i))
+      (trans (cong₂ addᶜ (count-sound w Γ f fu fq i) (count-sound w Γ a au aq i))
              (fin-add (occ (toℕ i) f) (occ (toℕ i) a))))
-count-sound {n} Γ (glam c t b) out eq with decide run (gp c t ∷ᵥ Γ) b in bq
+count-sound {n} w Γ (glam c t b) out eq with decideB w run (gp c t ∷ᵥ Γ) b in bq
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR bus = from bus bq eq
   where
   from : (bus : Uses (suc n)) →
-         decide run (gp c t ∷ᵥ Γ) b ≡ okR bus →
+         decideB w run (gp c t ∷ᵥ Γ) b ≡ okR bus →
          under run c t bus ≡ okR out →
          ∀ i → compAt out i ≡ finᶜ (occ (suc (toℕ i)) b)
   from (sp co ty ∷ᵥ rest) bq' uq i with under-both c t co ty rest out uq
-  ... | _ , refl = count-sound (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-count-sound {n} Γ (gpi c t b) out eq with decide spec (gp c t ∷ᵥ Γ) b in bq
+  ... | _ , refl = count-sound w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
+count-sound {n} w Γ (gpi c t b) out eq with decideB w spec (gp c t ∷ᵥ Γ) b in bq
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR bus = from bus bq eq
   where
   from : (bus : Uses (suc n)) →
-         decide spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
+         decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
          under spec c t bus ≡ okR out →
          ∀ i → compAt out i ≡ finᶜ zero
   from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
-  ... | refl = spec-zero (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-count-sound {n} Γ (gmatch e z s) out eq with decide run Γ e in eqe
+  ... | refl = spec-zero w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
+count-sound {n} w Γ (gmatch e z s) out eq with decideB w run Γ e in eqe
 ... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR eu with decide run Γ z in eqz
+... | okR eu with decideB w run Γ z in eqz
 ... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR zu with decide run (predPair Γ e ∷ᵥ Γ) s in eqs
+... | okR zu with decideB w run (predPair Γ e ∷ᵥ Γ) s in eqs
 ... | fail _ = ⊥-elim (fail≢ok eq)
 ... | okR suU with under run (pcomp (predPair Γ e)) (ptype (predPair Γ e)) suU in equ
 ... | fail _ = ⊥-elim (fail≢ok eq)
@@ -346,7 +365,7 @@ count-sound {n} Γ (gmatch e z s) out eq with decide run Γ e in eqe
   pc = pcomp (predPair Γ e)
   pt = ptype (predPair Γ e)
   from : (suU : Uses (suc n)) →
-         decide run (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
+         decideB w run (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
          under run pc pt suU ≡ okR srest →
          ∀ i → compAt out i ≡
                finᶜ (occ (toℕ i) e + (occ (toℕ i) z ⊔ occ (suc (toℕ i)) s))
@@ -355,11 +374,11 @@ count-sound {n} Γ (gmatch e z s) out eq with decide run Γ e in eqe
     trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
       (trans (comp-add eu (maxU zu rest) i)
         (trans (cong₂ addᶜ
-                  (count-sound Γ e eu eqe i)
+                  (count-sound w Γ e eu eqe i)
                   (trans (comp-max zu rest i)
                     (cong₂ maxᶜ
-                      (count-sound Γ z zu eqz i)
-                      (count-sound (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) eqs' (fsuc i)))))
+                      (count-sound w Γ z zu eqz i)
+                      (count-sound w (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) eqs' (fsuc i)))))
                (match-arith (occ (toℕ i) e) (occ (toℕ i) z) (occ (suc (toℕ i)) s))))
 
 -- A checked g1 binder is used exactly once by the syntax `occ` counts.
@@ -384,7 +403,7 @@ g1-count {n} Γ c t b us g eq with decide run (gp c t ∷ᵥ Γ) b in bq
     sat-g1-one (occ zero b)
       (subst (λ g' → sat g' (finᶜ (occ zero b)) ≡ true) (isG1-sound c g)
         (subst (λ k → sat c k ≡ true)
-          (count-sound (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' fzero)
+          (count-sound 0 (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' fzero)
           sc))
 
 ------------------------------------------------------------------------
@@ -503,18 +522,24 @@ lookup-grades {suc n} (gp c t ∷ᵥ Γ) x = step x
   step fzero = refl
   step (fsuc y) = lookup-grades Γ y
 
-data MatchFree {n} : GTm n → Set where
-  mf-var : ∀ {x} → MatchFree (gvar x)
-  mf-typ : ∀ {x} → MatchFree (gtyp x)
-  mf-ze  : MatchFree gze
-  mf-su  : ∀ {e} → MatchFree e → MatchFree (gsu e)
-  mf-app : ∀ {f a} → MatchFree f → MatchFree a → MatchFree (gapp f a)
-  mf-pi  : ∀ {c t b} → MatchFree b → MatchFree (gpi c t b)
-  mf-lam : ∀ {c t b} → MatchFree b → MatchFree (glam c t b)
+data Mf {n} : BTm n → Set where
+  mf-var : ∀ {x} → Mf (gvar x)
+  mf-typ : ∀ {x} → Mf (gtyp x)
+  mf-ze  : Mf gze
+  mf-su  : ∀ {e} → Mf e → Mf (gsu e)
+  mf-app : ∀ {f a} → Mf f → Mf a → Mf (gapp f a)
+  mf-pi  : ∀ {c t b} → Mf b → Mf (gpi c t b)
+  mf-lam : ∀ {c t b} → Mf b → Mf (glam c t b)
+  mf-ref : ∀ {k} → Mf (gref k)
 
-TMf : Tight → ∀ {n} → GTm n → Set
+-- The public predicate stays on muro's term. It is the gref-free
+-- fragment of `Mf`.
+MatchFree : ∀ {n} → GTm n → Set
+MatchFree e = Mf (embed e)
+
+TMf : Tight → ∀ {n} → BTm n → Set
 TMf loose _ = ⊤
-TMf tight e = MatchFree e
+TMf tight e = Mf e
 
 -- A closure remembers the judgment it was checked under. The captured
 -- environment has no g1 (`anyG1`), which is what `glam` required.
@@ -522,7 +547,7 @@ data Pay (tg : Tight) : Val → Set where
   pay-nat : ∀ k → Pay tg (nat k)
   pay-suc : ∀ r → Pay tg (suc↑ r)
   pay-clo : ∀ {n} {env : List Ref} {Γ : GCtx n} {c t : Grade}
-              {b : GTm (suc n)} {us : Uses (suc n)} →
+              {b : BTm (suc n)} {us : Uses (suc n)} →
             anyG1 env ≡ false →
             NoEsc (c ∷ᵥ grades Γ) b →
             decide run (gp c t ∷ᵥ Γ) b ≡ okR us →
@@ -536,7 +561,7 @@ data HeapPay (tg : Tight) : List Obj → Set where
   hp-cons : ∀ {o os} → Pay tg (payload o) → HeapPay tg os →
             HeapPay tg (o ∷ os)
 
-OkRun : ∀ {n} → GCtx n → GTm n → Set
+OkRun : ∀ {n} → GCtx n → BTm n → Set
 OkRun Γ e = Σ (Uses _) (λ us → decide run Γ e ≡ okR us)
 
 -- Frames. `bd` freezes the outer environment at the outer debt and
@@ -1135,6 +1160,8 @@ pres-beta {h = h} {p = p} {t = t} {ra = ra} {rf = rf} {env = env} {k = k}
   opened (just (clo _ (_ , gsu _))) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
   opened (just (clo _ (_ , gmatch _ _ _))) pv eqB rewrite pv =
     ⊥-elim (∅-just eqB)
+  opened (just (clo _ (_ , gref _))) pv eqB rewrite pv =
+    ⊥-elim (∅-just eqB)
   opened (just (clo envC (_ , glam c _ body))) pv eqB =
     go (pay-at hp pv) (trans (sym (betaForm pv)) eqB)
     where
@@ -1219,6 +1246,11 @@ pres-ret {h = h} {p = p} {t = t} {r = r} {env = env} {k = k}
     noSaved : Fr tight gs (saved code ∷ xs) (λ i → debtF i (saved code ∷ xs)) →
               Inv tight t
     noSaved ()
+  go (seg ds ∷ xs) _ fr' refl _ = noSeg fr'
+    where
+    noSeg : Fr tight gs (seg ds ∷ xs) (λ i → debtF i (seg ds ∷ xs)) →
+            Inv tight t
+    noSeg ()
   go (mt e z s ∷ xs) _ fr' refl _ = noMatch fr'
     where
     noMatch : Fr tight gs (mt e z s ∷ xs) (λ i → debtF i (mt e z s ∷ xs)) →
@@ -1262,6 +1294,15 @@ pres-ret {h = h} {p = p} {t = t} {r = r} {env = env} {k = k}
                 {env = env} {k = xs} {gs = gs}
                 hp ns fu' fr'' eqA
 
+-- A pure-path continuation has no `seg`, so `lookupDef` is `nothing`.
+lookup-fr : ∀ {tg n gs k d} → Fr tg {n} gs k d → ∀ i → lookupDef k i ≡ nothing
+lookup-fr fr-nil _ = refl
+lookup-fr (fr-ar _ _ _ tl) i = lookup-fr tl i
+lookup-fr (fr-fn tl) i = lookup-fr tl i
+lookup-fr (fr-su tl) i = lookup-fr tl i
+lookup-fr (fr-mt _ _ _ _ _ _ _ _ tl) i = lookup-fr tl i
+lookup-fr (fr-bd _ _ tl) i = lookup-fr tl i
+
 pres-at : ∀ {h p t} i →
           HeapPay tight h → Focus tight (ctl p) →
           eval1 (sys h (p ∷ [])) i ≡ just t → Inv tight t
@@ -1282,13 +1323,17 @@ pres-at {h} {p} {t} zero hp foc eq = by (ctl p) eq refl
             Inv tight t
     onFoc (foc-ev ne ok tm ns fu fr) eqE = go e ne ok tm ns fu fr eqE
       where
-      go : ∀ {n} (e' : GTm n) {Γ : GCtx n} →
-           NoEsc (grades Γ) e' → OkRun Γ e' → MatchFree e' →
+      go : ∀ {n} (e' : BTm n) {Γ : GCtx n} →
+           NoEsc (grades Γ) e' → OkRun Γ e' → Mf e' →
            NoSharp (grades Γ) env →
            Funds tight env (λ i → occ i e' + debtF i k) →
            Fr tight (grades Γ) k (λ i → debtF i k) →
            evalTm h (p ∷ []) zero e' env k ≡ just t →
            Inv tight t
+      -- `Fr` has no `seg`, so the code table is absent and `gref` is stuck.
+      go (gref idx) _ _ _ _ _ fr' eqv with lookupDef k idx | lookup-fr fr' idx
+      ... | nothing | _ = ⊥-elim (∅-just eqv)
+      ... | just _  | ()
       go (gmatch _ _ _) _ _ () _ _ _ _
       go (gvar x) _ _ _ ns' fu' fr' eqv = pres-var hp ns' fu' fr' eqv
       go (gapp f a) (ne-app nf na) (_ , dek) (mf-app mf ma) ns' fu' fr' eqv
@@ -1334,7 +1379,9 @@ preserve (inv {p = proc i st rs ib c} hp foc) step-collect =
 start : (e : Checked) → NoEscape (term e) → MatchFree (term e) →
         Inv tight (lower e)
 start e ne mf =
-  inv hp-nil (foc-ev ne ([]ᵥ , ok e) mf ns-nil fnil fr-nil)
+  inv hp-nil
+    (foc-ev ne ([]ᵥ , trans (decide-embed 0 run []ᵥ (term e)) (ok e))
+       mf ns-nil fnil fr-nil)
 
 ------------------------------------------------------------------------
 -- `budget-adequate` is the trace invariant. It is stated for a

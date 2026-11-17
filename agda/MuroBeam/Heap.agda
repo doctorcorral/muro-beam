@@ -15,7 +15,8 @@ open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _<_; _≡ᵇ_; _<�
 open import Data.Product.Base using (_×_; _,_; Σ)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong)
 
-open import Muro.Grade using (Grade; g0; g1; _≤ᵍ_; GTm)
+open import Muro.Grade using (Grade; g0; g1; _≤ᵍ_)
+open import MuroBeam.BTm using (BTm)
 
 open import MuroBeam.Grade using
   ( Kept; selfKept; kept→≤ᵍ
@@ -61,7 +62,7 @@ open Ref public
 data Val : Set where
   nat  : ℕ → Val
   suc↑ : Ref → Val
-  clo  : List Ref → Σ ℕ (λ n → GTm n) → Val
+  clo  : List Ref → Σ ℕ (λ n → BTm n) → Val
 
 kids : Val → List Ref
 kids (nat _)    = []

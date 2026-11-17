@@ -1,9 +1,11 @@
 ------------------------------------------------------------------------
--- Image format v1, as muro emits it (manual/mbi.md at 3f1cae2).
---
--- One line, tokens separated by one space, a trailing newline.
--- A pure program is `(seq <gtm> (done))`. Grades are points or
--- `(iv a b)`. `w` is ω. `gze` is bare. De Bruijn indices are decimal,
+-- Image format. v1 is the text muro emits (manual/mbi.md at 3f1cae2):
+-- one line, tokens separated by one space, a trailing newline, and
+-- `(seq <term> (done))` with no definitions. v2 is that line plus a
+-- `(defs <term> …)` section between the boundary and the entry.
+-- An empty definition list is printed as v1, so a v1 file round-trips
+-- to the same bytes. Grades are points or `(iv a b)`. `w` is ω.
+-- `gze` is bare. De Bruijn indices and `gref` indices are decimal,
 -- with no leading zero except 0.
 --
 -- `showImage` is `fromList` of `render`. The round trip is proved on
@@ -24,14 +26,14 @@ open import Data.Nat.Base using (ℕ; zero; suc; _+_; _*_)
 open import Data.String.Base using (String; fromList; toList)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
-open import Muro.Grade using
-  ( Point; fin; inf; Grade; pt; iv
-  ; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch )
+open import Muro.Grade using (Point; fin; inf; Grade; pt; iv)
+open import MuroBeam.BTm using
+  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
 
 ------------------------------------------------------------------------
--- The file. The loader, not the printer, demands format 1 and
--- boundary version 1. `term` is the `<gtm>`. The checked program is
--- `seq term done`.
+-- The file. The loader accepts format 1 and format 2, and boundary
+-- version 1. `defs` is the code segment. `term` is the entry. The
+-- checked program is `seq defs term done`.
 ------------------------------------------------------------------------
 
 format-version : ℕ
@@ -42,7 +44,8 @@ record Image : Set where
   field
     format   : ℕ
     boundary : ℕ
-    term     : GTm 0
+    defs     : List (BTm 0)
+    term     : BTm 0
 
 open Image public
 
@@ -471,28 +474,48 @@ showPair : Grade → Grade → List Char
 showPair c t =
   toList "(" ++ showGrade c ++ toList " " ++ showGrade t ++ toList ")"
 
-showGTm : ∀ {n} → GTm n → List Char
-showGTm (gvar x) = toList "(gvar " ++ showNat (toℕ x) ++ toList ")"
-showGTm (gtyp x) = toList "(gtyp " ++ showNat (toℕ x) ++ toList ")"
-showGTm (glam c t b) =
-  toList "(glam " ++ showPair c t ++ toList " " ++ showGTm b ++ toList ")"
-showGTm (gpi c t b) =
-  toList "(gpi " ++ showPair c t ++ toList " " ++ showGTm b ++ toList ")"
-showGTm (gapp f a) =
-  toList "(gapp " ++ showGTm f ++ toList " " ++ showGTm a ++ toList ")"
-showGTm gze = toList "gze"
-showGTm (gsu e) = toList "(gsu " ++ showGTm e ++ toList ")"
-showGTm (gmatch e z s) =
-  toList "(gmatch " ++ showGTm e ++ toList " " ++ showGTm z
-    ++ toList " " ++ showGTm s ++ toList ")"
+showB : ∀ {n} → BTm n → List Char
+showB (gvar x) = toList "(gvar " ++ showNat (toℕ x) ++ toList ")"
+showB (gtyp x) = toList "(gtyp " ++ showNat (toℕ x) ++ toList ")"
+showB (glam c t b) =
+  toList "(glam " ++ showPair c t ++ toList " " ++ showB b ++ toList ")"
+showB (gpi c t b) =
+  toList "(gpi " ++ showPair c t ++ toList " " ++ showB b ++ toList ")"
+showB (gapp f a) =
+  toList "(gapp " ++ showB f ++ toList " " ++ showB a ++ toList ")"
+showB gze = toList "gze"
+showB (gsu e) = toList "(gsu " ++ showB e ++ toList ")"
+showB (gmatch e z s) =
+  toList "(gmatch " ++ showB e ++ toList " " ++ showB z
+    ++ toList " " ++ showB s ++ toList ")"
+showB (gref k) = toList "(gref " ++ showNat k ++ toList ")"
 
-render : Image → List Char
-render i =
-  toList "(muro-beam-image " ++ showNat (format i)
-  ++ toList " (boundary " ++ showNat (boundary i)
-  ++ toList ") (entry (seq " ++ showGTm (term i)
+-- Right-associated, so a parser proof can split off one term.
+showDefs : List (BTm 0) → List Char
+showDefs [] = []
+showDefs (t ∷ []) = showB t
+showDefs (t ∷ t2 ∷ ts) = showB t ++ (toList " " ++ showDefs (t2 ∷ ts))
+
+-- Empty `defs` is the v1 byte string. A cons is format v2's section.
+-- The format number is the field, not this choice: a v1 file has
+-- empty `defs` and reprints without a section.
+renderWith : List (BTm 0) → ℕ → ℕ → BTm 0 → List Char
+renderWith [] fv bv tm =
+  toList "(muro-beam-image " ++ showNat fv
+  ++ toList " (boundary " ++ showNat bv
+  ++ toList ") (entry (seq " ++ showB tm
   ++ toList " (done))))"
   ++ toList "\n"
+renderWith (d ∷ ds) fv bv tm =
+  toList "(muro-beam-image " ++ showNat fv
+  ++ toList " (boundary " ++ showNat bv
+  ++ toList ") (defs " ++ showDefs (d ∷ ds)
+  ++ toList ") (entry (seq " ++ showB tm
+  ++ toList " (done))))"
+  ++ toList "\n"
+
+render : Image → List Char
+render i = renderWith (defs i) (format i) (boundary i) (term i)
 
 showImage : Image → String
 showImage i = fromList (render i)

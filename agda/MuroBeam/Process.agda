@@ -16,7 +16,9 @@ open import Data.Product.Base using (_×_; _,_; Σ)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
 open import Muro.Base using (Mode; run; spec; evid)
-open import Muro.Grade using (Grade; g0; g1; gω; aff; _≤ᵍ_; GTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch)
+open import Muro.Grade using (Grade; g0; g1; gω; aff; _≤ᵍ_)
+open import MuroBeam.BTm using
+  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; lookupIx )
 
 open import MuroBeam.Grade using
   ( selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy )
@@ -41,10 +43,10 @@ data Msg : Set where
 
 -- CEK frames. ar/mt carry syntax. fn and bd carry Refs.
 data Frame : Set where
-  ar : ∀ {n} → GTm n → Frame
+  ar : ∀ {n} → BTm n → Frame
   fn : Ref → Frame
   su : Frame
-  mt : ∀ {n} → GTm n → GTm n → GTm (suc n) → Frame
+  mt : ∀ {n} → BTm n → BTm n → BTm (suc n) → Frame
   bd : List Ref → Frame
   -- Parked process code. The environment and the flights are both
   -- references. `seq` parks an empty environment, so the CEK
@@ -52,6 +54,11 @@ data Frame : Set where
   -- moves the parked environment back. Counting it means a tag
   -- cannot hide there and reappear outside `refsOf`.
   saved : Code → Frame
+  -- The code segment. Definitions are closed terms, not references,
+  -- so the frame adds nothing to `refsOf`. `seq` pushes it under
+  -- `saved`. `bind` resumes only `saved ∷ []`, so a segment stays
+  -- parked for the run.
+  seg : List (BTm 0) → Frame
 
 frameRefs : Frame → List Ref
 frameRefs (ar _)       = []
@@ -60,6 +67,7 @@ frameRefs su           = []
 frameRefs (mt _ _ _)   = []
 frameRefs (bd env)     = env
 frameRefs (saved c)    = codeRefs c
+frameRefs (seg _)      = []
 
 framesRefs : List Frame → List Ref
 framesRefs []       = []
@@ -67,7 +75,7 @@ framesRefs (k ∷ ks) = frameRefs k ++ framesRefs ks
 
 data Ctl : Set where
   idle : Ctl
-  ev   : ∀ {n} → GTm n → List Ref → List Frame → Ctl
+  ev   : ∀ {n} → BTm n → List Ref → List Frame → Ctl
   rv   : Ref → List Ref → List Frame → Ctl
   pr   : Code → Ctl
 
@@ -451,9 +459,16 @@ gradeAt : Maybe Ref → Grade
 gradeAt nothing  = aff
 gradeAt (just r) = checked r
 
-predComp : List Ref → ∀ {n} → GTm n → Grade
+predComp : List Ref → ∀ {n} → BTm n → Grade
 predComp env (gvar x) = gradeAt (lookup env (toℕ x))
 predComp _   _        = aff
+
+-- The first `seg` on the stack is the code table. Frames above it
+-- are the call. A missing table, or an index past its end, is stuck.
+lookupDef : List Frame → ℕ → Maybe (BTm 0)
+lookupDef []             _ = nothing
+lookupDef (seg ds ∷ _)   k = lookupIx ds k
+lookupDef (_ ∷ ks)       k = lookupDef ks k
 
 payloadAt : List Obj → ℕ → Maybe Val
 payloadAt []       _       = nothing
@@ -502,7 +517,7 @@ useVar h ps i env k ix (just r) = spent (spendRef r)
     see (just (clo _ _)) = ptr (isG1 (checked r'))
     see nothing = nothing
 
-evalTm : ∀ {n} → List Obj → List Proc → ℕ → GTm n → List Ref → List Frame → Maybe Sys
+evalTm : ∀ {n} → List Obj → List Proc → ℕ → BTm n → List Ref → List Frame → Maybe Sys
 evalRet : List Obj → List Proc → ℕ → Ref → List Ref → List Frame → Maybe Sys
 
 evalTm h ps i (gvar x) env k = useVar h ps i env k (toℕ x) (lookup env (toℕ x))
@@ -519,6 +534,14 @@ evalTm h ps i gze env k =
   install (snoc h (nat zero)) ps i (rv (freshRef h gω) env k)
 evalTm h ps i (gsu e) env k = install h ps i (ev e env (su ∷ k))
 evalTm h ps i (gmatch e z s) env k = install h ps i (ev e env (mt e z s ∷ k))
+-- Install the closed code under the caller's environment. `bd`
+-- restores that environment when the code returns, so the pending
+-- argument frames still see it. `[] ++` drops out of `ctlRefs`, and
+-- `bd` puts the same environment back, so the reference multiset
+-- does not change.
+evalTm h ps i (gref k) env kont with lookupDef kont k
+... | just code = install h ps i (ev code [] (bd env ∷ kont))
+... | nothing   = nothing
 
 beta : List Obj → List Proc → ℕ → Ref → Ref → List Ref → List Frame → Maybe Sys
 beta h ps i ra rf env k = opened (payloadAt h (obj rf))
@@ -531,7 +554,7 @@ beta h ps i ra rf env k = opened (payloadAt h (obj rf))
   opened _ = nothing
 
 onMatch : List Obj → List Proc → ℕ → Ref → List Ref →
-          ∀ {n} → GTm n → GTm n → GTm (suc n) → List Frame → Maybe Val → Maybe Sys
+          ∀ {n} → BTm n → BTm n → BTm (suc n) → List Frame → Maybe Val → Maybe Sys
 onMatch h ps i r env _ z _ k (just (nat zero)) = install h ps i (ev z env k)
 onMatch _ _ _ _ _ _ _ _ _ (just (nat (suc _))) = nothing
 onMatch h ps i r env e _ s k (just (suc↑ pred)) =
@@ -549,7 +572,9 @@ evalRet h ps i r env (su ∷ k) =
 evalRet h ps i r env (mt e z s ∷ k) = onMatch h ps i r env e z s k (payloadAt h (obj r))
 evalRet h ps i r env (bd env0 ∷ k) = install h ps i (rv r env0 k)
 -- `saved` is resumed by the process layer, not by `eval1`.
+-- `seg` stays under it for the whole run.
 evalRet _ _ _ _ _ (saved _ ∷ _) = nothing
+evalRet _ _ _ _ _ (seg _ ∷ _) = nothing
 
 evalHere : List Obj → List Proc → ℕ → Ctl → Maybe Sys
 evalHere _ _ _ idle = nothing
