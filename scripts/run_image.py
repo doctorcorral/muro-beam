@@ -58,11 +58,12 @@ HAND = {
     "iseven": "nat 1",
 }
 
-# once (suc 0). Elixir, muro 3f1cae2 (0.21.11), MIX_BUILD_PATH
-# /private/tmp/beam-b1b-build, Muro.Load.file of a one-shot book then
+# once (suc 0). Elixir, muro 3f1cae2 (0.21.11), compiled with
+# MIX_BUILD_PATH=/private/tmp/beam-b2-build. Muro.Load.file then
 # Muro.Session.eval_run("once", [1], book) and eval_run("applied", [], book)
 # both returned 1. The book has two run defs, so emit_mbi will not
-# write it; the image below is the same term by hand.
+# write it; the image below is the same term by hand. drive keeps that
+# nat and stops stuck, because bind1 does not resume saved over seg.
 ONCE_APP = (
     "(muro-beam-image 1 (boundary 1) (entry (seq "
     "(gapp (glam (1 0) (gvar 0)) (gsu gze)) (done))))\n"
@@ -126,6 +127,7 @@ def rte_dir():
 def build():
     run_sym = symbol("d_runImage")
     echo_sym = symbol("d_echoImage")
+    drive_sym = symbol("d_driveImage")
     with open(MAIN, "w", encoding="utf-8") as fh:
         fh.write(
             "\n".join(
@@ -134,7 +136,8 @@ def build():
                     "import System.Environment (getArgs)",
                     "import qualified Data.Text as T",
                     "import qualified Data.Text.IO as TIO",
-                    "import MAlonzo.Code.MuroBeam.RunImage (" + run_sym + ", " + echo_sym + ")",
+                    "import MAlonzo.Code.MuroBeam.RunImage ("
+                    + run_sym + ", " + echo_sym + ", " + drive_sym + ")",
                     "main :: IO ()",
                     "main = do",
                     "  args <- getArgs",
@@ -145,7 +148,10 @@ def build():
                     '    ["echo", path] -> do',
                     "      src <- TIO.readFile path",
                     "      TIO.putStr (" + echo_sym + " src)",
-                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH"',
+                    '    ["drive", path] -> do',
+                    "      src <- TIO.readFile path",
+                    "      TIO.putStr (" + drive_sym + " src)",
+                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH"',
                     "",
                 ]
             )
@@ -170,7 +176,12 @@ def build():
 
 
 def call(mode, path, fuel="200"):
-    cmd = [BIN, mode, path] if mode == "echo" else [BIN, "run", path, fuel]
+    if mode == "echo":
+        cmd = [BIN, "echo", path]
+    elif mode == "drive":
+        cmd = [BIN, "drive", path]
+    else:
+        cmd = [BIN, "run", path, fuel]
     proc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE)
     if proc.returncode != 0:
         fail("harness failed: " + " ".join(cmd))
@@ -252,6 +263,12 @@ def main():
             check(name, call("run", path), want)
         path = write_tmp(ONCE_APP)
         check("once-app", call("run", path), "nat 1")
+        # Elixir eval_run of this def returns 1. drive keeps that nat.
+        # The outcome word is whatever the fuelled scheduler stops on.
+        driven = call("drive", path).strip()
+        if not driven.endswith(" v1"):
+            fail("once-drive: got " + repr(driven) + " want a line ending in v1")
+        print("ok once-drive " + driven)
         path = write_tmp(CEX)
         check("cex", call("run", path), "refuse: outside the boundary")
         path = write_tmp(V2_EMPTY)

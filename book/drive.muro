@@ -1,0 +1,567 @@
+-- Fuelled round-robin driver.
+--
+-- Same order as the Agda scheduler: deliver, seq, bind, spawn, emit,
+-- await, arm, flush, npeek, ndemon, recv, done, eval. The cursor is
+-- the next pid. A full scan from 0 runs when the cursor scan finds
+-- nobody, so a missed pid is not reported as deadlock.
+--
+-- Fuel is the decreasing argument. There is no fairness theorem and
+-- no coinductive loop. Collect runs only when every process is done.
+-- Meetings stay beside the system. observe and stepDone update flags.
+-- The base is put back, so a meeting step is not a process step.
+-- tr-down is that extra event. A repeated done is nothing from
+-- emitDone, which is what this driver calls.
+--
+-- The value is the first nat on a delivered message, or pid 0's rv
+-- once that return is parked on saved or an empty continuation.
+-- A suc-up is one more than the nat it points at. nothing stays nothing.
+--
+-- A hit keeps the Run the probe already built. It does not call
+-- emitPop again, so a hit cannot become oc-stuck. Agda's use is the
+-- same shape: Hit stores the successful wrapper.
+
+import "death.muro"
+
+data K : Type where
+  k-deliver : K
+  k-seq : K
+  k-bind : K
+  k-spawn : K
+  k-emit : K
+  k-await : K
+  k-arm : K
+  k-flush : K
+  k-npeek : K
+  k-ndemon : K
+  k-recv : K
+  k-done : K
+  k-eval : K
+
+def spine : run List K :=
+  cons k-deliver (cons k-seq (cons k-bind (cons k-spawn
+  (cons k-emit (cons k-await (cons k-arm (cons k-flush
+  (cons k-npeek (cons k-ndemon (cons k-recv (cons k-done
+  (cons k-eval nil))))))))))))
+
+-- The probe's answer. `k` is host-reusable, so the step can rebuild
+-- the pop for the meeting update without emitting again.
+data Hit : Type where
+  hit : Π (+ i : Nat) → Π (+ k : K) → Run → Hit
+
+def popOf : run Π (+ i : Nat) → Π (+ k : K) → Pop :=
+  λ (+ i : Nat) → λ (+ k : K) →
+    match k motive (λ _ → Pop)
+      | k-deliver => pop-deliver i
+      | k-seq => pop-seq i
+      | k-bind => pop-bind i
+      | k-spawn => pop-spawn i
+      | k-emit => pop-emit i
+      | k-await => pop-await i
+      | k-arm => pop-arm i
+      | k-flush => pop-flush i
+      | k-npeek => pop-npeek i
+      | k-ndemon => pop-ndemon i
+      | k-recv => pop-recv i
+      | k-done => pop-done i
+      | k-eval => pop-eval i
+
+def emitOf : run Π (+ s : Sys) → Π (+ i : Nat) → Π (k : K) → Maybe Run :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (k : K) →
+    match k motive (λ _ → Maybe Run)
+      | k-deliver => emitDeliver s i
+      | k-seq => emitSeq s i
+      | k-bind => emitBind s i
+      | k-spawn => emitSpawn s i
+      | k-emit => emitEmit s i
+      | k-await => emitAwait s i
+      | k-arm => emitArm s i
+      | k-flush => emitFlush s i
+      | k-npeek => emitNpeek s i
+      | k-ndemon => emitNdemon s i
+      | k-recv => emitRecv1 s i
+      | k-done => emitDone s i
+      | k-eval => emitEval s i
+
+def firstPop : run Π (+ s : Sys) → Π (+ i : Nat) → Π (ks : List K) → Maybe Hit :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (ks : List K) →
+    match ks motive (λ _ → Maybe Hit)
+      | nil => nothing
+      | cons k ks1 => tryK s i ks1 k
+
+-- The head is matched once. A refusal continues on the tail, which
+-- firstPop already exposed, so this call passes that tail unchanged.
+-- A hit keeps the Run. The caller does not emit again.
+def resume : run Π (+ s : Sys) → Π (+ i : Nat) → Π (ks : List K) →
+    Π (r : Maybe Run) → Π (+ k : K) → Maybe Hit :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (ks : List K) →
+  λ (r : Maybe Run) → λ (+ k : K) →
+    match r motive (λ _ → Maybe Hit)
+      | nothing => firstPop s i ks
+      | just r1 => just (hit i k r1)
+
+def tryK : run Π (+ s : Sys) → Π (+ i : Nat) → Π (ks : List K) →
+    Π (k : K) → Maybe Hit :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (ks : List K) → λ (k : K) →
+    match k motive (λ _ → Maybe Hit)
+      | k-deliver => resume s i ks (emitOf s i k-deliver) k-deliver
+      | k-seq => resume s i ks (emitOf s i k-seq) k-seq
+      | k-bind => resume s i ks (emitOf s i k-bind) k-bind
+      | k-spawn => resume s i ks (emitOf s i k-spawn) k-spawn
+      | k-emit => resume s i ks (emitOf s i k-emit) k-emit
+      | k-await => resume s i ks (emitOf s i k-await) k-await
+      | k-arm => resume s i ks (emitOf s i k-arm) k-arm
+      | k-flush => resume s i ks (emitOf s i k-flush) k-flush
+      | k-npeek => resume s i ks (emitOf s i k-npeek) k-npeek
+      | k-ndemon => resume s i ks (emitOf s i k-ndemon) k-ndemon
+      | k-recv => resume s i ks (emitOf s i k-recv) k-recv
+      | k-done => resume s i ks (emitOf s i k-done) k-done
+      | k-eval => resume s i ks (emitOf s i k-eval) k-eval
+
+def enabled : run Π (+ s : Sys) → Π (+ i : Nat) → Maybe Hit :=
+  λ (+ s : Sys) → λ (+ i : Nat) → firstPop s i spine
+
+def modStep : run Π (+ m : Nat) → Π (+ n : Nat) → Nat :=
+  λ (+ m : Nat) → λ (+ n : Nat) →
+    match (lt m n) motive (λ _ → Nat)
+      | true => suc m
+      | false => 0
+
+def modSuc : run Π (c : Nat) → Π (+ n : Nat) → Nat :=
+  λ (c : Nat) → λ (+ n : Nat) →
+    match n motive (λ _ → Nat)
+      | 0 => 0
+      | suc n1 =>
+          (match c motive (λ _ → Nat)
+            | 0 => 0
+            | suc c1 => modStep (modSuc c1 (suc n1)) n1)
+
+def wrap : run Π (+ i : Nat) → Π (n : Nat) → Nat :=
+  λ (+ i : Nat) → λ (n : Nat) →
+    match n motive (λ _ → Nat)
+      | 0 => 0
+      | suc n1 => modSuc i (suc n1)
+
+def scan : run Π (k : Nat) → Π (+ i : Nat) → Π (+ n : Nat) → Π (+ s : Sys) →
+    Maybe Hit :=
+  λ (k : Nat) → λ (+ i : Nat) → λ (+ n : Nat) → λ (+ s : Sys) →
+    match k motive (λ _ → Maybe Hit)
+      | 0 => nothing
+      | suc k1 =>
+          (match (enabled s i) motive (λ _ → Maybe Hit)
+            | nothing => scan k1 (wrap (suc i) n) n s
+            | just h => just h)
+
+def pick : run Π (+ c : Nat) → Π (+ s : Sys) → Maybe Hit :=
+  λ (+ c : Nat) → λ (+ s : Sys) →
+    scan (length Proc (procs s)) (modSuc c (length Proc (procs s)))
+      (length Proc (procs s)) s
+
+-- Every pid from 0, fuelled by the process count. This is the
+-- deadlock test, not the cursor.
+def scanUp : run Π (k : Nat) → Π (+ i : Nat) → Π (+ n : Nat) → Π (+ s : Sys) →
+    Maybe Hit :=
+  λ (k : Nat) → λ (+ i : Nat) → λ (+ n : Nat) → λ (+ s : Sys) →
+    match k motive (λ _ → Maybe Hit)
+      | 0 => nothing
+      | suc k1 =>
+          (match (lt i n) motive (λ _ → Maybe Hit)
+            | true =>
+                (match (enabled s i) motive (λ _ → Maybe Hit)
+                  | nothing => scanUp k1 (suc i) n s
+                  | just h => just h)
+            | false => nothing)
+
+def findHit : run Π (+ s : Sys) → Maybe Hit :=
+  λ (+ s : Sys) →
+    scanUp (length Proc (procs s)) 0 (length Proc (procs s)) s
+
+-- Walk the events so the probe's Run is spent. A hit is `false`:
+-- some wrapper is enabled. `true` is the full miss, Agda's nothing.
+def sinkEs : run Π (es : List Event) → Bool :=
+  λ (es : List Event) →
+    match es motive (λ _ → Bool)
+      | nil => false
+      | cons e es1 => sinkEs es1
+
+def sinkHit : run Π (h : Hit) → Bool :=
+  λ (h : Hit) →
+    match h motive (λ _ → Bool)
+      | hit i k r =>
+          (match r motive (λ _ → Bool)
+            | ran t es =>
+                (match t motive (λ _ → Bool)
+                  | sys h1 ps => sinkEs es))
+
+def noHit : run Π (+ s : Sys) → Bool :=
+  λ (+ s : Sys) →
+    match (findHit s) motive (λ _ → Bool)
+      | nothing => true
+      | just h => sinkHit h
+
+def allDone : run Π (ps : List Proc) → Bool :=
+  λ (ps : List Proc) →
+    match ps motive (λ _ → Bool)
+      | nil => true
+      | cons p ps1 =>
+          (match p motive (λ _ → Bool)
+            | proc pid st rs mb c =>
+                (match st motive (λ _ → Bool)
+                  | ready => false
+                  | waiting => false
+                  | done => allDone ps1))
+
+def refusing : run Π (p : Proc) → Bool :=
+  λ (p : Proc) →
+    match p motive (λ _ → Bool)
+      | proc pid st rs mb c =>
+          (match st motive (λ _ → Bool)
+            | ready =>
+                (match c motive (λ _ → Bool)
+                  | idle => false
+                  | ev n t e ks => true
+                  | rv r e ks => true
+                  | pr cd => true)
+            | waiting => false
+            | done => false)
+
+def firstRefuse : run Π (ps : List Proc) → Π (i : Nat) → Maybe Nat :=
+  λ (ps : List Proc) → λ (i : Nat) →
+    match ps motive (λ _ → Maybe Nat)
+      | nil => nothing
+      | cons p ps1 =>
+          (match (refusing p) motive (λ _ → Maybe Nat)
+            | true => just i
+            | false => firstRefuse ps1 (suc i))
+
+-- Agda's bump. A suc-up is one more than the child nat.
+def bumpVal : run Π (v : Maybe Nat) → Maybe Nat :=
+  λ (v : Maybe Nat) →
+    match v motive (λ _ → Maybe Nat)
+      | nothing => nothing
+      | just n => just (suc n)
+
+def readNat : run Π (fuel : Nat) → Π (+ h : List Obj) → Π (ix : Nat) → Maybe Nat :=
+  λ (fuel : Nat) → λ (+ h : List Obj) → λ (ix : Nat) →
+    match fuel motive (λ _ → Maybe Nat)
+      | 0 => nothing
+      | suc f =>
+          (match (payloadAt h ix) motive (λ _ → Maybe Nat)
+            | nothing => nothing
+            | just v =>
+                (match v motive (λ _ → Maybe Nat)
+                  | nat n => just n
+                  | suc-up r => bumpVal (readNat f h (obj r))
+                  | clo rs tm => nothing))
+
+def payloadNat : run Π (+ h : List Obj) → Π (r : Ref) → Maybe Nat :=
+  λ (+ h : List Obj) → λ (r : Ref) →
+    readNat (suc (length Obj h)) h (obj r)
+
+def inboxNat : run Π (+ s : Sys) → Π (+ i : Nat) → Maybe Nat :=
+  λ (+ s : Sys) → λ (+ i : Nat) →
+    match (lookup Proc i (procs s)) motive (λ _ → Maybe Nat)
+      | nothing => nothing
+      | just p =>
+          (match p motive (λ _ → Maybe Nat)
+            | proc pid st rs mb c =>
+                (match mb motive (λ _ → Maybe Nat)
+                  | nil => nothing
+                  | cons m ms =>
+                      (match m motive (λ _ → Maybe Nat)
+                        | msg r => payloadNat (heap s) r)))
+
+def notePop : run Π (+ s : Sys) → Π (+ i : Nat) → Π (p : Pop) → Maybe Nat :=
+  λ (+ s : Sys) → λ (+ i : Nat) → λ (p : Pop) →
+    match p motive (λ _ → Maybe Nat)
+      | pop-spawn j => nothing
+      | pop-emit j => nothing
+      | pop-deliver j => nothing
+      | pop-recv j => inboxNat s j
+      | pop-await j => nothing
+      | pop-arm j => nothing
+      | pop-flush j => nothing
+      | pop-npeek j => nothing
+      | pop-ndemon j => nothing
+      | pop-seq j => nothing
+      | pop-bind j => nothing
+      | pop-done j => nothing
+      | pop-eval j => nothing
+      | pop-lift op => nothing
+
+def noteRv : run Π (+ s : Sys) → Maybe Nat :=
+  λ (+ s : Sys) →
+    match (lookup Proc 0 (procs s)) motive (λ _ → Maybe Nat)
+      | nothing => nothing
+      | just p =>
+          (match p motive (λ _ → Maybe Nat)
+            | proc pid st rs mb c =>
+                (match c motive (λ _ → Maybe Nat)
+                  | idle => nothing
+                  | ev n t e ks => nothing
+                  | rv r e ks =>
+                      (match ks motive (λ _ → Maybe Nat)
+                        | nil => payloadNat (heap s) r
+                        | cons f rest =>
+                            (match f motive (λ _ → Maybe Nat)
+                              | ar n t => nothing
+                              | fn rf => nothing
+                              | su => nothing
+                              | mt n e1 e2 e3 => nothing
+                              | bd env => nothing
+                              | saved cd => payloadNat (heap s) r))
+                  | pr cd => nothing))
+
+def keepNat : run Π (a : Maybe Nat) → Π (b : Maybe Nat) → Maybe Nat :=
+  λ (a : Maybe Nat) → λ (b : Maybe Nat) →
+    match a motive (λ _ → Maybe Nat)
+      | nothing => b
+      | just n => just n
+
+------------------------------------------------------------------------
+-- Meetings. The process system is put back into base afterwards.
+------------------------------------------------------------------------
+
+def align : run Π (+ t : Sys) → Π (m : Meet) → Meet :=
+  λ (+ t : Sys) → λ (m : Meet) →
+    match m motive (λ _ → Meet)
+      | meeting base w o p ps pp h e why dead armed noted expect =>
+          meeting t w o p ps pp h e why dead armed noted expect
+
+def alignAll : run Π (+ t : Sys) → Π (ms : List Meet) → List Meet :=
+  λ (+ t : Sys) → λ (ms : List Meet) →
+    match ms motive (λ _ → List Meet)
+      | nil => nil
+      | cons m ms1 => cons (align t m) (alignAll t ms1)
+
+def dropEv : run Π (es : List Event) → List Event :=
+  λ (es : List Event) →
+    match es motive (λ _ → List Event)
+      | nil => nil
+      | cons e es1 => dropEv es1
+
+def keepObserve : run Π (+ noted0 : Bool) → Π (+ noted1 : Bool) →
+    Π (es : List Event) → (Bool × List Event) :=
+  λ (+ noted0 : Bool) → λ (+ noted1 : Bool) → λ (es : List Event) →
+    match es motive (λ _ → (Bool × List Event))
+      | nil =>
+          (match noted0 motive (λ _ → (Bool × List Event))
+            | true => (false, nil)
+            | false =>
+                (match noted1 motive (λ _ → (Bool × List Event))
+                  | true => (true, nil)
+                  | false => (false, nil)))
+      | cons e es1 => (true, cons e es1)
+
+def inboxEmpty : run Π (+ s : Sys) → Π (+ i : Nat) → Bool :=
+  λ (+ s : Sys) → λ (+ i : Nat) →
+    match (lookup Proc i (procs s)) motive (λ _ → Bool)
+      | nothing => true
+      | just p =>
+          (match p motive (λ _ → Bool)
+            | proc pid st rs mb c =>
+                (match mb motive (λ _ → Bool)
+                  | nil => true
+                  | cons m ms => false))
+
+def onDone : run Π (+ t : Sys) → Π (+ i : Nat) → Π (m : Meet) → Meet :=
+  λ (+ t : Sys) → λ (+ i : Nat) → λ (m : Meet) →
+    match m motive (λ _ → Meet)
+      | meeting base w o p ps pp h e why dead armed noted expect =>
+          (match (stepDone (meeting t w o p ps pp h e why dead armed noted expect) i)
+              motive (λ _ → Meet)
+            | nothing => meeting t w o p ps pp h e why dead armed noted expect
+            | just m1 => align t m1)
+
+def observeRecv : run Π (+ t : Sys) → Π (+ i : Nat) → Π (m : Meet) →
+    (Meet × List Event) :=
+  λ (+ t : Sys) → λ (+ i : Nat) → λ (m : Meet) →
+    match m motive (λ _ → (Meet × List Event))
+      | meeting base w o p ps pp h e why dead armed noted expect =>
+          (match (natEq i o) motive (λ _ → (Meet × List Event))
+            | true =>
+                (match (inboxEmpty t i) motive (λ _ → (Meet × List Event))
+                  | true =>
+                      (match (observe (meeting t w o p ps pp h e why dead armed noted expect))
+                          motive (λ _ → (Meet × List Event))
+                        | nothing =>
+                            (meeting t w o p ps pp h e why dead armed noted expect, nil)
+                        | just dr =>
+                            (match dr motive (λ _ → (Meet × List Event))
+                              | dran m1 es =>
+                                  (match m1 motive (λ _ → (Meet × List Event))
+                                    | meeting b1 w1 o1 p1 ps1 pp1 h1 e1 why1 dead1 armed1 noted1 expect1 =>
+                                        (let (flag, es2) = keepObserve noted noted1 es in
+                                          (match flag motive (λ _ → (Meet × List Event))
+                                            | true =>
+                                                (meeting t w1 o1 p1 ps1 pp1 h1 e1 why1 dead1 armed1 noted1 expect1, es2)
+                                            | false =>
+                                                (meeting t w o p ps pp h e why dead armed noted expect, dropEv es2))))))
+                  | false =>
+                      (meeting t w o p ps pp h e why dead armed noted expect, nil))
+            | false =>
+                (meeting t w o p ps pp h e why dead armed noted expect, nil))
+
+def react : run Π (+ t : Sys) → Π (p : Pop) → Π (m : Meet) → (Meet × List Event) :=
+  λ (+ t : Sys) → λ (p : Pop) → λ (m : Meet) →
+    match p motive (λ _ → (Meet × List Event))
+      | pop-spawn i => (align t m, nil)
+      | pop-emit i => (align t m, nil)
+      | pop-deliver i => (align t m, nil)
+      | pop-recv i => observeRecv t i m
+      | pop-await i => (align t m, nil)
+      | pop-arm i => (align t m, nil)
+      | pop-flush i => (align t m, nil)
+      | pop-npeek i => (align t m, nil)
+      | pop-ndemon i => (align t m, nil)
+      | pop-seq i => (align t m, nil)
+      | pop-bind i => (align t m, nil)
+      | pop-done i => (onDone t i m, nil)
+      | pop-eval i => (align t m, nil)
+      | pop-lift op => (align t m, nil)
+
+-- The pop is host-reusable: every meeting in the list sees it.
+def settle : run Π (+ t : Sys) → Π (+ p : Pop) → Π (ms : List Meet) →
+    (List Meet × List Event) :=
+  λ (+ t : Sys) → λ (+ p : Pop) → λ (ms : List Meet) →
+    match ms motive (λ _ → (List Meet × List Event))
+      | nil => (nil, nil)
+      | cons m ms1 =>
+          (let (m1, e1) = react t p m in
+            (let (ms2, e2) = settle t p ms1 in
+              (cons m1 ms2, append Event e1 e2)))
+
+def look : run Π (+ s : Sys) → Π (m : Meet) → Maybe (Meet × List Event) :=
+  λ (+ s : Sys) → λ (m : Meet) →
+    match m motive (λ _ → Maybe (Meet × List Event))
+      | meeting base w o p ps pp h e why dead armed noted expect =>
+          (match (inboxEmpty s o) motive (λ _ → Maybe (Meet × List Event))
+            | true =>
+                (match (observe (meeting s w o p ps pp h e why dead armed noted expect))
+                    motive (λ _ → Maybe (Meet × List Event))
+                  | nothing => nothing
+                  | just dr =>
+                      (match dr motive (λ _ → Maybe (Meet × List Event))
+                        | dran m1 es =>
+                            (match m1 motive (λ _ → Maybe (Meet × List Event))
+                              | meeting b1 w1 o1 p1 ps1 pp1 h1 e1 why1 dead1 armed1 noted1 expect1 =>
+                                  (let (flag, es2) = keepObserve noted noted1 es in
+                                    (match flag motive (λ _ → Maybe (Meet × List Event))
+                                      | true =>
+                                          just (meeting s w1 o1 p1 ps1 pp1 h1 e1 why1 dead1 armed1 noted1 expect1, es2)
+                                      | false =>
+                                          (match (dropEv es2) motive (λ _ → Maybe (Meet × List Event))
+                                            | nil => nothing
+                                            | cons e rest => nothing))))))
+            | false => nothing)
+
+-- A miss gives the meetings back. The caller still aligns them.
+data Pend : Type where
+  pend-miss : List Meet → Pend
+  pend-hit : List Meet → List Event → Pend
+
+def pending : run Π (+ s : Sys) → Π (ms : List Meet) → Pend :=
+  λ (+ s : Sys) → λ (ms : List Meet) →
+    match ms motive (λ _ → Pend)
+      | nil => pend-miss nil
+      | cons m ms1 =>
+          (match m motive (λ _ → Pend)
+            | meeting base w o p ps pp h e why dead armed noted expect =>
+                (match (look s (meeting base w o p ps pp h e why dead armed noted expect))
+                    motive (λ _ → Pend)
+                  | nothing =>
+                      (match (pending s ms1) motive (λ _ → Pend)
+                        | pend-miss ms2 =>
+                            pend-miss (cons (meeting s w o p ps pp h e why dead armed noted expect) ms2)
+                        | pend-hit ms2 es =>
+                            pend-hit (cons (meeting s w o p ps pp h e why dead armed noted expect) ms2) es)
+                  | just pair =>
+                      (let (m1, es) = pair in
+                        pend-hit (cons m1 (alignAll s ms1)) es)))
+
+------------------------------------------------------------------------
+-- One step of the decision, then drive recurses on the fuel only.
+------------------------------------------------------------------------
+
+data Outcome : Type where
+  oc-halted : Outcome
+  oc-deadlock : Outcome
+  oc-stuck : Nat → Outcome
+  oc-fuel : Outcome
+
+data Drove : Type where
+  drv : Π (+ final : Sys) → Outcome → List Event → List Meet → Maybe Nat → Drove
+
+data Cont : Type where
+  cont-done : Π (+ t : Sys) → Outcome → List Event → List Meet → Maybe Nat → Cont
+  cont-go : Π (+ c : Nat) → List Event → List Meet → Maybe Nat → Π (+ t : Sys) → Cont
+
+def verdict : run Π (+ s : Sys) → Outcome :=
+  λ (+ s : Sys) →
+    match (firstRefuse (procs s) 0) motive (λ _ → Outcome)
+      | nothing => oc-deadlock
+      | just i => oc-stuck i
+
+-- The probe already returned this Run. Rebuilding the pop is only for
+-- notePop and settle. emitPop does not run again, and this path has
+-- no oc-stuck. A meeting update is not a second process step.
+def useHit : run Π (h : Hit) → Π (ms : List Meet) → Π (v : Maybe Nat) →
+    Π (+ s : Sys) → Cont :=
+  λ (h : Hit) → λ (ms : List Meet) → λ (v : Maybe Nat) → λ (+ s : Sys) →
+    match h motive (λ _ → Cont)
+      | hit i k r =>
+          (match r motive (λ _ → Cont)
+            | ran t es =>
+                (match t motive (λ _ → Cont)
+                  | sys h1 ps =>
+                      (let (ms1, extra) = settle (sys h1 ps) (popOf i k) ms in
+                        cont-go (suc i) (append Event es extra) ms1
+                          (keepNat (keepNat v (notePop s i (popOf i k)))
+                            (noteRv (sys h1 ps)))
+                          (sys h1 ps))))
+
+def haltCont : run Π (ms : List Meet) → Π (v : Maybe Nat) → Π (+ s : Sys) → Cont :=
+  λ (ms : List Meet) → λ (v : Maybe Nat) → λ (+ s : Sys) →
+    match s motive (λ _ → Cont)
+      | sys h ps =>
+          cont-done (collect (sys h ps)) oc-halted
+            (cons (tr-collect (freedIdx (markVec (sys h ps)) 0)) nil)
+            (alignAll (collect (sys h ps)) ms) v
+
+def prepare : run Π (+ c : Nat) → Π (ms : List Meet) → Π (v : Maybe Nat) →
+    Π (+ s : Sys) → Cont :=
+  λ (+ c : Nat) → λ (ms : List Meet) → λ (v : Maybe Nat) → λ (+ s : Sys) →
+    match (allDone (procs s)) motive (λ _ → Cont)
+      | true => haltCont ms v s
+      | false =>
+          (match (pick c s) motive (λ _ → Cont)
+            | nothing =>
+                (match (findHit s) motive (λ _ → Cont)
+                  | nothing =>
+                      (match (pending s ms) motive (λ _ → Cont)
+                        | pend-miss ms1 =>
+                            cont-done s (verdict s) nil (alignAll s ms1)
+                              (keepNat v (noteRv s))
+                        | pend-hit ms1 extra =>
+                            cont-go c extra ms1 v s)
+                  | just found => useHit found ms v s)
+            | just found => useHit found ms v s)
+
+def consE : run Π (es : List Event) → Π (d : Drove) → Drove :=
+  λ (es : List Event) → λ (d : Drove) →
+    match d motive (λ _ → Drove)
+      | drv t o ev ms v => drv t o (append Event es ev) ms v
+
+def driveFuel : run Nat :=
+  suc (suc (suc (suc (suc (suc (suc (suc
+    (suc (suc (suc (suc (suc (suc (suc (suc 0)))))))))))))))
+
+def drive : run Π (fuel : Nat) → Π (+ c : Nat) → Π (ms : List Meet) →
+    Π (v : Maybe Nat) → Π (+ s : Sys) → Drove :=
+  λ (fuel : Nat) → λ (+ c : Nat) → λ (ms : List Meet) →
+  λ (v : Maybe Nat) → λ (+ s : Sys) →
+    match fuel motive (λ _ → Drove)
+      | 0 => drv s oc-fuel nil (alignAll s ms) v
+      | suc fuel1 =>
+          (match (prepare c ms v s) motive (λ _ → Drove)
+            | cont-done t o es ms1 v1 => drv t o es ms1 v1
+            | cont-go c1 es ms1 v1 t => consE es (drive fuel1 c1 ms1 v1 t))

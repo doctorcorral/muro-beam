@@ -102,6 +102,8 @@ noEsc? Γ (gmatch e z s) with noEsc? Γ e | noEsc? Γ z | noEsc? (predG Γ e ∷
 ... | no ¬e  | _      | _      = no (λ { (ne-mat pe _ _) → ¬e pe })
 ... | yes _  | no ¬z  | _      = no (λ { (ne-mat _ pz _) → ¬z pz })
 ... | yes _  | yes _  | no ¬s  = no (λ { (ne-mat _ _ ps) → ¬s ps })
+-- A `gref` captures nothing, so the clause is `yes`. `NoEscape`
+-- is still `NoEsc []` of `embed` of a `GTm`.
 noEsc? Γ (gref _) = yes ne-ref
 
 noEscape? : (e : GTm 0) → Dec (NoEscape e)

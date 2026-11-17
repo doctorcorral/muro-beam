@@ -9,8 +9,12 @@
 -- line is ran.
 --
 -- The fingerprint is h<heap length>l<live cells>p<process count>.
--- It is not the system. Success lines still do not compare payloads,
--- grades, or control.
+-- It is not the system. The older lines do not compare payloads,
+-- grades, or control. A scheduled line also prints the outcome and
+-- the first nat the driver kept (`v-` when it kept none). `sched-up`
+-- keeps a delivered `suc↑`. `sched-stray` also prints `mailHas` and
+-- whether any wrapper is enabled. `sched-empty` prints the final
+-- heap's freeness.
 --
 -- Example, Lower, Unique, PExample, Stray, and PWf are not imported.
 -- The closed cex term and lowerTm live in MuroBeam.Cex.
@@ -21,9 +25,11 @@
 module MuroBeam.Conform where
 
 open import Data.Fin.Base using () renaming (zero to fzero)
+open import Data.Bool.Base using (Bool; true; false; _∧_)
 open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _≤_; z≤n; s≤s)
+open import Data.Product.Base using (proj₁)
 open import Data.String.Base using (String; _++_)
 
 open import Muro.Grade using
@@ -36,7 +42,8 @@ open import MuroBeam.Emit using
   ( Run; ran; Pop; pop-spawn; pop-emit; pop-deliver; pop-recv
   ; emitPops; emitAlloc; emitDeref; emitSendRoot; emitEval; emitCollect )
 open import MuroBeam.Death using
-  ( DRun; dran; base; runDs
+  ( Meet; mt; ph-run; downH; downρ
+  ; DRun; dran; base; runDs
   ; downOps; againOps; doneOps; abandonOps; sendOps
   ; settleAfterOps
   ; meetMail; meetEmpty; meetNormal )
@@ -44,9 +51,15 @@ open import MuroBeam.Event using
   ( Event; tr-alloc; tr-spend; tr-send; tr-recv; tr-spawn; tr-step; tr-collect; tr-down
   ; Why; killed; crash; normal; abandon )
 open import MuroBeam.Grade using (Kept; fin-kept; ω-kept; iv-kept; selfKept; Kind; Kmove; Kcopy)
-open import MuroBeam.Heap using (Obj; cell; nat; live; free; Ref; ref)
-open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; go)
-open import MuroBeam.Process using (Sys; sys; proc; ready; idle; ev; pr; eval1; runFor)
+open import MuroBeam.Heap using (Obj; cell; nat; suc↑; live; free; Ref; ref)
+open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; await; ignore; go)
+open import MuroBeam.PRun using (mailHas)
+open import MuroBeam.Process using
+  ( Sys; sys; heap; Proc; proc; ready; idle; ev; pr; procs; eval1; runFor; msg )
+  renaming (done to pstDone)
+open import MuroBeam.Sched using
+  ( drive; Drove; final; oc; evs; val; findHit
+  ; Outcome; plain; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 
 ------------------------------------------------------------------------
 -- Decimal, same division as book/show.muro. Eight digits is enough
@@ -315,8 +328,157 @@ asRun : Maybe DRun → Maybe Run
 asRun nothing = nothing
 asRun (just (dran m es)) = just (ran (base m) es)
 
--- Seven examples, the printer check, then the death schedules.
--- The driver prints this and nothing else.
+-- Scheduled runs. The driver chooses every pop. Fuel 16 is the
+-- book's driveFuel. The cursor starts at 0 and the kept nat starts
+-- empty. No pop list is written down.
+------------------------------------------------------------------------
+
+driveFuel : ℕ
+driveFuel =
+  suc (suc (suc (suc
+  (suc (suc (suc (suc
+  (suc (suc (suc (suc
+  (suc (suc (suc (suc zero)))))))))))))))
+
+showOc : ∀ {t} → Outcome t → String
+showOc o with plain o
+... | plain-halted    = "halted"
+... | plain-deadlock  = "deadlock"
+... | plain-stuck i   = "stuck " ++ showℕ i
+... | plain-fuel      = "fuel"
+
+showVal : Maybe ℕ → String
+showVal nothing  = "v-"
+showVal (just n) = "v" ++ showℕ n
+
+showDrove : Drove → String
+showDrove d =
+  showOc (oc d) ++ " " ++ showEvents (evs d) ++ " " ++
+  showFp (final d) ++ " " ++ showVal (val d)
+
+schedBody : Sys → List Meet → String
+schedBody s ms = showDrove (proj₁ (drive driveFuel zero ms nothing s))
+
+igTm : PTm (suc zero)
+igTm = spawn (keep t[]) tripChild (ignore (fzero {zero}) (done {suc zero}))
+
+ig0 : Sys
+ig0 = sys tripH0 (proc zero ready [] [] (pr (go igTm (ρ ∷ []) [] [] [])) ∷ [])
+
+awTm : PTm (suc zero)
+awTm = spawn (keep t[]) tripChild (await (fzero {zero}) (done {suc zero}))
+
+aw0 : Sys
+aw0 = sys tripH0 (proc zero ready [] [] (pr (go awTm (ρ ∷ []) [] [] [])) ∷ [])
+
+deadSys : Sys
+deadSys =
+  sys []
+    (proc zero ready [] []
+      (pr (go (recv g1 g0 (done {suc zero})) [] [] [] [])) ∷ [])
+
+stuckSys : Sys
+stuckSys =
+  sys []
+    (proc zero ready [] []
+      (pr (go (send zero (fzero {zero}) (done {suc zero})) [] [] [] [])) ∷ [])
+
+twoTm : PTm zero
+twoTm = spawn t[] (done {zero}) (done {zero})
+
+twoSys : Sys
+twoSys = sys [] (proc zero ready [] [] (pr (go twoTm [] [] [] [])) ∷ [])
+
+threeTm : PTm zero
+threeTm = spawn t[] (done {zero}) (spawn t[] (done {zero}) (done {zero}))
+
+threeSys : Sys
+threeSys = sys [] (proc zero ready [] [] (pr (go threeTm [] [] [] [])) ∷ [])
+
+schedDownPs : List Proc
+schedDownPs =
+  proc zero ready [] (msg downρ ∷ [])
+    (pr (go (recv g1 g0 (done {suc zero})) [] [] [] []))
+  ∷ proc (suc zero) ready [] []
+    (pr (go (done {zero}) [] [] [] []))
+  ∷ []
+
+schedDown : Bool → Meet
+schedDown noted =
+  mt (sys downH schedDownPs)
+     true zero (suc zero) ph-run ph-run
+     false true killed true false noted killed
+
+-- Boolean image of `AllFree`: every cell is `nat 0` and `free`.
+freeCell : Obj → Bool
+freeCell (cell (nat zero) free) = true
+freeCell (cell _ _) = false
+
+allFreeB : List Obj → Bool
+allFreeB [] = true
+allFreeB (o ∷ os) = freeCell o ∧ allFreeB os
+
+showBool : Bool → String
+showBool true = "true"
+showBool false = "false"
+
+-- `none` is `findHit ≡ nothing`: no `At` step. It is not `¬ PStep`.
+showEn : Sys → String
+showEn s with findHit s
+... | nothing = "none"
+... | just _  = "some"
+
+-- Delivered payload is `suc↑` of `nat 0`. The kept nat is 1.
+up0 : Ref
+up0 = ref zero g0 g0 (selfKept g0)
+
+up1 : Ref
+up1 = ref (suc zero) g0 g0 (selfKept g0)
+
+upSys : Sys
+upSys =
+  sys (cell (nat zero) live ∷ cell (suc↑ up0) live ∷ [])
+    (proc zero ready [] (msg up1 ∷ [])
+      (pr (go (recv g0 g0 (done {suc zero})) [] [] [] []))
+    ∷ [])
+
+-- Tag 0 is dead and unreferenced (`ReplyDone` in `SchedThm`). The
+-- child holds a g0 placeholder and an empty ether, so it cannot put
+-- tag 0 back in a mailbox. `mail` is `mailHas` of that tag. `en` is
+-- the enabled scan on the final system.
+ph1 : Ref
+ph1 = ref (suc zero) g0 g0 (selfKept g0)
+
+straySys : Sys
+straySys =
+  sys (cell (nat zero) live ∷ cell (nat zero) live ∷ [])
+    ( proc zero ready [] []
+        (pr (go (done {zero}) [] [] (zero ∷ []) []))
+    ∷ proc (suc zero) ready [] []
+        (pr (go (send zero (fzero {zero}) (done {suc zero}))
+              (ph1 ∷ []) [] [] []))
+    ∷ [])
+
+strayBody : String
+strayBody =
+  let d = proj₁ (drive driveFuel zero [] nothing straySys) in
+  showDrove d ++ " mail " ++ showBool (mailHas (procs (final d)) zero zero)
+    ++ " en " ++ showEn (final d)
+
+-- One already-done process and an orphan live cell. Halt collects.
+-- `free` is the boolean image of `AllFree` on the final heap.
+emptySys : Sys
+emptySys =
+  sys (cell (nat zero) live ∷ [])
+    (proc zero pstDone [] [] idle ∷ [])
+
+emptyBody : String
+emptyBody =
+  let d = proj₁ (drive driveFuel zero [] nothing emptySys) in
+  showDrove d ++ " free " ++ showBool (allFreeB (heap (final d)))
+
+-- The older lines, then the scheduled ones. The driver prints this
+-- and nothing else.
 ------------------------------------------------------------------------
 
 report : String
@@ -334,4 +496,16 @@ report =
   line "down-done" (showMaybe (asRun (runDs doneOps meetEmpty))) ++
   line "abandon" (showMaybe (asRun (runDs abandonOps meetEmpty))) ++
   line "send-dead" (showMaybe (asRun (runDs sendOps meetEmpty))) ++
-  line "settle-after-exit" (showMaybe (asRun (runDs settleAfterOps meetNormal)))
+  line "settle-after-exit" (showMaybe (asRun (runDs settleAfterOps meetNormal))) ++
+  line "sched-trip" (schedBody s0 []) ++
+  line "sched-ignore" (schedBody ig0 []) ++
+  line "sched-await" (schedBody aw0 []) ++
+  line "sched-dead" (schedBody deadSys []) ++
+  line "sched-stuck" (schedBody stuckSys []) ++
+  line "sched-two" (schedBody twoSys []) ++
+  line "sched-three" (schedBody threeSys []) ++
+  line "sched-down" (schedBody (sys downH schedDownPs) (schedDown false ∷ [])) ++
+  line "sched-down-again" (schedBody (sys downH schedDownPs) (schedDown true ∷ [])) ++
+  line "sched-up" (schedBody upSys []) ++
+  line "sched-stray" strayBody ++
+  line "sched-empty" emptyBody

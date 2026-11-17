@@ -8,8 +8,8 @@
 -- results are pinned, and runPops, which applies one Pop at a time.
 --
 -- step-collect is always a step. p-lift is a Pop that runs tryStep.
--- There is no p-await, p-flush, p-npeek, or p-ndemon: those operations
--- are not in this book.
+-- p-await, p-flush, p-npeek, and p-ndemon are the book/await.muro steps.
+-- pop-eval is eval1. pop-lift stays the v0 Op.
 --
 -- runPops is structural on the Pop list. The list is the first
 -- argument, so the recursive call's decreasing argument is that tail.
@@ -18,6 +18,7 @@
 import "prun.muro"
 import "recv.muro"
 import "collect.muro"
+import "await.muro"
 
 -- Host reuse on the indices the operations read twice. Not a BeamGrade.
 data Op : Type where
@@ -34,10 +35,15 @@ data Pop : Type where
   pop-emit : Π (+ i : Nat) → Pop
   pop-deliver : Π (+ i : Nat) → Pop
   pop-recv : Π (+ i : Nat) → Pop
+  pop-await : Π (+ i : Nat) → Pop
   pop-arm : Π (+ i : Nat) → Pop
+  pop-flush : Π (+ i : Nat) → Pop
+  pop-npeek : Π (+ i : Nat) → Pop
+  pop-ndemon : Π (+ i : Nat) → Pop
   pop-seq : Π (+ i : Nat) → Pop
   pop-bind : Π (+ i : Nat) → Pop
   pop-done : Π (+ i : Nat) → Pop
+  pop-eval : Π (+ i : Nat) → Pop
   pop-lift : Op → Pop
 
 data Step : Type where
@@ -55,7 +61,11 @@ data PStep : Type where
   p-emit : Sys → Sys → PStep
   p-deliver : Sys → Sys → PStep
   p-recv : Sys → Sys → PStep
+  p-await : Sys → Sys → PStep
   p-arm : Sys → Sys → PStep
+  p-flush : Sys → Sys → PStep
+  p-npeek : Sys → Sys → PStep
+  p-ndemon : Sys → Sys → PStep
   p-seq : Sys → Sys → PStep
   p-bind : Sys → Sys → PStep
   p-done : Sys → Sys → PStep
@@ -95,10 +105,15 @@ def tryPStep : run Π (s : Sys) → Π (p : Pop) → Maybe Sys :=
       | pop-emit i => emit1 s i
       | pop-deliver i => deliver1 s i
       | pop-recv i => recv1 s i
+      | pop-await i => await1 s i
       | pop-arm i => arm1 s i
+      | pop-flush i => flush1 s i
+      | pop-npeek i => npeek1 s i
+      | pop-ndemon i => ndemon1 s i
       | pop-seq i => seq1 s i
       | pop-bind i => bind1 s i
       | pop-done i => done1 s i
+      | pop-eval i => eval1 s i
       | pop-lift op => tryStep s op
 
 def stepOf : run Π (+ s : Sys) → Π (op : Op) → Maybe Step :=
@@ -149,10 +164,26 @@ def pstepOf : run Π (+ s : Sys) → Π (p : Pop) → Maybe PStep :=
           (match (recv1 s i) motive (λ _ → Maybe PStep)
             | nothing => nothing
             | just t => just (p-recv s t))
+      | pop-await i =>
+          (match (await1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-await s t))
       | pop-arm i =>
           (match (arm1 s i) motive (λ _ → Maybe PStep)
             | nothing => nothing
             | just t => just (p-arm s t))
+      | pop-flush i =>
+          (match (flush1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-flush s t))
+      | pop-npeek i =>
+          (match (npeek1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-npeek s t))
+      | pop-ndemon i =>
+          (match (ndemon1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-ndemon s t))
       | pop-seq i =>
           (match (seq1 s i) motive (λ _ → Maybe PStep)
             | nothing => nothing
@@ -165,6 +196,10 @@ def pstepOf : run Π (+ s : Sys) → Π (p : Pop) → Maybe PStep :=
           (match (done1 s i) motive (λ _ → Maybe PStep)
             | nothing => nothing
             | just t => just (p-done s t))
+      | pop-eval i =>
+          (match (eval1 s i) motive (λ _ → Maybe PStep)
+            | nothing => nothing
+            | just t => just (p-lift (step-eval s t)))
       | pop-lift op =>
           (match (stepOf s op) motive (λ _ → Maybe PStep)
             | nothing => nothing

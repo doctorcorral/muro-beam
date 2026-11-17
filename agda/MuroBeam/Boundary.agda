@@ -304,6 +304,8 @@ inB? Γ (gmatch e z s) with inB? Γ e | inB? Γ z | inB? (predGrade Γ e Vec.∷
 ... | no ¬e  | _      | _      = no (λ { (ib-mat pe _ _) → ¬e pe })
 ... | yes _  | no ¬z  | _      = no (λ { (ib-mat _ pz _) → ¬z pz })
 ... | yes _  | yes _  | no ¬s  = no (λ { (ib-mat _ _ ps) → ¬s ps })
+-- Closed code. The index is not checked here; `decideB` checks it.
+-- `InBoundary` is still `InB []` of `embed` of a `GTm`.
 inB? Γ (gref _) = yes ib-ref
 
 inBoundary? : (t : GTm 0) → Dec (InBoundary t)
