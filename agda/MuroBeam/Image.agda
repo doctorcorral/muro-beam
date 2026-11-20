@@ -31,11 +31,37 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 open import Muro.Grade using (Point; fin; inf; Grade; pt; iv)
 open import MuroBeam.BTm using
   ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+open import MuroBeam.PSyntax using (Thin; t[]; keep; skip)
+
+------------------------------------------------------------------------
+-- Surface process term. `awaitT`, `ignoreT`, `flushT`, `ncheckT`,
+-- and `ndemonT` are not here. `spawn` writes those once a moved
+-- reply has an object index. A `seq` in the file carries no
+-- definition list: the image `(defs …)` section is the root seq's
+-- list, and load attaches it. A nested seq has an empty list.
+------------------------------------------------------------------------
+
+data SPtm (n : ℕ) : Set where
+  sdone    : SPtm n
+  ssend    : ℕ → Fin n → SPtm n → SPtm n
+  srecv    : Grade → Grade → SPtm (suc n) → SPtm n
+  sspawn   : ∀ {m} → Thin m n → SPtm m → SPtm n → SPtm n
+  sseq     : BTm n → SPtm (suc n) → SPtm n
+  sawait   : Fin n → SPtm n → SPtm n
+  signore  : Fin n → SPtm n → SPtm n
+  snignore : Fin n → SPtm n → SPtm n
+
+-- `(seq <btm> (done))` is the pure entry. Anything else is a process.
+isLegacy : SPtm 0 → Bool
+isLegacy (sseq _ sdone) = true
+isLegacy _               = false
 
 ------------------------------------------------------------------------
 -- The file. The loader accepts format 1 and format 2, and boundary
--- version 1. `defs` is the code segment. `term` is the entry. The
--- checked program is `seq defs term done`.
+-- version 1. `defs` is the code segment. `entry` is the process.
+-- A legacy entry is `sseq term sdone`, and the checked program is
+-- `seq defs term done`. A `(defs …)` section on any other entry is
+-- refused: the section attaches only to that root seq.
 ------------------------------------------------------------------------
 
 format-version : ℕ
@@ -47,7 +73,7 @@ record Image : Set where
     format   : ℕ
     boundary : ℕ
     defs     : List (BTm 0)
-    term     : BTm 0
+    entry    : SPtm 0
 
 open Image public
 
@@ -498,6 +524,30 @@ showDefs [] = []
 showDefs (t ∷ []) = showB t
 showDefs (t ∷ t2 ∷ ts) = showB t ++ (toList " " ++ showDefs (t2 ∷ ts))
 
+showThin : ∀ {m n} → Thin m n → List Char
+showThin t[]        = toList "t[]"
+showThin (keep th)  = toList "(keep " ++ showThin th ++ toList ")"
+showThin (skip th)  = toList "(skip " ++ showThin th ++ toList ")"
+
+showS : ∀ {n} → SPtm n → List Char
+showS sdone = toList "(done)"
+showS (ssend j x k) =
+  toList "(send " ++ showNat j ++ toList " " ++ showNat (toℕ x)
+  ++ toList " " ++ showS k ++ toList ")"
+showS (srecv c t k) =
+  toList "(recv " ++ showPair c t ++ toList " " ++ showS k ++ toList ")"
+showS (sspawn th ch pa) =
+  toList "(spawn " ++ showThin th ++ toList " " ++ showS ch
+  ++ toList " " ++ showS pa ++ toList ")"
+showS (sseq e k) =
+  toList "(seq " ++ showB e ++ toList " " ++ showS k ++ toList ")"
+showS (sawait x k) =
+  toList "(await " ++ showNat (toℕ x) ++ toList " " ++ showS k ++ toList ")"
+showS (signore x k) =
+  toList "(ignore " ++ showNat (toℕ x) ++ toList " " ++ showS k ++ toList ")"
+showS (snignore x k) =
+  toList "(nignore " ++ showNat (toℕ x) ++ toList " " ++ showS k ++ toList ")"
+
 -- Empty `defs` omits the section. A cons prints the defs section.
 -- The format number is the field, not this choice: a v1 file has
 -- empty `defs` and reprints without a section, and a format-2
@@ -517,8 +567,31 @@ renderWith (d ∷ ds) fv bv tm =
   ++ toList " (done))))"
   ++ toList "\n"
 
+-- A process entry. The legacy `(seq <btm> (done))` line stays
+-- `renderWith`, so its bytes do not move.
+renderGen : List (BTm 0) → ℕ → ℕ → SPtm 0 → List Char
+renderGen [] fv bv p =
+  toList "(muro-beam-image " ++ showNat fv
+  ++ toList " (boundary " ++ showNat bv
+  ++ toList ") (entry " ++ showS p
+  ++ toList "))"
+  ++ toList "\n"
+renderGen (d ∷ ds) fv bv p =
+  toList "(muro-beam-image " ++ showNat fv
+  ++ toList " (boundary " ++ showNat bv
+  ++ toList ") (defs " ++ showDefs (d ∷ ds)
+  ++ toList ") (entry " ++ showS p
+  ++ toList "))"
+  ++ toList "\n"
+
+renderAt : List (BTm 0) → ℕ → ℕ → SPtm 0 → List Char
+renderAt ds fv bv (sseq tm k) with isLegacy (sseq tm k)
+... | true  = renderWith ds fv bv tm
+... | false = renderGen ds fv bv (sseq tm k)
+renderAt ds fv bv p = renderGen ds fv bv p
+
 render : Image → List Char
-render i = renderWith (defs i) (format i) (boundary i) (term i)
+render i = renderAt (defs i) (format i) (boundary i) (entry i)
 
 showImage : Image → String
 showImage i = fromList (render i)

@@ -14,7 +14,7 @@ open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero; suc to fsu
 open import Data.List.Base using (List; []; _∷_; _++_; reverse; reverseAcc)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc)
-open import Data.Product.Base using (_×_; _,_; Σ)
+open import Data.Product.Base using (_×_; _,_; Σ; proj₁; proj₂)
 open import Data.String.Base using (String; toList)
 open import Data.Unit.Base using (⊤; tt)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
@@ -23,10 +23,14 @@ open import Muro.Base using (Result; ok; fail)
 open import Muro.Grade using (Point; fin; inf; Grade; pt; iv)
 open import MuroBeam.BTm using
   ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+open import MuroBeam.PSyntax using (Thin; t[]; keep; skip)
 
 open import MuroBeam.Image using
-  ( Image; mk; format; boundary; term; defs
-  ; showNat; showPoint; showGrade; showPair; showB; showDefs; render; renderWith
+  ( Image; mk; format; boundary; entry; defs
+  ; SPtm; sdone; ssend; srecv; sspawn; sseq; sawait; signore; snignore
+  ; isLegacy
+  ; showNat; showPoint; showGrade; showPair; showB; showDefs; showThin; showS
+  ; render; renderWith; renderGen
   ; readNatAtom; read-show
   ; AllD; Dig; D0; D1; D2; D3; D4; D5; D6; D7; D8; D9
   ; inc; toLSB; lsb-dig; allD-reverse )
@@ -44,6 +48,9 @@ data Sexp : Set where
 data Tag : Set where
   tgze tgsu tgapp tgmatch tglam tgpi tgvar tgtyp tgref tiv tw : Tag
   timage tbound tdefs tentry tseq tdone tno : Tag
+  tsend trecv tspawn tawait tignore tnignore : Tag
+  tkeep tskip tthin : Tag
+  tawaitT tignoreT tflushT tncheckT tndemonT : Tag
 
 tag : List Char → Tag
 tag ('g' ∷ 'z' ∷ 'e' ∷ []) = tgze
@@ -63,6 +70,20 @@ tag ('d' ∷ 'e' ∷ 'f' ∷ 's' ∷ []) = tdefs
 tag ('e' ∷ 'n' ∷ 't' ∷ 'r' ∷ 'y' ∷ []) = tentry
 tag ('s' ∷ 'e' ∷ 'q' ∷ []) = tseq
 tag ('d' ∷ 'o' ∷ 'n' ∷ 'e' ∷ []) = tdone
+tag ('s' ∷ 'e' ∷ 'n' ∷ 'd' ∷ []) = tsend
+tag ('r' ∷ 'e' ∷ 'c' ∷ 'v' ∷ []) = trecv
+tag ('s' ∷ 'p' ∷ 'a' ∷ 'w' ∷ 'n' ∷ []) = tspawn
+tag ('a' ∷ 'w' ∷ 'a' ∷ 'i' ∷ 't' ∷ 'T' ∷ []) = tawaitT
+tag ('a' ∷ 'w' ∷ 'a' ∷ 'i' ∷ 't' ∷ []) = tawait
+tag ('i' ∷ 'g' ∷ 'n' ∷ 'o' ∷ 'r' ∷ 'e' ∷ 'T' ∷ []) = tignoreT
+tag ('i' ∷ 'g' ∷ 'n' ∷ 'o' ∷ 'r' ∷ 'e' ∷ []) = tignore
+tag ('n' ∷ 'i' ∷ 'g' ∷ 'n' ∷ 'o' ∷ 'r' ∷ 'e' ∷ []) = tnignore
+tag ('n' ∷ 'c' ∷ 'h' ∷ 'e' ∷ 'c' ∷ 'k' ∷ 'T' ∷ []) = tncheckT
+tag ('n' ∷ 'd' ∷ 'e' ∷ 'm' ∷ 'o' ∷ 'n' ∷ 'T' ∷ []) = tndemonT
+tag ('f' ∷ 'l' ∷ 'u' ∷ 's' ∷ 'h' ∷ 'T' ∷ []) = tflushT
+tag ('k' ∷ 'e' ∷ 'e' ∷ 'p' ∷ []) = tkeep
+tag ('s' ∷ 'k' ∷ 'i' ∷ 'p' ∷ []) = tskip
+tag ('t' ∷ '[' ∷ ']' ∷ []) = tthin
 tag _ = tno
 
 sexpPoint : Point → Sexp
@@ -118,8 +139,51 @@ sexpWith (d ∷ ds) fv bv tm =
        ∷ entrySexp tm
        ∷ [])
 
+sexpThin : ∀ {m n} → Thin m n → Sexp
+sexpThin t[]       = atom (toList "t[]")
+sexpThin (keep th) = nest (atom (toList "keep") ∷ sexpThin th ∷ [])
+sexpThin (skip th) = nest (atom (toList "skip") ∷ sexpThin th ∷ [])
+
+sexpS : ∀ {n} → SPtm n → Sexp
+sexpS sdone = nest (atom (toList "done") ∷ [])
+sexpS (ssend j x k) =
+  nest (atom (toList "send") ∷ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ sexpS k ∷ [])
+sexpS (srecv c t k) =
+  nest (atom (toList "recv") ∷ sexpPair c t ∷ sexpS k ∷ [])
+sexpS (sspawn th ch pa) =
+  nest (atom (toList "spawn") ∷ sexpThin th ∷ sexpS ch ∷ sexpS pa ∷ [])
+sexpS (sseq e k) =
+  nest (atom (toList "seq") ∷ sexpB e ∷ sexpS k ∷ [])
+sexpS (sawait x k) =
+  nest (atom (toList "await") ∷ atom (showNat (toℕ x)) ∷ sexpS k ∷ [])
+sexpS (signore x k) =
+  nest (atom (toList "ignore") ∷ atom (showNat (toℕ x)) ∷ sexpS k ∷ [])
+sexpS (snignore x k) =
+  nest (atom (toList "nignore") ∷ atom (showNat (toℕ x)) ∷ sexpS k ∷ [])
+
+sexpGen : List (BTm 0) → ℕ → ℕ → SPtm 0 → Sexp
+sexpGen [] fv bv p =
+  nest ( atom (toList "muro-beam-image")
+       ∷ atom (showNat fv)
+       ∷ nest (atom (toList "boundary") ∷ atom (showNat bv) ∷ [])
+       ∷ nest (atom (toList "entry") ∷ sexpS p ∷ [])
+       ∷ [])
+sexpGen (d ∷ ds) fv bv p =
+  nest ( atom (toList "muro-beam-image")
+       ∷ atom (showNat fv)
+       ∷ nest (atom (toList "boundary") ∷ atom (showNat bv) ∷ [])
+       ∷ nest (atom (toList "defs") ∷ sexpList (d ∷ ds))
+       ∷ nest (atom (toList "entry") ∷ sexpS p ∷ [])
+       ∷ [])
+
+sexpAt : List (BTm 0) → ℕ → ℕ → SPtm 0 → Sexp
+sexpAt ds fv bv (sseq tm k) with isLegacy (sseq tm k)
+... | true  = sexpWith ds fv bv tm
+... | false = sexpGen ds fv bv (sseq tm k)
+sexpAt ds fv bv p = sexpGen ds fv bv p
+
 sexpImage : Image → Sexp
-sexpImage i = sexpWith (defs i) (format i) (boundary i) (term i)
+sexpImage i = sexpAt (defs i) (format i) (boundary i) (entry i)
 
 ------------------------------------------------------------------------
 -- de Bruijn. An index that does not fit the scope is refused.
@@ -237,26 +301,136 @@ mutual
   ... | _       = fail "junk"
   fromB (nest (_ ∷ _)) = fail "junk"
 
-fromDone : Sexp → Result ⊤
-fromDone (nest (atom k ∷ [])) with tag k
-... | tdone = ok tt
+------------------------------------------------------------------------
+-- Surface process. Tagged forms are refused. A thin that does not
+-- match the parent's scope, and a de Bruijn index that does not fit,
+-- are `out of scope`.
+------------------------------------------------------------------------
+
+data TRaw : Set where
+  rnil  : TRaw
+  rkeep : TRaw → TRaw
+  rskip : TRaw → TRaw
+
+fromRaw : Sexp → Result TRaw
+keepRaw : List Sexp → Result TRaw
+skipRaw : List Sexp → Result TRaw
+
+fromRaw (atom cs) with tag cs
+... | tthin = ok rnil
 ... | _     = fail "junk"
-fromDone _ = fail "junk"
+fromRaw (nest (atom cs ∷ xs)) with tag cs
+... | tkeep = keepRaw xs
+... | tskip = skipRaw xs
+... | _     = fail "junk"
+fromRaw _ = fail "junk"
 
-fromSeq : Sexp → Result (BTm 0)
-fromSeq (nest (atom k ∷ t ∷ d ∷ [])) with tag k
-... | tseq = seqBoth (fromB t) (fromDone d)
-  where
-  seqBoth : Result (BTm 0) → Result ⊤ → Result (BTm 0)
-  seqBoth (ok tm) (ok _)   = ok tm
-  seqBoth (fail e) _       = fail e
-  seqBoth (ok _) (fail e)  = fail e
-... | _ = fail "junk"
-fromSeq _ = fail "junk"
+keepRaw (t ∷ []) with fromRaw t
+... | ok r   = ok (rkeep r)
+... | fail e = fail e
+keepRaw _ = fail "junk"
 
-fromEntry : Sexp → Result (BTm 0)
+skipRaw (t ∷ []) with fromRaw t
+... | ok r   = ok (rskip r)
+... | fail e = fail e
+skipRaw _ = fail "junk"
+
+fit : ∀ {n} → TRaw → Maybe (Σ ℕ (λ m → Thin m n))
+fit {zero}  rnil       = just (zero , t[])
+fit {zero}  (rkeep _)  = nothing
+fit {zero}  (rskip _)  = nothing
+fit {suc n} rnil       = nothing
+fit {suc n} (rkeep t) with fit {n} t
+... | just (m , th) = just (suc m , keep th)
+... | nothing       = nothing
+fit {suc n} (rskip t) with fit {n} t
+... | just (m , th) = just (m , skip th)
+... | nothing       = nothing
+
+mutual
+  fromS : ∀ {n} → Sexp → Result (SPtm n)
+
+  fromSend : ∀ {n} → List Sexp → Result (SPtm n)
+  fromSend {n} (atom dj ∷ atom dx ∷ body ∷ []) =
+    sendBoth (readNatAtom dj) (readNatAtom dx) body
+    where
+    sendBody : ℕ → Fin n → Result (SPtm n) → Result (SPtm n)
+    sendBody j x (ok k)   = ok (ssend j x k)
+    sendBody _ _ (fail e) = fail e
+    sendBoth : Maybe ℕ → Maybe ℕ → Sexp → Result (SPtm n)
+    sendBoth nothing _ _ = fail "junk"
+    sendBoth (just _) nothing _ = fail "junk"
+    sendBoth (just j) (just i) b with finFrom {n} i
+    ... | nothing = fail "out of scope"
+    ... | just x  = sendBody j x (fromS b)
+  fromSend _ = fail "junk"
+
+  fromRecv : ∀ {n} → List Sexp → Result (SPtm n)
+  fromRecv {n} (p ∷ k ∷ []) with fromPair p
+  ... | fail e = fail e
+  ... | ok (c , t) = recvBody c t (fromS {suc n} k)
+    where
+    recvBody : Grade → Grade → Result (SPtm (suc n)) → Result (SPtm n)
+    recvBody c t (ok k)  = ok (srecv c t k)
+    recvBody _ _ (fail e) = fail e
+  fromRecv _ = fail "junk"
+
+  fromSpawn : ∀ {n} → List Sexp → Result (SPtm n)
+  fromSpawn {n} (th ∷ ch ∷ pa ∷ []) with fromRaw th
+  ... | fail e = fail e
+  ... | ok raw with fit {n} raw
+  ... | nothing = fail "out of scope"
+  ... | just (m , thin) = spawnBoth thin (fromS {m} ch) (fromS {n} pa)
+    where
+    spawnBoth : ∀ {m} → Thin m n → Result (SPtm m) → Result (SPtm n) → Result (SPtm n)
+    spawnBoth thin (ok c) (ok p) = ok (sspawn thin c p)
+    spawnBoth _ (fail e) _ = fail e
+    spawnBoth _ (ok _) (fail e) = fail e
+  fromSpawn _ = fail "junk"
+
+  fromSeqP : ∀ {n} → List Sexp → Result (SPtm n)
+  fromSeqP {n} (t ∷ k ∷ []) = seqBoth (fromB {n} t) (fromS {suc n} k)
+    where
+    seqBoth : Result (BTm n) → Result (SPtm (suc n)) → Result (SPtm n)
+    seqBoth (ok tm) (ok k) = ok (sseq tm k)
+    seqBoth (fail e) _ = fail e
+    seqBoth (ok _) (fail e) = fail e
+  fromSeqP _ = fail "junk"
+
+  fromUse : ∀ {n} → (Fin n → SPtm n → SPtm n) → List Sexp → Result (SPtm n)
+  fromUse {n} ctor (atom ds ∷ k ∷ []) with readNatAtom ds
+  ... | nothing = fail "junk"
+  ... | just i with finFrom {n} i
+  ... | nothing = fail "out of scope"
+  ... | just x = useBody ctor x (fromS k)
+    where
+    useBody : (Fin n → SPtm n → SPtm n) → Fin n → Result (SPtm n) → Result (SPtm n)
+    useBody ctor x (ok k) = ok (ctor x k)
+    useBody _ _ (fail e) = fail e
+  fromUse _ _ = fail "junk"
+
+  surfaceTag : ∀ {n} → Tag → List Sexp → Result (SPtm n)
+  surfaceTag {n} tdone    [] = ok sdone
+  surfaceTag tsend    xs = fromSend xs
+  surfaceTag trecv    xs = fromRecv xs
+  surfaceTag tspawn   xs = fromSpawn xs
+  surfaceTag tseq     xs = fromSeqP xs
+  surfaceTag tawait   xs = fromUse sawait xs
+  surfaceTag tignore  xs = fromUse signore xs
+  surfaceTag tnignore xs = fromUse snignore xs
+  surfaceTag tawaitT  _  = fail "not surface"
+  surfaceTag tignoreT _  = fail "not surface"
+  surfaceTag tflushT  _  = fail "not surface"
+  surfaceTag tncheckT _  = fail "not surface"
+  surfaceTag tndemonT _  = fail "not surface"
+  surfaceTag _        _  = fail "junk"
+
+  fromS (nest (atom cs ∷ xs)) = surfaceTag (tag cs) xs
+  fromS _ = fail "junk"
+
+fromEntry : Sexp → Result (SPtm 0)
 fromEntry (nest (atom k ∷ b ∷ [])) with tag k
-... | tentry = fromSeq b
+... | tentry = fromS b
 ... | _      = fail "junk"
 fromEntry _ = fail "junk"
 
@@ -296,7 +470,7 @@ fromImage : Sexp → Result Image
 fromImage (nest (atom k ∷ atom v ∷ b ∷ rest)) with tag k
 ... | timage = imageRest (readNatAtom v) (fromBound b) rest
   where
-  build : Maybe ℕ → Result ℕ → Result (List (BTm 0)) → Result (BTm 0) → Result Image
+  build : Maybe ℕ → Result ℕ → Result (List (BTm 0)) → Result (SPtm 0) → Result Image
   build (just fv) (ok bv) (ok ds) (ok tm) = ok (mk fv bv ds tm)
   build nothing _ _ _ = fail "junk"
   build (just _) (fail msg) _ _ = fail msg
@@ -611,23 +785,63 @@ fromDefs-ok : ∀ t ts →
   fromDefs (nest (atom (toList "defs") ∷ sexpList (t ∷ ts))) ≡ ok (t ∷ ts)
 fromDefs-ok t ts rewrite fromB-ok t | tail-ok ts = refl
 
+erase : ∀ {m n} → Thin m n → TRaw
+erase t[]       = rnil
+erase (keep th) = rkeep (erase th)
+erase (skip th) = rskip (erase th)
+
+fromRaw-ok : ∀ {m n} (th : Thin m n) → fromRaw (sexpThin th) ≡ ok (erase th)
+fromRaw-ok t[]       = refl
+fromRaw-ok (keep th) rewrite fromRaw-ok th = refl
+fromRaw-ok (skip th) rewrite fromRaw-ok th = refl
+
+fit-ok : ∀ {m n} (th : Thin m n) → fit {n} (erase th) ≡ just (m , th)
+fit-ok t[]       = refl
+fit-ok (keep th) rewrite fit-ok th = refl
+fit-ok (skip th) rewrite fit-ok th = refl
+
+fromS-ok : ∀ {n} (p : SPtm n) → fromS (sexpS p) ≡ ok p
+fromS-ok {n} sdone = refl
+fromS-ok (ssend j x k) rewrite read-show j | read-show (toℕ x) | fin-to x | fromS-ok k = refl
+fromS-ok (srecv c t k) rewrite fromPair-ok c t | fromS-ok k = refl
+fromS-ok (sspawn th ch pa) rewrite fromRaw-ok th | fit-ok th | fromS-ok ch | fromS-ok pa = refl
+fromS-ok (sseq e k) rewrite fromB-ok e | fromS-ok k = refl
+fromS-ok (sawait x k) rewrite read-show (toℕ x) | fin-to x | fromS-ok k = refl
+fromS-ok (signore x k) rewrite read-show (toℕ x) | fin-to x | fromS-ok k = refl
+fromS-ok (snignore x k) rewrite read-show (toℕ x) | fin-to x | fromS-ok k = refl
+
+-- `sexpGen` is the process printer. `sexpWith` is the legacy printer.
+-- `entrySexp tm` is `sexpS (sseq tm sdone)`, so the same `fromS-ok`
+-- reads both.
+fromGen : ∀ ds fv bv p → fromImage (sexpGen ds fv bv p) ≡ ok (mk fv bv ds p)
+fromGen [] fv bv p rewrite read-show fv | read-show bv | fromS-ok p = refl
+fromGen (t ∷ ts) fv bv p rewrite read-show fv | read-show bv | fromDefs-ok t ts | fromS-ok p = refl
+
+fromWith : ∀ ds fv bv tm →
+  fromImage (sexpWith ds fv bv tm) ≡ ok (mk fv bv ds (sseq tm sdone))
+fromWith [] fv bv tm rewrite read-show fv | read-show bv | fromS-ok (sseq tm sdone) = refl
+fromWith (t ∷ ts) fv bv tm rewrite read-show fv | read-show bv | fromDefs-ok t ts
+                                     | fromS-ok (sseq tm sdone) = refl
+
+fromAt : ∀ ds fv bv p → fromImage (sexpAt ds fv bv p) ≡ ok (mk fv bv ds p)
+fromAt ds fv bv sdone = fromGen ds fv bv sdone
+fromAt ds fv bv (ssend j x k) = fromGen ds fv bv (ssend j x k)
+fromAt ds fv bv (srecv c t k) = fromGen ds fv bv (srecv c t k)
+fromAt ds fv bv (sspawn th ch pa) = fromGen ds fv bv (sspawn th ch pa)
+fromAt ds fv bv (sseq tm sdone) = fromWith ds fv bv tm
+fromAt ds fv bv (sseq tm (ssend j x k)) = fromGen ds fv bv (sseq tm (ssend j x k))
+fromAt ds fv bv (sseq tm (srecv c t k)) = fromGen ds fv bv (sseq tm (srecv c t k))
+fromAt ds fv bv (sseq tm (sspawn th ch pa)) = fromGen ds fv bv (sseq tm (sspawn th ch pa))
+fromAt ds fv bv (sseq tm (sseq e k)) = fromGen ds fv bv (sseq tm (sseq e k))
+fromAt ds fv bv (sseq tm (sawait x k)) = fromGen ds fv bv (sseq tm (sawait x k))
+fromAt ds fv bv (sseq tm (signore x k)) = fromGen ds fv bv (sseq tm (signore x k))
+fromAt ds fv bv (sseq tm (snignore x k)) = fromGen ds fv bv (sseq tm (snignore x k))
+fromAt ds fv bv (sawait x k) = fromGen ds fv bv (sawait x k)
+fromAt ds fv bv (signore x k) = fromGen ds fv bv (signore x k)
+fromAt ds fv bv (snignore x k) = fromGen ds fv bv (snignore x k)
+
 fromImage-ok : ∀ i → fromImage (sexpImage i) ≡ ok i
-fromImage-ok i = on (defs i) refl
-  where
-  -- `ok i` does not mention `defs i`. Rewrite reduces the sexp, and
-  -- record η puts the split list back on the right.
-  image-η : ∀ ds → defs i ≡ ds →
-            mk (format i) (boundary i) ds (term i) ≡ i
-  image-η _ refl = refl
-
-  open-ok : ∀ ds → defs i ≡ ds →
-            fromImage (sexpImage i) ≡ ok (mk (format i) (boundary i) ds (term i))
-  open-ok [] eq rewrite eq | read-show (format i) | read-show (boundary i) | fromB-ok (term i) = refl
-  open-ok (t ∷ ts) eq rewrite eq | read-show (format i) | read-show (boundary i)
-                                  | fromDefs-ok t ts | fromB-ok (term i) = refl
-
-  on : (ds : List (BTm 0)) → defs i ≡ ds → fromImage (sexpImage i) ≡ ok i
-  on ds eq = trans (open-ok ds eq) (cong ok (image-η ds eq))
+fromImage-ok i = fromAt (defs i) (format i) (boundary i) (entry i)
 
 push : ∀ fr stk xs ys zs →
   parseGo (need (fr ∷ stk)) ((xs ++ ys) ++ zs)
@@ -938,26 +1152,263 @@ specDefs t (t2 ∷ ts) fr stk rest d = chain
     after (fr ++ sexpList (t ∷ t2 ∷ ts)) stk rest
       ∎
 
-image-go : ∀ i → parseGo top (render i) ≡ ok (sexpImage i , '\n' ∷ [])
-image-go i = onDefs (defs i) refl
+specThin : ∀ {m n} (th : Thin m n) fr stk rest → Delim rest →
+  parseGo (need (fr ∷ stk)) (showThin th ++ rest)
+  ≡ after (fr ++ sexpThin th ∷ []) stk rest
+specThin t[] fr stk rest d =
+  specAtom 't' ('[' ∷ ']' ∷ []) fr stk rest refl (refl ∷ refl ∷ []) d
+specThin (keep th) fr stk rest d = chain
   where
-  -- `rewrite` does not reach a `where` block, and `render i` stays
-  -- stuck on `defs i` there. The chains are on a concrete list.
-  -- `subst` puts `defs i` back.
-  goal : List (BTm 0) → Set
-  goal zs =
-    parseGo top (renderWith zs (format i) (boundary i) (term i))
-    ≡ ok (sexpWith zs (format i) (boundary i) (term i) , '\n' ∷ [])
+  kw = toList "keep "
+  body = showThin th ++ toList ")"
+  kwF = atom (toList "keep") ∷ []
+  chain =
+    parseGo (need (fr ∷ stk)) (showThin (keep th) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 'k' ('e' ∷ 'e' ∷ 'p' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showThin th ++ toList ")") ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showThin th) (toList ")") rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showThin th ++ (toList ")" ++ rest))
+      ≡⟨ specThin th kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ sexpThin th ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ sexpThin th ∷ []) fr stk rest ⟩
+    after (fr ++ sexpThin (keep th) ∷ []) stk rest
+      ∎
+specThin (skip th) fr stk rest d = chain
+  where
+  kw = toList "skip "
+  body = showThin th ++ toList ")"
+  kwF = atom (toList "skip") ∷ []
+  chain =
+    parseGo (need (fr ∷ stk)) (showThin (skip th) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 's' ('k' ∷ 'i' ∷ 'p' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showThin th ++ toList ")") ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showThin th) (toList ")") rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showThin th ++ (toList ")" ++ rest))
+      ≡⟨ specThin th kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ sexpThin th ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ sexpThin th ∷ []) fr stk rest ⟩
+    after (fr ++ sexpThin (skip th) ∷ []) stk rest
+      ∎
 
-  empty-go : goal []
-  empty-go = chain
-    where
-      fmt = showNat (format i)
-      bv = showNat (boundary i)
-      tm = showB (term i)
+specS : ∀ {n} (p : SPtm n) fr stk rest → Delim rest →
+  parseGo (need (fr ∷ stk)) (showS p ++ rest)
+  ≡ after (fr ++ sexpS p ∷ []) stk rest
+specS {n} sdone fr stk rest d = chain
+  where
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (sdone {n}) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) (toList "done" ++ (')' ∷ rest))
+      ≡⟨ specAtom 'd' ('o' ∷ 'n' ∷ 'e' ∷ []) [] (fr ∷ stk) (')' ∷ rest) refl (refl ∷ refl ∷ refl ∷ []) (drp rest) ⟩
+    after (atom (toList "done") ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (atom (toList "done") ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (sdone {n}) ∷ []) stk rest
+      ∎
+specS (ssend j x k) fr stk rest d = chain
+  where
+  kw = toList "send "
+  kwF = atom (toList "send") ∷ []
+  spK = toList " " ++ (showS k ++ toList ")")
+  spX = toList " " ++ (showNat (toℕ x) ++ spK)
+  body = showNat j ++ spX
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (ssend j x k) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 's' ('e' ∷ 'n' ∷ 'd' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat j ++ spX) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showNat j) spX rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showNat j ++ (spX ++ rest))
+      ≡⟨ specNat j kwF (fr ∷ stk) (spX ++ rest) (dsp ((showNat (toℕ x) ++ spK) ++ rest)) ⟩
+    after (kwF ++ atom (showNat j) ∷ []) (fr ∷ stk) (spX ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ atom (showNat j) ∷ []) ∷ fr ∷ stk)) ((showNat (toℕ x) ++ spK) ++ rest)
+      ≡⟨ push (kwF ++ atom (showNat j) ∷ []) (fr ∷ stk) (showNat (toℕ x)) spK rest ⟩
+    parseGo (need ((kwF ++ atom (showNat j) ∷ []) ∷ fr ∷ stk)) (showNat (toℕ x) ++ (spK ++ rest))
+      ≡⟨ specNat (toℕ x) (kwF ++ atom (showNat j) ∷ []) (fr ∷ stk) (spK ++ rest) (dsp ((showS k ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (spK ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) ((showS k ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (showS k) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) (showS k ++ (toList ")" ++ rest))
+      ≡⟨ specS k (kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ atom (showNat j) ∷ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (ssend j x k) ∷ []) stk rest
+      ∎
+specS (srecv c t k) fr stk rest d = chain
+  where
+  kw = toList "recv "
+  kwF = atom (toList "recv") ∷ []
+  mid = toList " " ++ (showS k ++ toList ")")
+  body = showPair c t ++ mid
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (srecv c t k) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 'r' ('e' ∷ 'c' ∷ 'v' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showPair c t ++ mid) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showPair c t) mid rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showPair c t ++ (mid ++ rest))
+      ≡⟨ specPair c t kwF (fr ∷ stk) (mid ++ rest) (dsp ((showS k ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (mid ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) ((showS k ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (showS k) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) (showS k ++ (toList ")" ++ rest))
+      ≡⟨ specS k (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ sexpPair c t ∷ sexpS k ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ sexpPair c t ∷ sexpS k ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (srecv c t k) ∷ []) stk rest
+      ∎
+specS (sspawn th ch pa) fr stk rest d = chain
+  where
+  kw = toList "spawn "
+  kwF = atom (toList "spawn") ∷ []
+  spP = toList " " ++ (showS pa ++ toList ")")
+  spC = toList " " ++ (showS ch ++ spP)
+  body = showThin th ++ spC
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (sspawn th ch pa) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 's' ('p' ∷ 'a' ∷ 'w' ∷ 'n' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showThin th ++ spC) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showThin th) spC rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showThin th ++ (spC ++ rest))
+      ≡⟨ specThin th kwF (fr ∷ stk) (spC ++ rest) (dsp ((showS ch ++ spP) ++ rest)) ⟩
+    after (kwF ++ sexpThin th ∷ []) (fr ∷ stk) (spC ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ sexpThin th ∷ []) ∷ fr ∷ stk)) ((showS ch ++ spP) ++ rest)
+      ≡⟨ push (kwF ++ sexpThin th ∷ []) (fr ∷ stk) (showS ch) spP rest ⟩
+    parseGo (need ((kwF ++ sexpThin th ∷ []) ∷ fr ∷ stk)) (showS ch ++ (spP ++ rest))
+      ≡⟨ specS ch (kwF ++ sexpThin th ∷ []) (fr ∷ stk) (spP ++ rest) (dsp ((showS pa ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ sexpThin th ∷ sexpS ch ∷ []) (fr ∷ stk) (spP ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ sexpThin th ∷ sexpS ch ∷ []) ∷ fr ∷ stk)) ((showS pa ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ sexpThin th ∷ sexpS ch ∷ []) (fr ∷ stk) (showS pa) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ sexpThin th ∷ sexpS ch ∷ []) ∷ fr ∷ stk)) (showS pa ++ (toList ")" ++ rest))
+      ≡⟨ specS pa (kwF ++ sexpThin th ∷ sexpS ch ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ sexpThin th ∷ sexpS ch ∷ sexpS pa ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ sexpThin th ∷ sexpS ch ∷ sexpS pa ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (sspawn th ch pa) ∷ []) stk rest
+      ∎
+specS (sseq e k) fr stk rest d = chain
+  where
+  kw = toList "seq "
+  kwF = atom (toList "seq") ∷ []
+  mid = toList " " ++ (showS k ++ toList ")")
+  body = showB e ++ mid
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (sseq e k) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 's' ('e' ∷ 'q' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showB e ++ mid) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showB e) mid rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (mid ++ rest))
+      ≡⟨ specB e kwF (fr ∷ stk) (mid ++ rest) (dsp ((showS k ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ sexpB e ∷ []) (fr ∷ stk) (mid ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ sexpB e ∷ []) ∷ fr ∷ stk)) ((showS k ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ sexpB e ∷ []) (fr ∷ stk) (showS k) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ sexpB e ∷ []) ∷ fr ∷ stk)) (showS k ++ (toList ")" ++ rest))
+      ≡⟨ specS k (kwF ++ sexpB e ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ sexpB e ∷ sexpS k ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ sexpB e ∷ sexpS k ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (sseq e k) ∷ []) stk rest
+      ∎
+specS (sawait x k) fr stk rest d = chain
+  where
+  kw = toList "await "
+  kwF = atom (toList "await") ∷ []
+  mid = toList " " ++ (showS k ++ toList ")")
+  body = showNat (toℕ x) ++ mid
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (sawait x k) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 'a' ('w' ∷ 'a' ∷ 'i' ∷ 't' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ mid) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) mid rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (mid ++ rest))
+      ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (mid ++ rest) (dsp ((showS k ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (mid ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) ((showS k ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (showS k) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) (showS k ++ (toList ")" ++ rest))
+      ≡⟨ specS k (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (sawait x k) ∷ []) stk rest
+      ∎
+specS (signore x k) fr stk rest d = chain
+  where
+  kw = toList "ignore "
+  kwF = atom (toList "ignore") ∷ []
+  mid = toList " " ++ (showS k ++ toList ")")
+  body = showNat (toℕ x) ++ mid
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (signore x k) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 'i' ('g' ∷ 'n' ∷ 'o' ∷ 'r' ∷ 'e' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ mid) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) mid rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (mid ++ rest))
+      ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (mid ++ rest) (dsp ((showS k ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (mid ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) ((showS k ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (showS k) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) (showS k ++ (toList ")" ++ rest))
+      ≡⟨ specS k (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (signore x k) ∷ []) stk rest
+      ∎
+specS (snignore x k) fr stk rest d = chain
+  where
+  kw = toList "nignore "
+  kwF = atom (toList "nignore") ∷ []
+  mid = toList " " ++ (showS k ++ toList ")")
+  body = showNat (toℕ x) ++ mid
+  chain =
+    parseGo (need (fr ∷ stk)) (showS (snignore x k) ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+      ≡⟨ eatKw 'n' ('i' ∷ 'g' ∷ 'n' ∷ 'o' ∷ 'r' ∷ 'e' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ mid) ++ rest)
+      ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) mid rest ⟩
+    parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (mid ++ rest))
+      ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (mid ++ rest) (dsp ((showS k ++ toList ")") ++ rest)) ⟩
+    after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (mid ++ rest)
+      ≡⟨ refl ⟩
+    parseGo (need ((kwF ++ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) ((showS k ++ toList ")") ++ rest)
+      ≡⟨ push (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (showS k) (toList ")") rest ⟩
+    parseGo (need ((kwF ++ atom (showNat (toℕ x)) ∷ []) ∷ fr ∷ stk)) (showS k ++ (toList ")" ++ rest))
+      ≡⟨ specS k (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+    after (kwF ++ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) (fr ∷ stk) (')' ∷ rest)
+      ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ sexpS k ∷ []) fr stk rest ⟩
+    after (fr ++ sexpS (snignore x k) ∷ []) stk rest
+      ∎
+
+legEmpty : (tm : BTm 0) (fv bvN : ℕ) →
+  parseGo top (renderWith [] fv bvN tm)
+  ≡ ok (sexpWith [] fv bvN tm , toList "\n")
+legEmpty tm fv bvN = chain
+  where
+      fmt = showNat fv
+      bv = showNat bvN
+      tmS = showB tm
       nl = toList "\n"
       w3 = toList " (done))))" ++ nl
-      w2 = toList ") (entry (seq " ++ (tm ++ w3)
+      w2 = toList ") (entry (seq " ++ (tmS ++ w3)
       w1 = toList " (boundary " ++ (bv ++ w2)
       ak = atom (toList "muro-beam-image")
       ab = atom (toList "boundary")
@@ -967,26 +1418,26 @@ image-go i = onDefs (defs i) refl
       fFmt = ak ∷ atom fmt ∷ []
       bdN = nest (ab ∷ atom bv ∷ [])
       fImg = ak ∷ atom fmt ∷ bdN ∷ []
-      entryTail = toList " (entry (seq " ++ (tm ++ w3)
-      seqLit = toList "(seq " ++ (tm ++ w3)
-      termRest = tm ++ w3
+      entryTail = toList " (entry (seq " ++ (tmS ++ w3)
+      seqLit = toList "(seq " ++ (tmS ++ w3)
+      termRest = tmS ++ w3
       doneLit = toList "(done))))" ++ nl
       doneBody = toList "done))))" ++ nl
       closes = ')' ∷ ')' ∷ ')' ∷ ')' ∷ nl
       afterDone = ')' ∷ ')' ∷ ')' ∷ nl
       afterSeq = ')' ∷ ')' ∷ nl
       afterEntry = ')' ∷ nl
-      seqFr = asq ∷ sexpB (term i) ∷ []
-      seqFull = asq ∷ sexpB (term i) ∷ nest (ad ∷ []) ∷ []
+      seqFr = asq ∷ sexpB tm ∷ []
+      seqFull = asq ∷ sexpB tm ∷ nest (ad ∷ []) ∷ []
       enFr = ae ∷ []
       enFull = ae ∷ nest seqFull ∷ []
       chain =
-        parseGo top (renderWith [] (format i) (boundary i) (term i))
+        parseGo top (renderWith [] fv bvN tm)
           ≡⟨ refl ⟩
         parseGo (need ([] ∷ [])) (toList "muro-beam-image " ++ (fmt ++ w1))
           ≡⟨ eatKw 'm' imgTail [] [] (fmt ++ w1) refl imgA ⟩
         parseGo (need ((ak ∷ []) ∷ [])) (fmt ++ w1)
-          ≡⟨ specNat (format i) (ak ∷ []) [] w1 (dsp (toList "(boundary " ++ (bv ++ w2))) ⟩
+          ≡⟨ specNat fv (ak ∷ []) [] w1 (dsp (toList "(boundary " ++ (bv ++ w2))) ⟩
         after fFmt [] w1
           ≡⟨ gap fFmt [] (toList "(boundary " ++ (bv ++ w2)) ⟩
         parseGo (need (fFmt ∷ [])) (toList "(boundary " ++ (bv ++ w2))
@@ -994,21 +1445,21 @@ image-go i = onDefs (defs i) refl
         parseGo (need ([] ∷ fFmt ∷ [])) (toList "boundary " ++ (bv ++ w2))
           ≡⟨ eatKw 'b' bdTail [] (fFmt ∷ []) (bv ++ w2) refl bdA ⟩
         parseGo (need ((ab ∷ []) ∷ fFmt ∷ [])) (bv ++ w2)
-          ≡⟨ specNat (boundary i) (ab ∷ []) (fFmt ∷ []) w2 (drp entryTail) ⟩
+          ≡⟨ specNat bvN (ab ∷ []) (fFmt ∷ []) w2 (drp entryTail) ⟩
         after (ab ∷ atom bv ∷ []) (fFmt ∷ []) w2
           ≡⟨ shut (ab ∷ atom bv ∷ []) fFmt [] entryTail ⟩
         after fImg [] entryTail
-          ≡⟨ gap fImg [] (toList "(entry (seq " ++ (tm ++ w3)) ⟩
-        parseGo (need (fImg ∷ [])) (toList "(entry (seq " ++ (tm ++ w3))
+          ≡⟨ gap fImg [] (toList "(entry (seq " ++ (tmS ++ w3)) ⟩
+        parseGo (need (fImg ∷ [])) (toList "(entry (seq " ++ (tmS ++ w3))
           ≡⟨ refl ⟩
-        parseGo (need ([] ∷ fImg ∷ [])) (toList "entry (seq " ++ (tm ++ w3))
+        parseGo (need ([] ∷ fImg ∷ [])) (toList "entry (seq " ++ (tmS ++ w3))
           ≡⟨ eatKw 'e' ('n' ∷ 't' ∷ 'r' ∷ 'y' ∷ []) [] (fImg ∷ []) seqLit refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
         parseGo (need (enFr ∷ fImg ∷ [])) seqLit
           ≡⟨ refl ⟩
         parseGo (need ([] ∷ enFr ∷ fImg ∷ [])) (toList "seq " ++ termRest)
           ≡⟨ eatKw 's' ('e' ∷ 'q' ∷ []) [] (enFr ∷ fImg ∷ []) termRest refl (refl ∷ refl ∷ []) ⟩
         parseGo (need ((asq ∷ []) ∷ enFr ∷ fImg ∷ [])) termRest
-          ≡⟨ specB (term i) (asq ∷ []) (enFr ∷ fImg ∷ []) w3 (dsp doneLit) ⟩
+          ≡⟨ specB tm (asq ∷ []) (enFr ∷ fImg ∷ []) w3 (dsp doneLit) ⟩
         after seqFr (enFr ∷ fImg ∷ []) w3
           ≡⟨ gap seqFr (enFr ∷ fImg ∷ []) doneLit ⟩
         parseGo (need (seqFr ∷ enFr ∷ fImg ∷ [])) doneLit
@@ -1023,18 +1474,20 @@ image-go i = onDefs (defs i) refl
           ≡⟨ shut enFull fImg [] afterEntry ⟩
         after (fImg ++ (nest enFull ∷ [])) [] afterEntry
           ≡⟨ shut1 (fImg ++ (nest enFull ∷ [])) nl ⟩
-        ok (sexpWith [] (format i) (boundary i) (term i) , nl)
+        ok (sexpWith [] fv bvN tm , nl)
           ∎
 
-  cons-go : (d : BTm 0) (ds : List (BTm 0)) → goal (d ∷ ds)
-  cons-go d ds = chain
-    where
-      fmt = showNat (format i)
-      bv = showNat (boundary i)
-      tm = showB (term i)
+legCons : (tm : BTm 0) (fv bvN : ℕ) (d : BTm 0) (ds : List (BTm 0)) →
+  parseGo top (renderWith (d ∷ ds) fv bvN tm)
+  ≡ ok (sexpWith (d ∷ ds) fv bvN tm , toList "\n")
+legCons tm fv bvN d ds = chain
+  where
+      fmt = showNat fv
+      bv = showNat bvN
+      tmS = showB tm
       nl = toList "\n"
       w3 = toList " (done))))" ++ nl
-      entryAfter = toList ") (entry (seq " ++ (tm ++ w3)
+      entryAfter = toList ") (entry (seq " ++ (tmS ++ w3)
       defsTxt = showDefs (d ∷ ds)
       w2 = toList ") (defs " ++ (defsTxt ++ entryAfter)
       w1 = toList " (boundary " ++ (bv ++ w2)
@@ -1051,27 +1504,27 @@ image-go i = onDefs (defs i) refl
       kwDefs = toList "defs " ++ (defsTxt ++ entryAfter)
       defsFr = adef ∷ sexpList (d ∷ ds)
       fImgD = fImg ++ (nest defsFr ∷ [])
-      entryRest = toList " (entry (seq " ++ (tm ++ w3)
-      entryLit = toList "(entry (seq " ++ (tm ++ w3)
-      seqLit = toList "(seq " ++ (tm ++ w3)
-      termRest = tm ++ w3
+      entryRest = toList " (entry (seq " ++ (tmS ++ w3)
+      entryLit = toList "(entry (seq " ++ (tmS ++ w3)
+      seqLit = toList "(seq " ++ (tmS ++ w3)
+      termRest = tmS ++ w3
       doneLit = toList "(done))))" ++ nl
       doneBody = toList "done))))" ++ nl
       closes = ')' ∷ ')' ∷ ')' ∷ ')' ∷ nl
       afterDone = ')' ∷ ')' ∷ ')' ∷ nl
       afterSeq = ')' ∷ ')' ∷ nl
       afterEntry = ')' ∷ nl
-      seqFr = asq ∷ sexpB (term i) ∷ []
-      seqFull = asq ∷ sexpB (term i) ∷ nest (ad ∷ []) ∷ []
+      seqFr = asq ∷ sexpB tm ∷ []
+      seqFull = asq ∷ sexpB tm ∷ nest (ad ∷ []) ∷ []
       enFr = ae ∷ []
       enFull = ae ∷ nest seqFull ∷ []
       chain =
-        parseGo top (renderWith (d ∷ ds) (format i) (boundary i) (term i))
+        parseGo top (renderWith (d ∷ ds) fv bvN tm)
           ≡⟨ refl ⟩
         parseGo (need ([] ∷ [])) (toList "muro-beam-image " ++ (fmt ++ w1))
           ≡⟨ eatKw 'm' imgTail [] [] (fmt ++ w1) refl imgA ⟩
         parseGo (need ((ak ∷ []) ∷ [])) (fmt ++ w1)
-          ≡⟨ specNat (format i) (ak ∷ []) [] w1 (dsp (toList "(boundary " ++ (bv ++ w2))) ⟩
+          ≡⟨ specNat fv (ak ∷ []) [] w1 (dsp (toList "(boundary " ++ (bv ++ w2))) ⟩
         after fFmt [] w1
           ≡⟨ gap fFmt [] (toList "(boundary " ++ (bv ++ w2)) ⟩
         parseGo (need (fFmt ∷ [])) (toList "(boundary " ++ (bv ++ w2))
@@ -1079,7 +1532,7 @@ image-go i = onDefs (defs i) refl
         parseGo (need ([] ∷ fFmt ∷ [])) (toList "boundary " ++ (bv ++ w2))
           ≡⟨ eatKw 'b' bdTail [] (fFmt ∷ []) (bv ++ w2) refl bdA ⟩
         parseGo (need ((ab ∷ []) ∷ fFmt ∷ [])) (bv ++ w2)
-          ≡⟨ specNat (boundary i) (ab ∷ []) (fFmt ∷ []) w2 (drp openDefs) ⟩
+          ≡⟨ specNat bvN (ab ∷ []) (fFmt ∷ []) w2 (drp openDefs) ⟩
         after (ab ∷ atom bv ∷ []) (fFmt ∷ []) w2
           ≡⟨ shut (ab ∷ atom bv ∷ []) fFmt [] openDefs ⟩
         after fImg [] openDefs
@@ -1096,14 +1549,14 @@ image-go i = onDefs (defs i) refl
           ≡⟨ gap fImgD [] entryLit ⟩
         parseGo (need (fImgD ∷ [])) entryLit
           ≡⟨ refl ⟩
-        parseGo (need ([] ∷ fImgD ∷ [])) (toList "entry (seq " ++ (tm ++ w3))
+        parseGo (need ([] ∷ fImgD ∷ [])) (toList "entry (seq " ++ (tmS ++ w3))
           ≡⟨ eatKw 'e' ('n' ∷ 't' ∷ 'r' ∷ 'y' ∷ []) [] (fImgD ∷ []) seqLit refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
         parseGo (need (enFr ∷ fImgD ∷ [])) seqLit
           ≡⟨ refl ⟩
         parseGo (need ([] ∷ enFr ∷ fImgD ∷ [])) (toList "seq " ++ termRest)
           ≡⟨ eatKw 's' ('e' ∷ 'q' ∷ []) [] (enFr ∷ fImgD ∷ []) termRest refl (refl ∷ refl ∷ []) ⟩
         parseGo (need ((asq ∷ []) ∷ enFr ∷ fImgD ∷ [])) termRest
-          ≡⟨ specB (term i) (asq ∷ []) (enFr ∷ fImgD ∷ []) w3 (dsp doneLit) ⟩
+          ≡⟨ specB tm (asq ∷ []) (enFr ∷ fImgD ∷ []) w3 (dsp doneLit) ⟩
         after seqFr (enFr ∷ fImgD ∷ []) w3
           ≡⟨ gap seqFr (enFr ∷ fImgD ∷ []) doneLit ⟩
         parseGo (need (seqFr ∷ enFr ∷ fImgD ∷ [])) doneLit
@@ -1118,13 +1571,180 @@ image-go i = onDefs (defs i) refl
           ≡⟨ shut enFull fImgD [] afterEntry ⟩
         after (fImgD ++ (nest enFull ∷ [])) [] afterEntry
           ≡⟨ shut1 (fImgD ++ (nest enFull ∷ [])) nl ⟩
-        ok (sexpWith (d ∷ ds) (format i) (boundary i) (term i) , nl)
+        ok (sexpWith (d ∷ ds) fv bvN tm , nl)
           ∎
 
-  onDefs : (ds : List (BTm 0)) → defs i ≡ ds →
-           parseGo top (render i) ≡ ok (sexpImage i , '\n' ∷ [])
-  onDefs [] eq = subst goal (sym eq) empty-go
-  onDefs (d ∷ ds) eq = subst goal (sym eq) (cons-go d ds)
+genEmpty : ∀ p fv bv →
+  parseGo top (renderGen [] fv bv p)
+  ≡ ok (sexpGen [] fv bv p , toList "\n")
+genEmpty p fv bv = chain
+  where
+    fmt = showNat fv
+    bvs = showNat bv
+    nl = toList "\n"
+    close = toList "))" ++ nl
+    shown = showS p
+    entryBody = shown ++ close
+    w2 = toList ") (entry " ++ entryBody
+    w1 = toList " (boundary " ++ (bvs ++ w2)
+    ak = atom (toList "muro-beam-image")
+    ab = atom (toList "boundary")
+    ae = atom (toList "entry")
+    fFmt = ak ∷ atom fmt ∷ []
+    bdN = nest (ab ∷ atom bvs ∷ [])
+    fImg = ak ∷ atom fmt ∷ bdN ∷ []
+    entryTail = toList " (entry " ++ entryBody
+    enFr = ae ∷ []
+    enFull = ae ∷ sexpS p ∷ []
+    chain =
+      parseGo top (renderGen [] fv bv p)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ [])) (toList "muro-beam-image " ++ (fmt ++ w1))
+        ≡⟨ eatKw 'm' imgTail [] [] (fmt ++ w1) refl imgA ⟩
+      parseGo (need ((ak ∷ []) ∷ [])) (fmt ++ w1)
+        ≡⟨ specNat fv (ak ∷ []) [] w1 (dsp (toList "(boundary " ++ (bvs ++ w2))) ⟩
+      after fFmt [] w1
+        ≡⟨ gap fFmt [] (toList "(boundary " ++ (bvs ++ w2)) ⟩
+      parseGo (need (fFmt ∷ [])) (toList "(boundary " ++ (bvs ++ w2))
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fFmt ∷ [])) (toList "boundary " ++ (bvs ++ w2))
+        ≡⟨ eatKw 'b' bdTail [] (fFmt ∷ []) (bvs ++ w2) refl bdA ⟩
+      parseGo (need ((ab ∷ []) ∷ fFmt ∷ [])) (bvs ++ w2)
+        ≡⟨ specNat bv (ab ∷ []) (fFmt ∷ []) w2 (drp entryTail) ⟩
+      after (ab ∷ atom bvs ∷ []) (fFmt ∷ []) w2
+        ≡⟨ shut (ab ∷ atom bvs ∷ []) fFmt [] entryTail ⟩
+      after fImg [] entryTail
+        ≡⟨ gap fImg [] (toList "(entry " ++ entryBody) ⟩
+      parseGo (need (fImg ∷ [])) (toList "(entry " ++ entryBody)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fImg ∷ [])) (toList "entry " ++ entryBody)
+        ≡⟨ eatKw 'e' ('n' ∷ 't' ∷ 'r' ∷ 'y' ∷ []) [] (fImg ∷ []) entryBody refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (enFr ∷ fImg ∷ [])) (shown ++ close)
+        ≡⟨ specS p enFr (fImg ∷ []) close (drp (toList ")" ++ nl)) ⟩
+      after (enFr ++ sexpS p ∷ []) (fImg ∷ []) close
+        ≡⟨ shut enFull fImg [] (')' ∷ nl) ⟩
+      after (fImg ++ (nest enFull ∷ [])) [] (')' ∷ nl)
+        ≡⟨ shut1 (fImg ++ (nest enFull ∷ [])) nl ⟩
+      ok (sexpGen [] fv bv p , nl)
+        ∎
 
+genCons : ∀ p fv bv d ds →
+  parseGo top (renderGen (d ∷ ds) fv bv p)
+  ≡ ok (sexpGen (d ∷ ds) fv bv p , toList "\n")
+genCons p fv bv d ds = chain
+  where
+    fmt = showNat fv
+    bvs = showNat bv
+    nl = toList "\n"
+    close = toList "))" ++ nl
+    shown = showS p
+    entryBody = shown ++ close
+    entryAfter = toList ") (entry " ++ entryBody
+    defsTxt = showDefs (d ∷ ds)
+    w2 = toList ") (defs " ++ (defsTxt ++ entryAfter)
+    w1 = toList " (boundary " ++ (bvs ++ w2)
+    ak = atom (toList "muro-beam-image")
+    ab = atom (toList "boundary")
+    adef = atom (toList "defs")
+    ae = atom (toList "entry")
+    fFmt = ak ∷ atom fmt ∷ []
+    bdN = nest (ab ∷ atom bvs ∷ [])
+    fImg = ak ∷ atom fmt ∷ bdN ∷ []
+    openDefs = toList " (defs " ++ (defsTxt ++ entryAfter)
+    kwDefs = toList "defs " ++ (defsTxt ++ entryAfter)
+    defsFr = adef ∷ sexpList (d ∷ ds)
+    fImgD = fImg ++ (nest defsFr ∷ [])
+    entryRest = toList " (entry " ++ entryBody
+    entryLit = toList "(entry " ++ entryBody
+    enFr = ae ∷ []
+    enFull = ae ∷ sexpS p ∷ []
+    chain =
+      parseGo top (renderGen (d ∷ ds) fv bv p)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ [])) (toList "muro-beam-image " ++ (fmt ++ w1))
+        ≡⟨ eatKw 'm' imgTail [] [] (fmt ++ w1) refl imgA ⟩
+      parseGo (need ((ak ∷ []) ∷ [])) (fmt ++ w1)
+        ≡⟨ specNat fv (ak ∷ []) [] w1 (dsp (toList "(boundary " ++ (bvs ++ w2))) ⟩
+      after fFmt [] w1
+        ≡⟨ gap fFmt [] (toList "(boundary " ++ (bvs ++ w2)) ⟩
+      parseGo (need (fFmt ∷ [])) (toList "(boundary " ++ (bvs ++ w2))
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fFmt ∷ [])) (toList "boundary " ++ (bvs ++ w2))
+        ≡⟨ eatKw 'b' bdTail [] (fFmt ∷ []) (bvs ++ w2) refl bdA ⟩
+      parseGo (need ((ab ∷ []) ∷ fFmt ∷ [])) (bvs ++ w2)
+        ≡⟨ specNat bv (ab ∷ []) (fFmt ∷ []) w2 (drp openDefs) ⟩
+      after (ab ∷ atom bvs ∷ []) (fFmt ∷ []) w2
+        ≡⟨ shut (ab ∷ atom bvs ∷ []) fFmt [] openDefs ⟩
+      after fImg [] openDefs
+        ≡⟨ gap fImg [] (toList "(defs " ++ (defsTxt ++ entryAfter)) ⟩
+      parseGo (need (fImg ∷ [])) (toList "(defs " ++ (defsTxt ++ entryAfter))
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fImg ∷ [])) kwDefs
+        ≡⟨ eatKw 'd' ('e' ∷ 'f' ∷ 's' ∷ []) [] (fImg ∷ []) (defsTxt ++ entryAfter) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need ((adef ∷ []) ∷ fImg ∷ [])) (defsTxt ++ entryAfter)
+        ≡⟨ specDefs d ds (adef ∷ []) (fImg ∷ []) entryAfter (drp entryRest) ⟩
+      after defsFr (fImg ∷ []) entryAfter
+        ≡⟨ shut defsFr fImg [] entryRest ⟩
+      after fImgD [] entryRest
+        ≡⟨ gap fImgD [] entryLit ⟩
+      parseGo (need (fImgD ∷ [])) entryLit
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fImgD ∷ [])) (toList "entry " ++ entryBody)
+        ≡⟨ eatKw 'e' ('n' ∷ 't' ∷ 'r' ∷ 'y' ∷ []) [] (fImgD ∷ []) entryBody refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (enFr ∷ fImgD ∷ [])) (shown ++ close)
+        ≡⟨ specS p enFr (fImgD ∷ []) close (drp (toList ")" ++ nl)) ⟩
+      after (enFr ++ sexpS p ∷ []) (fImgD ∷ []) close
+        ≡⟨ shut enFull fImgD [] (')' ∷ nl) ⟩
+      after (fImgD ++ (nest enFull ∷ [])) [] (')' ∷ nl)
+        ≡⟨ shut1 (fImgD ++ (nest enFull ∷ [])) nl ⟩
+      ok (sexpGen (d ∷ ds) fv bv p , nl)
+        ∎
+
+image-go : ∀ i → parseGo top (render i) ≡ ok (sexpImage i , '\n' ∷ [])
+image-go i = onE (entry i) refl
+  where
+  Goal = parseGo top (render i) ≡ ok (sexpImage i , '\n' ∷ [])
+
+  cast : (p : SPtm 0)
+       → render i ≡ renderGen (defs i) (format i) (boundary i) p
+       → sexpImage i ≡ sexpGen (defs i) (format i) (boundary i) p
+       → (ds : List (BTm 0)) → defs i ≡ ds → Goal
+  cast p eqR eqS [] refl rewrite eqR | eqS =
+    genEmpty p (format i) (boundary i)
+  cast p eqR eqS (d ∷ ds) refl rewrite eqR | eqS =
+    genCons p (format i) (boundary i) d ds
+
+  castL : (tm : BTm 0)
+        → render i ≡ renderWith (defs i) (format i) (boundary i) tm
+        → sexpImage i ≡ sexpWith (defs i) (format i) (boundary i) tm
+        → (ds : List (BTm 0)) → defs i ≡ ds → Goal
+  castL tm eqR eqS [] refl rewrite eqR | eqS =
+    legEmpty tm (format i) (boundary i)
+  castL tm eqR eqS (d ∷ ds) refl rewrite eqR | eqS =
+    legCons tm (format i) (boundary i) d ds
+
+  onE : (p : SPtm 0) → entry i ≡ p → Goal
+  onE sdone refl = cast sdone refl refl (defs i) refl
+  onE (ssend j x k) refl = cast (ssend j x k) refl refl (defs i) refl
+  onE (srecv c t k) refl = cast (srecv c t k) refl refl (defs i) refl
+  onE (sspawn th ch pa) refl = cast (sspawn th ch pa) refl refl (defs i) refl
+  onE (sseq tm sdone) refl = castL tm refl refl (defs i) refl
+  onE (sseq tm (ssend j x k)) refl =
+    cast (sseq tm (ssend j x k)) refl refl (defs i) refl
+  onE (sseq tm (srecv c t k)) refl =
+    cast (sseq tm (srecv c t k)) refl refl (defs i) refl
+  onE (sseq tm (sspawn th ch pa)) refl =
+    cast (sseq tm (sspawn th ch pa)) refl refl (defs i) refl
+  onE (sseq tm (sseq e k)) refl =
+    cast (sseq tm (sseq e k)) refl refl (defs i) refl
+  onE (sseq tm (sawait x k)) refl =
+    cast (sseq tm (sawait x k)) refl refl (defs i) refl
+  onE (sseq tm (signore x k)) refl =
+    cast (sseq tm (signore x k)) refl refl (defs i) refl
+  onE (sseq tm (snignore x k)) refl =
+    cast (sseq tm (snignore x k)) refl refl (defs i) refl
+  onE (sawait x k) refl = cast (sawait x k) refl refl (defs i) refl
+  onE (signore x k) refl = cast (signore x k) refl refl (defs i) refl
+  onE (snignore x k) refl = cast (snignore x k) refl refl (defs i) refl
 parse-show : ∀ i → parseCs (render i) ≡ ok i
 parse-show i = trans (cong finish (image-go i)) (fromImage-ok i)
