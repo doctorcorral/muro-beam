@@ -16,11 +16,13 @@ builds that image itself. On muro `3f1cae2`, compiled with
 `eval_run("applied", [], book)` both returned `1`. `drive` of that
 image stops `stuck 0` and keeps `v1`.
 
-`plus.mbi`, `half.mbi`, and `iseven.mbi` are not emitter goldens.
-They are written by hand in the v2 shape: one closed definition,
-then an entry that calls it. `plus` is `lib/muro/prelude.muro` and
-`examples/half_ok.muro`. `half` is `examples/half_ok.muro`. There is
-no `isEven` run in that tree. `IsEven` there is a `spec` of `Type`.
+`plus.mbi` is the image Hex muro 0.22.13 writes for
+`def main : run Nat := plus 2 3`. That `plus` is the prelude. The
+file is format 2: one closed definition, then the entry. `make
+emit-check` diffs those bytes and runs both copies. `half.mbi` and
+`iseven.mbi` are not emitter goldens. They are written by hand in
+the same shape. `half` is `examples/half_ok.muro`. There is no
+`isEven` run in that tree. `IsEven` there is a `spec` of `Type`.
 `iseven.mbi` is a `Nat` transcription of that recursion (even is
 `suc 0`, odd is `0`), so the harness can print a nat.
 

@@ -10,7 +10,30 @@ v1b adds `PTm`: `spawn`, `send`, `recv`, `seq`, and `done`, plus `await` and `ig
 
 v1c is the adequacy layer. `NoEscape` is the capture restriction already used by the machine: no λ is placed where a grade-1 binder is in scope. `InBoundary` implies it (`inBoundary→noEscape`) and is still only a syntactic filter. `decide-sound` is binder discharge for `decide run`. `budget-adequate` says that on every `Step*` from `lower` of a match-free `NoEscape` term, a checked grade-1 slot is spent at most once, and `exact-exhausts` says the residual is `g0` when that binder is popped. `done-collect-empty` says an empty live set frees every heap slot. `MuroBeam.Ref` is a grade-free CBV machine. Forward `lower-sim` is not a theorem: `alias` is in `NoEscape`, the reference machine β-reduces, and the CEK refuses that β because the argument is aliased. The limits are in [docs/DESIGN.md](docs/DESIGN.md).
 
-An image is the S-expression muro writes for `--backend mbi`. Format 2 adds a `(defs …)` section of closed code; a `gref` jumps to one of those definitions. The parser, the loader, and a pid-0 harness are Agda ([docs/IMAGE.md](docs/IMAGE.md)). The muro emitter that writes the section is not in this repository.
+An image is the S-expression muro writes for `--backend mbi`. Format 2 adds a `(defs …)` section of closed code; a `gref` jumps to one of those definitions. The parser, the loader, and the runner are Agda ([docs/IMAGE.md](docs/IMAGE.md)). The muro emitter that writes the file is not in this repository.
+
+## Run
+
+`make muro-beam` builds the `muro-beam` binary. Agda compiles `MuroBeam.RunImage` with `--safe` and `--ghc-dont-call-ghc`. `scripts/build_runner.py` links a Haskell main with `ghc -O0 -j1`. That main reads the path and the fuel. `load` and `drive` stay in the Agda module. The main is not an Agda file, so `make audit` still sees only `--safe` modules.
+
+```sh
+make muro-beam
+./muro-beam examples/images/plus.mbi
+./muro-beam examples/images/suc.mbi --fuel 40
+```
+
+The default fuel is 1000. A finished run prints one line: the outcome (`halted`, `deadlock`, `stuck <pid>`, or `fuel`), the event list, the fingerprint `h<heap>l<live>p<procs>`, and the nat `drive` kept (`v-` when it kept none). The event words are the ones in [docs/RUNTIME-BOOK.md](docs/RUNTIME-BOOK.md). A pure image stops `stuck 0` with that nat. `seq1` pushes `saved` over `seg`, and `bind1` does not resume that stack, so the schedule does not reach `done`.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | `drive` finished `halted`, `deadlock`, or `stuck` |
+| 1 | usage, a missing file, or a fuel argument that is not a natural |
+| 2 | the file did not parse, or `load` refused it |
+| 3 | `drive` returned out of fuel |
+
+A refusal or a fuel stop also prints `muro-beam: …` on stderr. The fuel stop still prints the partial line on stdout.
+
+`make images` is the pid-0 harness (`runFor` after one `seq1`). `make runner` builds the binary and runs the file tests: format 1, format 2 with `gref`, bad and truncated images, and an empty fuel. `make emit-check` asks Hex muro 0.22.13, in a private `MIX_HOME`, to emit `suc (suc 0)` and `plus 2 3`, diffs those bytes with the checked-in images, and runs the binary on the emitted files. That emitter is outside this TCB. The book pin stays muro 0.20.33. Format 2 emission is muro 0.21.22 and later, so 0.20.33 does not write a `(defs …)` section. The Agda lattice pin stays `vendor/muro` at `v0.20.32`.
 
 ## Boundary v1
 

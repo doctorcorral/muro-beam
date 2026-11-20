@@ -92,3 +92,43 @@ v2 adds the section above. The round trip `parse-show` covers both.
 A complete sexp with no trailing newline, or a file that ends inside
 an open sexp, is `truncated`. A newline while a sexp is still open is
 `junk`, as is any other ill-formed token.
+
+## Runner
+
+`muro-beam` reads one image file and an optional `--fuel N` (default
+1000). `scripts/build_runner.py` is the Haskell main. It is not an
+Agda module. `MuroBeam.RunImage.cliRun` calls `load`, then `drive` at
+that fuel, from cursor 0, with no meetings and no kept nat. The
+printed line is the outcome, the events, the fingerprint
+`h<heap>l<live>p<procs>`, and the kept nat. The event spelling is the
+one `MuroBeam.Conform` prints for the book. Decimals on that line are
+`showNat`. On the numerals a run of these images prints, that text
+matches the book printer.
+
+Exit 0 is `halted`, `deadlock`, or `stuck`. Exit 2 is a parse or load
+refusal, and stderr is `muro-beam:` plus the reason (`bad version`,
+`bad gref`, `junk`, `truncated`, `outside the boundary`, and the
+others `load` returns). Exit 3 is out of fuel: stderr says so, and
+stdout is still the partial line. Exit 1 is usage, a missing file, or
+a fuel argument that is not a natural.
+
+A pure image stops `stuck 0`. `seq1` pushes `saved` over `seg`, and
+`bind1` resumes only `saved ∷ []`, so the process never reaches
+`done`. The kept nat is the value on that returned reference. A
+closure keeps nothing (`v-`). Fuel 0 does not step: the line is
+`fuel [] h0l0p1 v-`.
+
+What this proves is `load` of the bytes that were read, then one
+fuelled `drive` of `lowerP`. `drive-sound` is the `PStep*` on that
+run. It does not prove `budget-adequate`, `MatchFree`, or
+`no-stray-reply`. A loaded `gmatch` is still outside `MatchFree`.
+The file still has no process form, so spawn, send, and recv are not
+an image the loader reads.
+
+The Haskell main and the muro emitter are outside the TCB. `make
+audit` does not see them. Hex muro 0.22.13 writes the checked-in
+`suc.mbi` for `suc (suc 0)` and the checked-in `plus.mbi` for
+`plus 2 3`. `make emit-check` runs that comparison in a private
+`MIX_HOME` and then runs both files. The book archive stays 0.20.33.
+That pin has no format-2 emitter. The lattice pin stays
+`vendor/muro` `v0.20.32`.
