@@ -184,14 +184,40 @@ aliasStep p with seq1 (lowerP p) zero
 ... | nothing = "refuse: aliased reply result"
 ... | just _  = "accepted"
 
-alias-await-refuses :
+-- Closed test of `bind-count-refuses`, not the lemma. The plant puts
+-- the returned cell in the environment as well as in `rv`, so the
+-- count is not 1, the cell is not `g1`, and the continuation is a
+-- reply root. `aliasStep` prints the `nothing` branch. The general
+-- fact is `bind-count-refuses` in `MuroBeam.PRun`.
+alias-await-probe :
   aliasStep (checkedP spawnAwait spawnAwait-ok) ≡ "refuse: aliased reply result"
-alias-await-refuses = refl
+alias-await-probe = refl
 
 aliasImage : String → String
 aliasImage src with load src
 ... | fail e = "refuse: " ++ e
 ... | ok p   = aliasStep p
+
+-- The text of `examples/images/alias-bind.mbi`. Agda does not open
+-- the file. This is that line, including the trailing newline.
+-- The body is `gsu gze`: a fresh head, so `load` accepts it and the
+-- plant is what refuses.
+aliasBindSrc : String
+aliasBindSrc =
+  "(muro-beam-image 1 (boundary 1) (entry (seq (gsu gze) (spawn (keep t[]) (send 0 0 (done)) (await 0 (done))))))\n"
+
+alias-bind-plant :
+  aliasImage aliasBindSrc ≡ "refuse: aliased reply result"
+alias-bind-plant = refl
+
+-- The CLI tag. A load refusal is the same `load` line `cliRun` uses,
+-- so the Haskell main exits 2 and writes the reason on stderr. A
+-- loaded image is `ok` plus the plant string. `aliasImage` stays the
+-- raw plant, which is what `alias-bind-plant` states.
+aliasCli : String → String
+aliasCli src with load src
+... | fail e = "load\n" ++ e
+... | ok p   = "ok\n" ++ aliasStep p
 
 ------------------------------------------------------------------------
 -- The line `muro-beam` prints is `showDrove` from MuroBeam.Show.

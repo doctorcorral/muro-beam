@@ -625,13 +625,15 @@ openCont (ndemonT _ _)   = true
 -- Resume `saved` over `seg`. A reply root names slot 0, which `seq`
 -- checked at grade 1. The cell `eval` just returned is still ω.
 -- Regrade it to g1 when it is not already g1 and it is the only
--- reference to its object, so the following spawn moves it and
--- `markProto` rewrites the parent root. An aliased non-g1 result
--- is refused (`nothing`): a second g1 alias would break
--- `Grade1Unique`, and the ω alias would not be the move `markProto`
--- tags. `checkP` refuses a non-fresh body (`freshBody`). There is
--- no theorem from that guard to this count. A singleton `saved` is
--- the book bind and is not regraded.
+-- reference to its object (`bind-promotes`). `regrade-move`,
+-- `split-head`, and `spawn-reply-tag` are separate lemmas. There
+-- is no lemma from this `just` through `spawn1` to the tag.
+-- An aliased non-g1 result is refused (`bind-count-refuses`): a
+-- second g1 alias would break `Grade1Unique`, and the ω alias
+-- would not be the move `markProto` tags. The already-g1 branch
+-- does not read the count. `checkP` refuses a non-fresh body
+-- (`freshBody`). There is no theorem from that guard to this
+-- count. A singleton `saved` is the book bind and is not regraded.
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
   lookup ps i >>= λ _ →
@@ -713,6 +715,24 @@ bind-promotes h ps i r env k cenv eth d dm p t lk ce oc rr ng one eq
     yes : just (sys h ps') ≡ just t →
           lookup (procs t) i ≡ just (record p { ctl = c })
     yes refl = setProc-lookup ps i c p ps' lk sp
+
+-- A reply root on `saved ∷ seg ∷ []` whose returned cell is not g1,
+-- and whose object is not named exactly once, is refused. This is
+-- the `false | false` branch of `bind1`. The `isG1` branch does not
+-- consult the count: a cell that is already g1 is installed as it is.
+-- `alias-await-probe` in `MuroBeam.RunImage` is a closed test of this
+-- lemma, not the lemma itself.
+bind-count-refuses :
+  ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  openCont k ≡ true →
+  replyRoot k ≡ true →
+  isG1 (checked r) ≡ false →
+  (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ false →
+  bind1 (sys h ps) i ≡ nothing
+bind-count-refuses h ps i r env k cenv eth d dm p lk ce oc rr ng many
+  rewrite lk | ce | oc | rr | ng | many = refl
 
 -- `keep` of a `Kmove` cell records `(index, object)` and continues.
 split-keep-move : ∀ {m n} i ph (th : Thin m n) r rs ce pe mv →

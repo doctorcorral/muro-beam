@@ -43,7 +43,8 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `ignore-seq.mbi`, `nignore-seq.mbi`, `spawn-ignore.mbi`,
 `spawn-await.mbi`, `spawn-nignore.mbi`, `def-spawn.mbi`,
 `skip-await.mbi`, `copy-await.mbi`, `buried-await.mbi`,
-`alias-await.mbi`, and `alias-bind.mbi` are not emitter goldens. They are surface process
+`alias-await.mbi`, `gmatch-await.mbi`, `gvar-await.mbi`,
+`gref-chain.mbi`, and `alias-bind.mbi` are not emitter goldens. They are surface process
 entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
 halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
 halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
@@ -55,10 +56,15 @@ so collect leaves the cell at index 0. `await-seq.mbi`,
 (`protocol is not a spawn reply`). `buried-await.mbi` is the same
 refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
 `protocol slot is not moved`. `alias-await.mbi` is refused with
-`reply result is not fresh`. `alias-bind.mbi` is a fresh `gsu`
+`reply result is not fresh`. `gmatch-await.mbi` is a `gmatch`
+body, `gvar-await.mbi` is a `gvar` under `recv`, and
+`gref-chain.mbi` is a `gref` whose definition is itself a `gref`.
+Those three are the same refusal. `alias-bind.mbi` is a fresh `gsu`
 reply. A normal run promotes that cell and halts with `v1`.
 `--alias-bind` loads the same file, plants a second reference to
-the returned cell, and `bind1` refuses (`aliased reply result`).
+the returned cell, and `bind1` refuses (`aliased reply result`,
+exit 0). A load refusal under `--alias-bind` exits 2 and writes
+`muro-beam:` plus the reason on stderr.
 Do not treat any of these as bytes `muro emit --backend mbi` writes.
 
 `plus` and `half` are `run` definitions. `eval_def` asks `calls_out?`

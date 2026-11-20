@@ -140,6 +140,9 @@ REFUSE = [
     ("copy-await", "protocol slot is not moved"),
     ("buried-await", "protocol is not a spawn reply"),
     ("alias-await", "reply result is not fresh"),
+    ("gmatch-await", "reply result is not fresh"),
+    ("gvar-await", "reply result is not fresh"),
+    ("gref-chain", "reply result is not fresh"),
 ]
 
 
@@ -415,6 +418,18 @@ def main():
              "refuse: not surface"),
             ("defs-need-seq",
              "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
+             "refuse: defs need a seq entry"),
+            ("defs-need-seq-spawn",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (spawn t[] (done) (done))))\n",
+             "refuse: defs need a seq entry"),
+            # A scope-0 send has no de Bruijn index, so parse reports
+            # `out of scope` before `noDefs`. The send here is under
+            # `recv`, which is in scope, and the entry is not `seq`.
+            ("defs-need-seq-send",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (send 0 0 (done)))))\n",
+             "refuse: defs need a seq entry"),
+            ("defs-need-seq-recv",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (done))))\n",
              "refuse: defs need a seq entry"),
             ("spawn-short",
              "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done))))\n",

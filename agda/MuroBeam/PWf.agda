@@ -3235,5 +3235,7 @@ psteps (pmore st later) wf = psteps later (pstep-wf st wf)
 spawn-preserves-grade1 : ∀ {s i t} → spawn1 s i ≡ just t → WF s → WF t
 spawn-preserves-grade1 {sys h ps} {i} eq wf = spawn-wf h ps i _ wf eq
 
+-- `WF` follows the trace. The `AllInv` conjunct is `residual-inv-refs`,
+-- which holds of every `Sys`, so that conjunct does not use `tr`.
 lowerP-safe : ∀ {p s} → PStep* (lowerP p) s → WF s × AllInv (refsOf s)
 lowerP-safe {p} {s} tr = psteps tr (lowerP-wf p) , residual-inv-refs s

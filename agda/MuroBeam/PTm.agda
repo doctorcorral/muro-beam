@@ -29,7 +29,7 @@ open import Muro.Grade using
 
 open import MuroBeam.BTm using
   ( BTm; embed; decideB; lookupIx
-  ; gvar; gtyp; glam; gpi; gapp )
+  ; gvar; gtyp; glam; gpi; gapp; gmatch )
   renaming (gze to bze; gsu to bsu; gref to bref)
 
 open import MuroBeam.Boundary using (inB?; Cxt)
@@ -493,6 +493,43 @@ aliasAwait =
 
 aliasAwait-no : checkP [] aliasAwait ≡ fail "reply result is not fresh"
 aliasAwait-no = refl
+
+-- The same refusal for the other non-fresh heads. `gmatch` and a
+-- `gref` chain are closed. `gvar` needs a binder, so the entry is a
+-- `recv` and the body names that slot. These are the programs in
+-- `gmatch-await.mbi`, `gvar-await.mbi`, and `gref-chain.mbi`.
+gmatchAwait : PTm 0
+gmatchAwait =
+  seq nil (gmatch bze bze (gvar fzero))
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+gmatchAwait-no : checkP [] gmatchAwait ≡ fail "reply result is not fresh"
+gmatchAwait-no = refl
+
+gvarAwait : PTm 0
+gvarAwait =
+  recv gω g0
+    (seq nil (gvar fzero)
+      (spawn (keep (skip t[]))
+        (send zero fzero (done {1}))
+        (await fzero (done {2}))))
+
+gvarAwait-no : checkP [] gvarAwait ≡ fail "reply result is not fresh"
+gvarAwait-no = refl
+
+-- Definition 0 is `gze`. Definition 1 is a `gref` to it. The entry
+-- `gref`s definition 1, so `freshBody` sees a `gref`, not a fresh head.
+grefChain : PTm 0
+grefChain =
+  seq (bze ∷ₗ bref zero ∷ₗ nil) (bref (suc zero))
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+grefChain-no : checkP [] grefChain ≡ fail "reply result is not fresh"
+grefChain-no = refl
 
 ------------------------------------------------------------------------
 -- An accepted reply `seq` has a fresh body. The guard sits after

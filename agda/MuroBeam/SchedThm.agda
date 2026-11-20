@@ -134,6 +134,14 @@ three-halted :
     ≡ plain-halted
 three-halted = refl
 
+-- Regression pins for three closed schedules at `driveFuel`.
+-- `*-halted` pins the outcome, `*-val` pins the kept nat, and
+-- `*-line` pins the `showDrove` text. Each one is `refl` on that
+-- program. None of them is a theorem about an arbitrary image.
+-- `await-img`, `ignore-img`, and `nignore-img` are the fuel bridge:
+-- the same `showDrove` line at `imgFuel`. The content pins are the
+-- `*-line` equations.
+--
 -- A closed image that spawns and awaits the reply. `seq` binds the
 -- nat at grade 1, `bind1` regrades the fresh ω cell, and `spawn`
 -- moves it, so `await` consumes the child's send. The kept nat is
@@ -192,6 +200,7 @@ await-fuel :
 await-fuel =
   drive-fuel driveFuel imgFuel zero nil nothing (lowerP awaitP) fuel-≤ await-halted
 
+-- Fuel bridge to `await-line`. The content pin is `await-line`.
 await-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP awaitP)))
           ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP awaitP)))
 await-img = cong showDrove await-fuel
@@ -202,6 +211,7 @@ ignore-fuel :
 ignore-fuel =
   drive-fuel driveFuel imgFuel zero nil nothing (lowerP ignoreP) fuel-≤ ignore-halted
 
+-- Fuel bridge to `ignore-line`. The content pin is `ignore-line`.
 ignore-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP ignoreP)))
            ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP)))
 ignore-img = cong showDrove ignore-fuel
@@ -232,6 +242,11 @@ nignore-line :
   showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP)))
     ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(1 2)] h3l1p2 v0"
 nignore-line = refl
+
+-- Fuel bridge to `nignore-line`. The content pin is `nignore-line`.
+nignore-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP nignoreP)))
+            ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP)))
+nignore-img = cong showDrove nignore-fuel
 
 deadTm : PTm zero
 deadTm = recv g1 g0 (done {suc zero})

@@ -35,8 +35,11 @@ open import MuroBeam.PSyntax using (Thin; t[]; keep; skip)
 
 ------------------------------------------------------------------------
 -- Surface process term. `awaitT`, `ignoreT`, `flushT`, `ncheckT`,
--- and `ndemonT` are not here. `spawn` writes those once a moved
--- reply has an object index. A `seq` in the file carries no
+-- and `ndemonT` are not here. `markProto` writes `awaitT`,
+-- `ignoreT`, and `ncheckT` once a moved reply has an object index.
+-- `arm1` turns `ignoreT` into `flushT`. `npeek1` turns `ncheckT`
+-- into `ndemonT` when the mailbox does not hold the tag. A `seq`
+-- in the file carries no
 -- definition list: the image `(defs …)` section is the root seq's
 -- list, and load attaches it. A nested seq has an empty list.
 ------------------------------------------------------------------------

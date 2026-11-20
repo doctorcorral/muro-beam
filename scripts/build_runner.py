@@ -79,6 +79,7 @@ def write_main(sym, alias):
             "  , \"Load a .mbi image and run it on the round-robin driver.\"",
             "  , \"--alias-bind loads IMAGE, plants a second reference on the\"",
             "  , \"returned reply cell, and prints the bind refusal.\"",
+            "  , \"A load refusal under --alias-bind is exit 2, same as a normal load.\"",
             "  , \"N is a natural. The default is " + fuel + ".\"",
             "  , \"\"",
             "  , \"A run prints one line: outcome, events, fingerprint, kept nat.\"",
@@ -161,7 +162,7 @@ def write_main(sym, alias):
             "  case args of",
             "    [\"--alias-bind\", path] -> do",
             "      src <- readImage path",
-            "      TIO.putStrLn (" + alias + " src)",
+            "      dispatch (" + alias + " src)",
             "    _ -> do",
             "      (path, fuel) <- parseArgs args",
             "      src <- readImage path",
@@ -178,9 +179,9 @@ def main():
     if shutil.which("ghc") is None:
         fail("ghc is not on PATH")
     sym = symbol("d_cliRun")
-    alias = symbol("d_aliasImage")
+    alias = symbol("d_aliasCli")
     print("cliRun symbol " + sym, file=sys.stderr)
-    print("aliasImage symbol " + alias, file=sys.stderr)
+    print("aliasCli symbol " + alias, file=sys.stderr)
     write_main(sym, alias)
     rte = rte_dir()
     subprocess.run(

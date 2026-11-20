@@ -118,8 +118,22 @@ REFUSE = [
     ("copy-await", None, "protocol slot is not moved"),
     ("buried-await", None, "protocol is not a spawn reply"),
     ("alias-await", None, "reply result is not fresh"),
+    ("gmatch-await", None, "reply result is not fresh"),
+    ("gvar-await", None, "reply result is not fresh"),
+    ("gref-chain", None, "reply result is not fresh"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
+     "defs need a seq entry"),
+    ("defs-need-seq-spawn",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (spawn t[] (done) (done))))\n",
+     "defs need a seq entry"),
+    # A scope-0 send is `out of scope` at parse. This send is under
+    # `recv`, so the entry parses and `noDefs` refuses it.
+    ("defs-need-seq-send",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (send 0 0 (done)))))\n",
+     "defs need a seq entry"),
+    ("defs-need-seq-recv",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (done))))\n",
      "defs need a seq entry"),
     ("spawn-short",
      "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done))))\n",
@@ -286,6 +300,13 @@ def main():
     if code != 0 or err != "" or out != "refuse: aliased reply result\n":
         fail("alias-bind-plant: " + repr((code, out, err)))
     print("ok alias-bind-plant")
+    # A load refusal under --alias-bind is exit 2, stderr like a normal
+    # load. The file is a non-fresh reply body.
+    path = os.path.join(IMG, "alias-await.mbi")
+    code, out, err = run(["--alias-bind", path])
+    if code != 2 or out != "" or err != "muro-beam: reply result is not fresh\n":
+        fail("alias-bind-load: " + repr((code, out, err)))
+    print("ok alias-bind-load")
     path = write_tmp(V2_EMPTY)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":
