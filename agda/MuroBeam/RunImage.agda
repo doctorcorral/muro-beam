@@ -1,7 +1,22 @@
 ------------------------------------------------------------------------
--- Run one pure image on pid 0. `seq1` once, then `runFor`. The
+-- Run one pure image.
+--
+-- `runImage` is the pid-0 harness: `seq1` once, then `runFor`. The
 -- value sits on the `saved` frame; `bind` and `done` are not taken.
--- This is the test harness, not the CLI.
+--
+-- `cliRun` is what the `muro-beam` binary calls. It `load`s the text
+-- and runs `drive` at the fuel the caller passes. `scripts/build_runner.py`
+-- generates `MAlonzo/RunnerMain.hs`, which reads the path and the
+-- fuel. That main is not an Agda module, so the audit still sees
+-- only `--safe` files. A pure entry stops `stuck`: `seq1` pushes
+-- `saved` over `seg`, and `bind1` does not resume that stack. The
+-- nat `drive` kept is the value on that `rv`. The tag `fuel` is
+-- `outOfFuel`. The tag `load` is a `fail` from `load`, and no
+-- schedule is run. The line under the tag is `showDrove`: outcome,
+-- events, fingerprint, and kept nat. That printer is
+-- `MuroBeam.Show`, shared with `MuroBeam.Conform` and the book.
+-- Decimals are the fuel-bounded `showℕ`. A numeral past eight
+-- digits is `overflow`.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -15,7 +30,7 @@ open import Data.Product.Base using (proj₁)
 open import Data.String.Base using (String; _++_; fromList)
 open import Muro.Base using (Result; ok; fail)
 
-open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; Ref; obj)
+open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; obj)
 open import MuroBeam.Image using (showImage; showNat)
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Load using (load)
@@ -23,8 +38,9 @@ open import MuroBeam.Parse using (parse)
 open import MuroBeam.PRun using (seq1)
 open import MuroBeam.PTm using (lowerP)
 open import MuroBeam.Sched using
-  ( drive; oc; val; plain; Outcome
+  ( drive; Drove; oc; val; plain; Outcome
   ; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
+open import MuroBeam.Show using (showOc; showVal; showDrove)
 open import MuroBeam.Process using
   ( Sys; heap; procs; Proc; ctl; Ctl; rv
   ; Frame; saved; seg; eval1; runFor; payloadAt )
@@ -97,20 +113,37 @@ dbl (suc n) = suc (suc (dbl n))
 imgFuel : ℕ
 imgFuel = dbl (dbl (dbl (dbl (dbl (suc zero)))))
 
-ocText : ∀ {t} → Outcome t → String
-ocText o with plain o
-... | plain-halted   = "halted"
-... | plain-deadlock = "deadlock"
-... | plain-stuck i  = "stuck " ++ fromList (showNat i)
-... | plain-fuel     = "fuel"
-
-valText : Maybe ℕ → String
-valText nothing  = "v-"
-valText (just n) = "v" ++ fromList (showNat n)
-
 driveImage : String → String
 driveImage src with load src
 ... | fail e = "refuse: " ++ e
 ... | ok p   =
   let d = proj₁ (drive imgFuel zero [] nothing (lowerP p))
-  in ocText (oc d) ++ " " ++ valText (val d)
+  in showOc (oc d) ++ " " ++ showVal (val d)
+
+------------------------------------------------------------------------
+-- The line `muro-beam` prints is `showDrove` from MuroBeam.Show.
+-- `seq` and `bind` emit no event. `eval` emits `tr-step`. A halt
+-- emits `tr-collect`. A pure image does not halt.
+--
+-- `ok` is a finished schedule: halted, deadlock, or stuck. Those
+-- three tags are wired here. A `.mbi` entry has no process form,
+-- so a run of the binary on a loaded image stops `stuck` rather
+-- than `halted` or `deadlock`. `fuel` is `outOfFuel`, and the next
+-- line is the partial schedule. `load` is the reason `load`
+-- returned. No schedule is run.
+------------------------------------------------------------------------
+
+mark : ∀ {t} → Outcome t → String
+mark o with plain o
+... | plain-fuel     = "fuel"
+... | plain-halted   = "ok"
+... | plain-deadlock = "ok"
+... | plain-stuck _  = "ok"
+
+cliBody : Drove → String
+cliBody d = mark (oc d) ++ "\n" ++ showDrove d
+
+cliRun : String → ℕ → String
+cliRun src fuel with load src
+... | fail e = "load\n" ++ e
+... | ok p   = cliBody (proj₁ (drive fuel zero [] nothing (lowerP p)))

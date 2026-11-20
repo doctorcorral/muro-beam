@@ -55,6 +55,8 @@ import MuroBeam.Death
 import MuroBeam.Sched
 import MuroBeam.SchedThm
 import MuroBeam.Conform
+-- Shared event printer used by Conform and RunImage.
+import MuroBeam.Show
 -- Image loading is Agda-side. Not opened: the names stay off the v1c API.
 import MuroBeam.Image
 import MuroBeam.Parse

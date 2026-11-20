@@ -10,7 +10,8 @@ AFLAGS := --no-libraries \
 	-i vendor/agda-stdlib/src \
 	--warning=noUnsupportedIndexedMatch
 
-.PHONY: agda audit book book-show conformance images
+.PHONY: agda audit book book-show conformance images \
+	malonzo-image muro-beam build runner emit-check
 agda:
 	$(AGDA) $(RTS) $(AFLAGS) --safe agda/MuroBeam.agda
 
@@ -18,6 +19,8 @@ agda:
 # and does not call GHC. scripts/conform.py compiles the driver with
 # -O0 -j1 and diffs the two runs. --ghc-dont-call-ghc keeps the audit
 # on --safe modules: the driver is scripts/, not an Agda main.
+# Conform and the muro-beam CLI share MuroBeam.Show, so this
+# comparison also pins the binary's event spelling and decimals.
 conformance: book-show
 	$(AGDA) $(RTS) $(AFLAGS) --safe --ghc --ghc-dont-call-ghc \
 		--compile-dir=. \
@@ -39,9 +42,28 @@ audit:
 	python3 scripts/audit.py
 
 # Parse, load, and run the checked-in images. agda writes the Haskell
-# and does not call GHC. scripts/run_image.py compiles the driver.
-images:
+# and does not call GHC. scripts/run_image.py compiles the pid-0 driver.
+# scripts/build_runner.py writes MAlonzo/RunnerMain.hs and links
+# muro-beam. That main reads the file and the fuel. load and drive
+# stay in RunImage, which is --safe. The printed line is showDrove
+# from MuroBeam.Show, the same printer make conformance checks.
+malonzo-image:
 	$(AGDA) $(RTS) $(AFLAGS) --safe --ghc --ghc-dont-call-ghc \
 		--compile-dir=. \
 		agda/MuroBeam/RunImage.agda
+
+images: malonzo-image
 	python3 scripts/run_image.py
+
+muro-beam: malonzo-image
+	python3 scripts/build_runner.py
+
+build: muro-beam
+
+runner: muro-beam
+	python3 scripts/test_runner.py
+
+# Hex muro 0.22.13 emits suc and plus 2 3 into a private MIX_HOME.
+# The book pin stays 0.20.33. vendor/muro stays v0.20.32.
+emit-check: muro-beam
+	python3 scripts/emit_check.py
