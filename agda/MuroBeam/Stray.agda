@@ -71,7 +71,7 @@ open import MuroBeam.PRun using
   ; pmore; pdone
   ; spawn1; emit1; deliver1; recv1; recvStep; await1; awaitOn; awaitPark
   ; arm1; flush1; npeek1; npeekOn; ndemon1
-  ; seq1; bind1; done1
+  ; seq1; bind1; done1; openCont
   ; splitGo; Split; placeholder; blocked
   ; pullCode; pullFrames; pullCtl; wake
   ; setCtlSt; scrubOne; scrubRefs; scrubCode; scrubFrame; scrubFrames; scrubCtl
@@ -2050,7 +2050,30 @@ module Preserve (τ : ℕ) where
       onC (rv _ _ (mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (seg _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-      onC (rv _ _ (saved (go _ _ _ _ _) ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ ar _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ fn _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ saved _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ seg _ ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv r env (saved (go k cenv eth d dm) ∷ seg _ ∷ [])) eqc lk0 ec
+          rewrite lk0 | ec with openCont k
+      ... | false = nope eqc
+      ... | true =
+        sealProc h ps i t c' ze zctl zr fit znew eqc
+        where
+        c' = pr (go k (r ∷ (env ++ cenv)) eth d dm)
+        tail0 = env ++ ((cenv ++ flightRefs eth) ++ [])
+        nr = proj₁ (head0 r tail0 (ctl0 ec here))
+        zrest = proj₂ (head0 r tail0 (ctl0 ec here))
+        ze0 = proj₁ (++0 env ((cenv ++ flightRefs eth) ++ []) zrest)
+        zpad = proj₂ (++0 env ((cenv ++ flightRefs eth) ++ []) zrest)
+        zboth = trans (sym (count-idʳ (cenv ++ flightRefs eth))) zpad
+        zcenv = proj₁ (++0 cenv (flightRefs eth) zboth)
+        zfl = proj₂ (++0 cenv (flightRefs eth) zboth)
+        znew = 0++ (r ∷ (env ++ cenv)) (flightRefs eth)
+                 (cons0 r (env ++ cenv) nr (0++ env cenv ze0 zcenv)) zfl
       onC (rv r env (saved (go k cenv eth d dm) ∷ [])) eqc lk0 ec rewrite lk0 | ec =
         sealProc h ps i t c' ze zctl zr fit znew eqc
         where

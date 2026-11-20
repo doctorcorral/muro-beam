@@ -585,7 +585,9 @@ ndemon1 (sys h ps) i =
 ------------------------------------------------------------------------
 -- seq runs the entry under `saved ∷ seg ds`. The ether moves onto
 -- `saved` and is not duplicated into that frame's environment.
--- bind resumes only `saved ∷ []`, so it does not resume a seq.
+-- bind resumes `saved ∷ []`, and it resumes `saved ∷ seg ∷ []` when
+-- the continuation is not `done`. A `done` continuation stays parked,
+-- which is how a pure `(seq <btm> (done))` image stops stuck.
 -- done drops roots and the environment and keeps flights.
 ------------------------------------------------------------------------
 
@@ -601,6 +603,23 @@ seq1 (sys h ps) i =
     just (sys h ps')
   sequenced _ = nothing
 
+-- `done` is the pure-image continuation. Anything else is a process
+-- the seq was waiting to run.
+openCont : ∀ {n} → PTm n → Bool
+openCont done            = false
+openCont (send _ _ _)    = true
+openCont (recv _ _ _)    = true
+openCont (spawn _ _ _)   = true
+openCont (seq _ _ _)     = true
+openCont (await _ _)     = true
+openCont (ignore _ _)    = true
+openCont (nignore _ _)   = true
+openCont (awaitT _ _)    = true
+openCont (ignoreT _ _)   = true
+openCont (flushT _ _)    = true
+openCont (ncheckT _ _)   = true
+openCont (ndemonT _ _)   = true
+
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
   lookup ps i >>= λ _ →
@@ -609,6 +628,11 @@ bind1 (sys h ps) i =
   where
   bound : Ctl → Maybe Sys
   bound (rv r env (saved (go k cenv eth d dm) ∷ [])) =
+    setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
+  bound (rv r env (saved (go k cenv eth d dm) ∷ seg _ ∷ [])) with openCont k
+  ... | false = nothing
+  ... | true =
     setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
     just (sys h ps')
   bound _ = nothing

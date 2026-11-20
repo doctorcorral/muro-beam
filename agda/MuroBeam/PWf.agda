@@ -60,7 +60,7 @@ open import MuroBeam.PRun using
   ; pmore; pdone
   ; _>>=_
   ; spawn1; emit1; deliver1; recv1; await1; arm1; flush1
-  ; npeek1; ndemon1; seq1; bind1; done1
+  ; npeek1; ndemon1; seq1; bind1; done1; openCont
   ; placeholder; splitGo; Split
   ; setCtlSt; recvStep; pullCtl; pullCode; pullFrames
   ; inboxHas; awaitOn; awaitPark; npeekOn
@@ -536,7 +536,22 @@ bind-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (rv _ _ (mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (seg _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
-    onC (rv _ _ (saved (go _ _ _ _ _) ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ ar _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ fn _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ saved _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ seg _ ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv r env (saved (go k cenv eth d dm) ∷ seg _ ∷ [])) eqc lk0 ec
+        rewrite lk0 | ec with openCont k
+    ... | false = nope eqc
+    ... | true =
+      keep-counts h ps i p c t wf lk0 eqc
+        (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))
+        (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (bind-has q r env cenv eth))
+        (bind-bound r env cenv eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
+      where c = pr (go k (r ∷ (env ++ cenv)) eth d dm)
     onC (rv r env (saved (go k cenv eth d dm) ∷ [])) eqc lk0 ec rewrite lk0 | ec =
       keep-counts h ps i p c t wf lk0 eqc
         (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))
