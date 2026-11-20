@@ -9,11 +9,11 @@
 module MuroBeam.PTm where
 
 open import Data.Bool.Base using (Bool; true; false; _∧_)
-open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero)
+open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; length) renaming ([] to nil; _∷_ to _∷ₗ_)
 open import Data.Maybe.Base using (just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc)
-open import Data.Product.Base using (_×_; _,_)
+open import Data.Product.Base using (_×_; _,_; ∃)
 open import Data.Vec.Base using (Vec; []; _∷_; lookup)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 open import Relation.Nullary.Decidable.Core using (Dec; yes; no)
@@ -27,7 +27,9 @@ open import Muro.Grade using
   ; Pair; gp; Spent; sp; Uses; GCtx
   ; under; hold; addU; oneS; charge; zeros; pcomp )
 
-open import MuroBeam.BTm using (BTm; embed; decideB)
+open import MuroBeam.BTm using
+  ( BTm; embed; decideB; lookupIx
+  ; gvar; gtyp; glam; gpi; gapp )
   renaming (gze to bze; gsu to bsu; gref to bref)
 
 open import MuroBeam.Boundary using (inB?; Cxt)
@@ -158,8 +160,10 @@ merge i (keep th) (gp c t ∷ Γ) (v ∷ cu)  (u ∷ pu) tm =
   merge (suc i) th Γ cu pu tm >>= λ rest → ok (w ∷ rest)
 
 ------------------------------------------------------------------------
--- The checker. `seq` asks `decideB` and `inB?`. A recv binder is `under`.
--- A send is one computational use, gated by `sat` or `checkGrade`.
+-- The checker. `seq` asks `decideB` and `inB?`. A reply root also
+-- requires a fresh body, so an aliased result is not a checked image.
+-- A recv binder is `under`. A send is one computational use, gated by
+-- `sat` or `checkGrade`.
 --
 -- Definitions are checked once, in order. Definition i may mention
 -- itself and every earlier definition (`gref` below `suc i`). A later
@@ -184,6 +188,31 @@ checkSpawn : ∀ {m n} → Thin m n → GCtx n → Uses m → Uses n → PTm n �
 checkSpawn th Γ cu pu pa =
   guard "protocol slot is not moved" (protoKept th pa) >>
   merge zero th Γ cu pu pa
+
+-- A fresh head allocates its result. `gsu` allocates the successor
+-- cell even when its argument is an existing pointer. `gvar`, `gapp`,
+-- and `gmatch` can return a pointer that is already in scope.
+freshHead : ∀ {n} → BTm n → Bool
+freshHead bze           = true
+freshHead (bsu _)       = true
+freshHead (glam _ _ _)  = true
+freshHead (gtyp _)      = true
+freshHead (gpi _ _ _)   = true
+freshHead _             = false
+
+-- One `gref`, and only to a fresh head. A chain of `gref`s is not fresh.
+freshBody : List (BTm 0) → ∀ {n} → BTm n → Bool
+freshBody ds (bref k) with lookupIx ds k
+... | just d  = freshHead d
+... | nothing = false
+freshBody _ e = freshHead e
+
+-- Reply roots are the only `seq` continuations whose binder is g1.
+-- Anything else may return an alias; `bind1` will not promote it.
+guardReply : ∀ {n} → List (BTm 0) → BTm n → PTm (suc n) → Result ⊤
+guardReply ds e k with replyRoot k
+... | false = ok tt
+... | true  = guard "reply result is not fresh" (freshBody ds e)
 
 checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
 checkP {n} Γ done = ok (zeros {n})
@@ -219,9 +248,10 @@ checkP Γ (spawn th ch pa) =
   checkP Γ pa >>= λ pu →
   checkSpawn th Γ cu pu pa
 checkP Γ (seq ds e k) =
-  checkDefs zero ds >>
-  boundaryOk (inB? (comps Γ) e) >>
+  checkDefs zero ds >>= λ _ →
+  boundaryOk (inB? (comps Γ) e) >>= λ _ →
   decideB (length ds) run Γ e >>= λ eu →
+  guardReply ds e k >>= λ _ →
   checkP (gp (seqGrade k) g0 ∷ Γ) k >>= λ uk →
   under run (seqGrade k) g0 uk >>= λ ku →
   ok (addU eu ku)
@@ -412,3 +442,100 @@ buriedAwait =
 
 buriedAwait-no : checkP [] buriedAwait ≡ fail "protocol is not a spawn reply"
 buriedAwait-no = refl
+
+-- The same copied slot, closed: the ω binder is a `recv`, not an open context.
+copyClosed : PTm 0
+copyClosed =
+  recv gω g0
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+copyClosed-no : checkP [] copyClosed ≡ fail "protocol slot is not moved"
+copyClosed-no = refl
+
+-- Naive ignore at a spawn parent. The binder is g1. The body is fresh.
+spawnNignore : PTm 0
+spawnNignore =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (nignore fzero (done {1})))
+
+spawnNignore-ok : checkP [] spawnNignore ≡ ok []
+spawnNignore-ok = refl
+
+-- A `gref` whose definition is itself a fresh head is a fresh body.
+grefAwait : PTm 0
+grefAwait =
+  seq (bze ∷ₗ nil) (bref zero)
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+grefAwait-ok : checkP [] grefAwait ≡ ok []
+grefAwait-ok = refl
+
+-- Application can return a pointer the closure still holds. That is
+-- not a fresh cell, so a reply root is refused before `bind1`.
+aliasAwait : PTm 0
+aliasAwait =
+  seq nil
+    (gapp
+      (glam gω g0
+        (gapp
+          (glam gω g0 (gvar (fsuc fzero)))
+          (gvar fzero)))
+      (bsu bze))
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+aliasAwait-no : checkP [] aliasAwait ≡ fail "reply result is not fresh"
+aliasAwait-no = refl
+
+------------------------------------------------------------------------
+-- An accepted reply `seq` has a fresh body. The guard sits after
+-- `decideB` and before the continuation, so peeling three binds
+-- reaches it. `decideB` does not have to reduce.
+------------------------------------------------------------------------
+
+ok-bind : ∀ {A B : Set} {r : Result A} {f : A → Result B} {y : B} →
+  (r >>= f) ≡ ok y → ∃ λ x → f x ≡ ok y
+ok-bind {r = ok x} eq = x , eq
+ok-bind {r = fail _} ()
+
+guard-ok : ∀ {A : Set} {msg} {b : Bool} {f : ⊤ → Result A} {y : A} →
+  (guard msg b >>= f) ≡ ok y → b ≡ true
+guard-ok {b = true} _ = refl
+guard-ok {b = false} ()
+
+seq-reply-fresh : ∀ {n} (Γ : GCtx n) ds e k uk →
+  replyRoot k ≡ true →
+  checkP Γ (seq ds e k) ≡ ok uk →
+  freshBody ds e ≡ true
+seq-reply-fresh Γ ds e k uk rr eq rewrite rr
+  with checkDefs zero ds
+... | fail msg = stuck eq
+  where
+  stuck : ∀ {A : Set} → fail msg ≡ ok uk → A
+  stuck ()
+... | ok _
+  with boundaryOk (inB? (comps Γ) e)
+... | fail msg = stuck eq
+  where
+  stuck : ∀ {A : Set} → fail msg ≡ ok uk → A
+  stuck ()
+... | ok _
+  with decideB (length ds) run Γ e
+... | fail msg = stuck eq
+  where
+  stuck : ∀ {A : Set} → fail msg ≡ ok uk → A
+  stuck ()
+... | ok _
+  with freshBody ds e
+... | true = refl
+... | false = stuck eq
+  where
+  stuck : ∀ {A : Set} → fail "reply result is not fresh" ≡ ok uk → A
+  stuck ()

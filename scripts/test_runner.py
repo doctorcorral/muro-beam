@@ -114,6 +114,10 @@ REFUSE = [
     ("await-seq", None, "protocol is not a spawn reply"),
     ("ignore-seq", None, "protocol is not a spawn reply"),
     ("nignore-seq", None, "protocol is not a spawn reply"),
+    ("skip-await", None, "protocol slot is not moved"),
+    ("copy-await", None, "protocol slot is not moved"),
+    ("buried-await", None, "protocol is not a spawn reply"),
+    ("alias-await", None, "reply result is not fresh"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),
@@ -221,6 +225,11 @@ PROC = {
     "def-spawn": (
         "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, "
         "tr-collect(0 1)] h2l0p2 v0\n"
+    ),
+    "spawn-nignore": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(1 2)] h3l1p2 v0\n"
     ),
 }
 

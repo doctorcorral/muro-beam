@@ -24,10 +24,10 @@ open import Data.Bool.Base using (false; true)
 open import Data.Fin.Base using () renaming (zero to fzero)
 open import Data.List.Base using (List; _∷_) renaming ([] to nil)
 open import Data.Maybe.Base using (just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc; _<_; s≤s; z≤n)
+open import Data.Nat.Base using (ℕ; zero; suc; _<_; _≤_; s≤s; z≤n)
 open import Data.Product.Base using (proj₁; proj₂)
 open import Data.Vec.Base using ([])
-open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; subst)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; subst; cong)
 
 open import Muro.Base using (ok)
 open import Muro.Grade using (g0; g1)
@@ -43,11 +43,13 @@ open import MuroBeam.PRun using (mailHas; deadAt)
 open import MuroBeam.PSyntax using (PTm; t[]; done; spawn; recv; send; go)
 open import MuroBeam.PTm using
   ( CheckedP; checkedP; checkP; lowerP
-  ; spawnAwait; spawnAwait-ok; spawnIgnore; spawnIgnore-ok )
+  ; spawnAwait; spawnAwait-ok; spawnIgnore; spawnIgnore-ok
+  ; spawnNignore; spawnNignore-ok )
 open import MuroBeam.PWf using (psteps)
+open import MuroBeam.RunImage using (imgFuel)
 open import MuroBeam.Sched using
   ( drive; final; oc; val; plain; plain-halted; plain-deadlock; plain-stuck
-  ; halted; allDone )
+  ; halted; allDone; drive-fuel )
 open import MuroBeam.Show using (showDrove)
 open import MuroBeam.Stray using (ReplyDone; replied; no-stray-reply)
 open import MuroBeam.Unique using (WF)
@@ -175,6 +177,61 @@ ignore-line :
   showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP)))
     ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
 ignore-line = refl
+
+-- `imgFuel` is 1000. A halted run at `driveFuel` is the same Drove there.
+fuel-≤ : driveFuel ≤ imgFuel
+fuel-≤ =
+  s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s z≤n)))))))))))))))
+
+await-fuel :
+  proj₁ (drive imgFuel zero nil nothing (lowerP awaitP))
+    ≡ proj₁ (drive driveFuel zero nil nothing (lowerP awaitP))
+await-fuel =
+  drive-fuel driveFuel imgFuel zero nil nothing (lowerP awaitP) fuel-≤ await-halted
+
+await-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP awaitP)))
+          ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP awaitP)))
+await-img = cong showDrove await-fuel
+
+ignore-fuel :
+  proj₁ (drive imgFuel zero nil nothing (lowerP ignoreP))
+    ≡ proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP))
+ignore-fuel =
+  drive-fuel driveFuel imgFuel zero nil nothing (lowerP ignoreP) fuel-≤ ignore-halted
+
+ignore-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP ignoreP)))
+           ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP)))
+ignore-img = cong showDrove ignore-fuel
+
+-- Spawn parent `nignore`. The reply is not flushed, so the fingerprint
+-- is not the await line. Halting at 16 is the same fact as the other
+-- two replies.
+nignoreP : CheckedP
+nignoreP = checkedP spawnNignore spawnNignore-ok
+
+nignore-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP))))
+    ≡ plain-halted
+nignore-halted = refl
+
+nignore-val :
+  val (proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP)))
+    ≡ just zero
+nignore-val = refl
+
+nignore-fuel :
+  proj₁ (drive imgFuel zero nil nothing (lowerP nignoreP))
+    ≡ proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP))
+nignore-fuel =
+  drive-fuel driveFuel imgFuel zero nil nothing (lowerP nignoreP) fuel-≤ nignore-halted
+
+nignore-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP)))
+    ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(1 2)] h3l1p2 v0"
+nignore-line = refl
 
 deadTm : PTm zero
 deadTm = recv g1 g0 (done {suc zero})

@@ -199,19 +199,43 @@ A protocol form that is not that spawn parent root is refused at
 `ignore-seq.mbi`, and `nignore-seq.mbi` are that refusal. A bare
 `seq` of `await`, `ignore`, or `nignore` never spawns. A protocol
 buried under another constructor, including `seq` under `spawn`, is
-the same refusal. `markProto` still rewrites only the root, so the
-checker refuses the shape it would leave untouched. A spawn that
-skips the protocol slot, or that keeps it at a copied grade, is
-refused with `protocol slot is not moved`.
+the same refusal. `buried-await.mbi` is that shape.
+`markProto` still rewrites only the root, so the checker refuses the
+shape it would leave untouched. A spawn that skips the protocol slot,
+or that keeps it at a copied grade, is refused with `protocol slot is
+not moved`. `skip-await.mbi` is the skip. `copy-await.mbi` is a closed
+`recv` at ω whose `keep` is a copy.
 
 `nignore` at a spawn parent root takes the same grade-1 binding and
-does run. Its steps are the naive peek and demonitor, so one cell
-stays live. A bare `nignore` under `seq` is the refusal above.
+does run. `spawn-nignore.mbi` is that image. Its steps are the naive
+peek and demonitor, so the reply is not flushed and one cell stays
+live. The `showDrove` line keeps that cell: `tr-collect(1 2)`,
+fingerprint `h3l1p2`, value `v0`. `nignore-halted`, `nignore-val`,
+and `nignore-line` are that run at `driveFuel`. A bare `nignore`
+under `seq` is the refusal above.
 
-An aliased non-g1 result of `seq` is left at its grade. Promoting it
-would put a second `g1` reference on one object, and `Grade1Unique`
-forbids that. Checked images whose body is `gze` or `gsu` allocate a
-fresh cell, so the count is 1 and the promotion runs.
+A reply root's `seq` body has to be a fresh head. `freshHead` is
+`gze`, `gsu` (the successor cell, not the argument), `glam`, `gtyp`,
+or `gpi`. `freshBody` also allows one `gref` whose definition is a
+fresh head, and refuses a chain. `gvar`, `gapp`, and `gmatch` are not
+fresh. `guardReply` refuses a non-fresh body with `reply result is not
+fresh` after `decideB` and before the continuation. `alias-await.mbi`
+is that refusal: the body is an application that can return a pointer
+the closure still holds. `seq-reply-fresh` says an accepted reply
+`seq` has `freshBody ≡ true`.
+
+`bind1` still does not promote an aliased non-g1 cell. A second `g1`
+alias would break `Grade1Unique`. `bind-promotes` says that when the
+returned cell is not `g1` and `count` of its object is 1, the installed
+head is `regrade r g1`. `regrade-move` says that head is `Kmove`.
+`split-head` and `reply-slot` (`spawn-reply-tag`) say a kept move at
+index 0 tags the protocol root and later moves leave the tag.
+A fresh head allocates at `length` of the heap. Under `Bound` that
+index was not named, and the returning step adds one reference, which
+is why the count is 1 on the images that `checkP` accepts. That count
+is the allocator's story. It is not a separate theorem from `checkP`
+to the tag. `grefAwait-ok` is the direct fresh `gref`. `spawn-await.mbi`
+and `spawn-ignore.mbi` are the fresh `gze` runs that do tag the slot.
 
 `run` in the pid-0 harness is `seq1` then `runFor`. It does not call
 `bind1`. `run` of `send-recv.mbi` prints `nat 2`, the seq payload,
@@ -224,7 +248,12 @@ would resume the spawn, and the harness would print `stuck`.
 `DEFAULT_FUEL`. `drive` of `plus.mbi` at that fuel stops `stuck 0`
 and keeps `v5` on both the harness and the binary. `driveFuel` in
 `MuroBeam.SchedThm` stays 16. The closed spawn and reply proofs
-finish inside it. It is a separate budget from the image fuel.
+finish inside it. `drive-fuel` says a run that has already halted at
+fuel n returns the same `Drove` at every m ≥ n. `await-fuel`,
+`ignore-fuel`, and `nignore-fuel` are that fact for the three reply
+images at `imgFuel`. `await-img`, `ignore-img`, and `nignore-line`
+are the `showDrove` lines. The harness `drove` pins those lines, and
+the binary's line is the same text plus a newline.
 
 What this shows is `load` of the `String` the Haskell main passed
 in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so

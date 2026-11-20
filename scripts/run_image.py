@@ -96,18 +96,45 @@ FORWARD = (
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
 
-# Process entries. Not emitter goldens. `drive` is load then drive
-# at imgFuel (1000). The string is "outcome value", the text
-# driveImage prints. Bare await/ignore/nignore under seq are refusals
-# and are checked below, on drive and on run.
+# Process entries. Not emitter goldens. `drove` is load then drive
+# at imgFuel (1000). The string is showDrove, the same line the binary
+# prints without the newline the Haskell main adds. Bare protocol
+# forms are refusals and are checked below, on drive and on run.
+REPLY = (
+    "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+    "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+    "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+)
 PROC = {
-    "spawn-done": "halted v-",
-    "bare-done": "halted v-",
-    "send-recv": "halted v2",
-    "spawn-ignore": "halted v0",
-    "spawn-await": "halted v0",
-    "def-spawn": "halted v0",
+    "spawn-done": "halted [tr-spawn 0 1, tr-collect(0)] h1l0p2 v-",
+    "bare-done": "halted [tr-collect()] h0l0p1 v-",
+    "send-recv": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-step 0, "
+        "tr-spawn 0 1, tr-send 1 0 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, "
+        "tr-recv 0 ref(2,pt(inf),pt(inf),omega-kept), "
+        "tr-collect(0 1 2 3)] h4l0p2 v2"
+    ),
+    "spawn-ignore": REPLY,
+    "spawn-await": REPLY,
+    "def-spawn": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, "
+        "tr-collect(0 1)] h2l0p2 v0"
+    ),
+    "spawn-nignore": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(1 2)] h3l1p2 v0"
+    ),
 }
+REFUSE = [
+    ("await-seq", "protocol is not a spawn reply"),
+    ("ignore-seq", "protocol is not a spawn reply"),
+    ("nignore-seq", "protocol is not a spawn reply"),
+    ("skip-await", "protocol slot is not moved"),
+    ("copy-await", "protocol slot is not moved"),
+    ("buried-await", "protocol is not a spawn reply"),
+    ("alias-await", "reply result is not fresh"),
+]
 
 
 def fail(msg):
@@ -142,6 +169,7 @@ def build():
     run_sym = symbol("d_runImage")
     echo_sym = symbol("d_echoImage")
     drive_sym = symbol("d_driveImage")
+    drove_sym = symbol("d_droveImage")
     with open(MAIN, "w", encoding="utf-8") as fh:
         fh.write(
             "\n".join(
@@ -151,7 +179,7 @@ def build():
                     "import qualified Data.Text as T",
                     "import qualified Data.Text.IO as TIO",
                     "import MAlonzo.Code.MuroBeam.RunImage ("
-                    + run_sym + ", " + echo_sym + ", " + drive_sym + ")",
+                    + run_sym + ", " + echo_sym + ", " + drive_sym + ", " + drove_sym + ")",
                     "main :: IO ()",
                     "main = do",
                     "  args <- getArgs",
@@ -165,7 +193,10 @@ def build():
                     '    ["drive", path] -> do',
                     "      src <- TIO.readFile path",
                     "      TIO.putStr (" + drive_sym + " src)",
-                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH"',
+                    '    ["drove", path] -> do',
+                    "      src <- TIO.readFile path",
+                    "      TIO.putStr (" + drove_sym + " src)",
+                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH"',
                     "",
                 ]
             )
@@ -194,6 +225,8 @@ def call(mode, path, fuel="200"):
         cmd = [BIN, "echo", path]
     elif mode == "drive":
         cmd = [BIN, "drive", path]
+    elif mode == "drove":
+        cmd = [BIN, "drove", path]
     else:
         cmd = [BIN, "run", path, fuel]
     proc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE)
@@ -283,9 +316,9 @@ def main():
             if echoed != raw:
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
             print("ok echo " + name)
-            check(name, call("drive", path), want)
-        # Bare protocol under seq never spawns. checkP refuses it.
-        for name in ("await-seq", "ignore-seq", "nignore-seq"):
+            check(name, call("drove", path), want)
+        # checkP refusals. driveImage and runImage both print the reason.
+        for name, reason in REFUSE:
             path = os.path.join(IMG, name + ".mbi")
             with open(path, encoding="utf-8") as fh:
                 raw = fh.read()
@@ -293,9 +326,9 @@ def main():
             if echoed != raw:
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
             print("ok echo " + name)
-            reason = "refuse: protocol is not a spawn reply"
-            check(name + "-drive", call("drive", path), reason)
-            check(name + "-run", call("run", path), reason)
+            text = "refuse: " + reason
+            check(name + "-drive", call("drive", path), text)
+            check(name + "-run", call("run", path), text)
         # runSys is seq1 then runFor. It does not call bind1.
         # send-recv prints the seq nat; the spawn stays parked.
         # spawn-done's seq1 returns nothing. spawn-await prints the

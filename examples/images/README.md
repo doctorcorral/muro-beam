@@ -41,15 +41,22 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 
 `spawn-done.mbi`, `bare-done.mbi`, `send-recv.mbi`, `await-seq.mbi`,
 `ignore-seq.mbi`, `nignore-seq.mbi`, `spawn-ignore.mbi`,
-`spawn-await.mbi`, and `def-spawn.mbi` are not
-emitter goldens. They are surface process entries written for this
-loader. `spawn-done.mbi` and `bare-done.mbi` halt. `send-recv.mbi`
-binds at ω and halts with `v2`. `def-spawn.mbi` halts with `v0`.
-`spawn-await.mbi` and `spawn-ignore.mbi` halt with `v0`: the child
-sends the bound nat at grade 1 and the parent runs the reply.
-`await-seq.mbi`, `ignore-seq.mbi`, and `nignore-seq.mbi` are refused
-at load (`protocol is not a spawn reply`). Do not treat any of these
-as bytes `muro emit --backend mbi` writes.
+`spawn-await.mbi`, `spawn-nignore.mbi`, `def-spawn.mbi`,
+`skip-await.mbi`, `copy-await.mbi`, `buried-await.mbi`, and
+`alias-await.mbi` are not emitter goldens. They are surface process
+entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
+halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
+halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
+`v0`: the child sends the bound nat at grade 1 and the parent runs
+the reply. `spawn-nignore.mbi` is the same spawn with `nignore`. It
+halts with `v0` and fingerprint `h3l1p2`: the reply is not flushed,
+so collect leaves the cell at index 0. `await-seq.mbi`,
+`ignore-seq.mbi`, and `nignore-seq.mbi` are refused at load
+(`protocol is not a spawn reply`). `buried-await.mbi` is the same
+refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
+`protocol slot is not moved`. `alias-await.mbi` is refused with
+`reply result is not fresh`. Do not treat any of these as bytes
+`muro emit --backend mbi` writes.
 
 `plus` and `half` are `run` definitions. `eval_def` asks `calls_out?`
 of the whole body, including both match arms, and returns

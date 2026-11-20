@@ -12,6 +12,7 @@ open import Data.Fin.Base using (Fin; toℕ)
 open import Data.List.Base using (List; []; _∷_; _++_)
 open import Data.Nat.Base using (ℕ; zero; suc; _≡ᵇ_)
 open import Data.Product.Base using (_×_; _,_)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 
 open import Muro.Grade using (Grade)
 
@@ -72,6 +73,46 @@ applyMoves ((i , τ) ∷ mv)  p = applyMoves mv (markProto i τ p)
 replyRoot : ∀ {n} → PTm n → Bool
 replyRoot (spawn (keep _) _ pa) = isProtoAt zero pa
 replyRoot _                      = false
+
+-- The tagged form `markProto` writes for a protocol root. Later moves
+-- hit the catch-all and leave that tag in place.
+protoTag : ∀ {n} → ℕ → PTm n → PTm n
+protoTag τ (await _ k)   = awaitT τ k
+protoTag τ (ignore _ k)  = ignoreT τ k
+protoTag τ (nignore _ k) = ncheckT τ k
+protoTag _ p             = p
+
+stay-await : ∀ {n} τ (k : PTm n) mv → applyMoves mv (awaitT τ k) ≡ awaitT τ k
+stay-await τ k []             = refl
+stay-await τ k ((i , σ) ∷ mv) = stay-await τ k mv
+
+stay-ignore : ∀ {n} τ (k : PTm n) mv → applyMoves mv (ignoreT τ k) ≡ ignoreT τ k
+stay-ignore τ k []             = refl
+stay-ignore τ k ((i , σ) ∷ mv) = stay-ignore τ k mv
+
+stay-nignore : ∀ {n} τ (k : PTm n) mv → applyMoves mv (ncheckT τ k) ≡ ncheckT τ k
+stay-nignore τ k []             = refl
+stay-nignore τ k ((i , σ) ∷ mv) = stay-nignore τ k mv
+
+-- A move of slot 0 tags a protocol root, and the rest of the list
+-- does not untag it. `awaitT`, `ignoreT`, and `ncheckT` are the forms
+-- the reply steps match.
+reply-slot : ∀ {n} (pa : PTm n) τ mv →
+  isProtoAt zero pa ≡ true →
+  applyMoves ((zero , τ) ∷ mv) pa ≡ protoTag τ pa
+reply-slot (await x k) τ mv eq rewrite eq = stay-await τ k mv
+reply-slot (ignore x k) τ mv eq rewrite eq = stay-ignore τ k mv
+reply-slot (nignore x k) τ mv eq rewrite eq = stay-nignore τ k mv
+reply-slot done τ mv ()
+reply-slot (send _ _ _) τ mv ()
+reply-slot (recv _ _ _) τ mv ()
+reply-slot (spawn _ _ _) τ mv ()
+reply-slot (seq _ _ _) τ mv ()
+reply-slot (awaitT _ _) τ mv ()
+reply-slot (ignoreT _ _) τ mv ()
+reply-slot (flushT _ _) τ mv ()
+reply-slot (ncheckT _ _) τ mv ()
+reply-slot (ndemonT _ _) τ mv ()
 
 -- Parent index `i` is a `keep` in the thinning.
 keptAt : ∀ {m n} → ℕ → Thin m n → Bool

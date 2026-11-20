@@ -137,6 +137,13 @@ driveImage src with load src
   let d = proj₁ (drive imgFuel zero [] nothing (lowerP p))
   in showOc (oc d) ++ " " ++ showVal (val d)
 
+-- The full line `showDrove` prints. No newline: the Haskell main adds one.
+-- Reply images pin this, not only the outcome and the nat.
+droveImage : String → String
+droveImage src with load src
+... | fail e = "refuse: " ++ e
+... | ok p   = showDrove (proj₁ (drive imgFuel zero [] nothing (lowerP p)))
+
 ------------------------------------------------------------------------
 -- The line `muro-beam` prints is `showDrove` from MuroBeam.Show.
 -- `seq` and `bind` emit no event. `eval` emits `tr-step`. A halt
