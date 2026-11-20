@@ -39,6 +39,12 @@ The same `plus` and `half` calls on muro `3f1cae2`
 returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `{:run, "half", [0]}`, and `{:run, "half", [5]}`.
 
+`spawn-done.mbi`, `bare-done.mbi`, `send-recv.mbi`, `await-seq.mbi`,
+`ignore-seq.mbi`, `nignore-seq.mbi`, `spawn-ignore.mbi`,
+`spawn-await.mbi`, and `def-spawn.mbi` are not
+emitter goldens. They are surface process entries written for this
+loader. Do not treat them as bytes `muro emit --backend mbi` writes.
+
 `plus` and `half` are `run` definitions. `eval_def` asks `calls_out?`
 of the whole body, including both match arms, and returns
 `{:error, "run definition calls itself"}` before it steps.

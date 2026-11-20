@@ -8,9 +8,11 @@
 -- and runs `drive` at the fuel the caller passes. `scripts/build_runner.py`
 -- generates `MAlonzo/RunnerMain.hs`, which reads the path and the
 -- fuel. That main is not an Agda module, so the audit still sees
--- only `--safe` files. A pure entry stops `stuck`: `seq1` pushes
--- `saved` over `seg`, and `bind1` does not resume that stack. The
--- nat `drive` kept is the value on that `rv`. The tag `fuel` is
+-- only `--safe` files. A pure entry, whose continuation is `done`,
+-- stops `stuck`: `seq1` pushes `saved` over `seg`, and `bind1`
+-- leaves that stack when the continuation is `done`. A continuation
+-- that is not `done` is resumed. The nat `drive` kept is the value
+-- on that `rv`, or the first delivered payload. The tag `fuel` is
 -- `outOfFuel`. The tag `load` is a `fail` from `load`, and no
 -- schedule is run. The line under the tag is `showDrove`: outcome,
 -- events, fingerprint, and kept nat. That printer is
@@ -101,8 +103,9 @@ echoImage s with parse s
 ... | nothing = "no"
 
 -- Fuelled drive of a loaded image. The file has one process. `seq1`
--- pushes `saved` over `seg`, and `bind1` does not resume that stack,
--- so a pure entry can stop `stuck` with the nat already in `rv`.
+-- pushes `saved` over `seg`. `bind1` resumes that stack when the
+-- continuation is not `done`, and leaves a `done` continuation
+-- parked, so a pure entry can stop `stuck` with the nat in `rv`.
 -- The text is the outcome and the nat `drive` kept.
 
 dbl : ℕ → ℕ
@@ -126,9 +129,9 @@ driveImage src with load src
 -- emits `tr-collect`. A pure image does not halt.
 --
 -- `ok` is a finished schedule: halted, deadlock, or stuck. Those
--- three tags are wired here. A `.mbi` entry has no process form,
--- so a run of the binary on a loaded image stops `stuck` rather
--- than `halted` or `deadlock`. `fuel` is `outOfFuel`, and the next
+-- three tags are wired here. A pure entry stops `stuck`. A process
+-- entry can halt, deadlock, or stick, and the binary reports that
+-- outcome. `fuel` is `outOfFuel`, and the next
 -- line is the partial schedule. `load` is the reason `load`
 -- returned. No schedule is run.
 ------------------------------------------------------------------------

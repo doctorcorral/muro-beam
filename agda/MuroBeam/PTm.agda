@@ -28,6 +28,7 @@ open import Muro.Grade using
   ; under; hold; addU; oneS; charge; zeros; pcomp )
 
 open import MuroBeam.BTm using (BTm; embed; decideB)
+  renaming (gze to bze; gsu to bsu; gref to bref)
 
 open import MuroBeam.Boundary using (inB?; Cxt)
 open import MuroBeam.Grade using (kind; Kind; Kmove; Kcopy)
@@ -244,3 +245,90 @@ closedSeq = seq nil (embed gze) (done {1})
 
 closed-checks : checkP [] closedSeq ≡ ok []
 closed-checks = refl
+
+-- Closed programs a `.mbi` entry can name. A file starts at scope 0,
+-- so these are `PTm 0`. `spawn t[]` of `done` is the same program as
+-- `twoTm` in `MuroBeam.SchedThm`. The send copies the ω nat `seq`
+-- binds. `await`, `ignore`, and `nignore` each spend that binder once.
+-- A `g0` recv binder does not.
+
+spawnClosed : PTm 0
+spawnClosed = spawn t[] (done {0}) (done {0})
+
+spawnClosed-ok : checkP [] spawnClosed ≡ ok []
+spawnClosed-ok = refl
+
+doneClosed : PTm 0
+doneClosed = done {0}
+
+doneClosed-ok : checkP [] doneClosed ≡ ok []
+doneClosed-ok = refl
+
+nat2 : BTm 0
+nat2 = bsu (bsu bze)
+
+sendRecv : PTm 0
+sendRecv =
+  seq nil nat2
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (recv gω g0 (done {2})))
+
+sendRecv-ok : checkP [] sendRecv ≡ ok []
+sendRecv-ok = refl
+
+awaitClosed : PTm 0
+awaitClosed = seq nil bze (await fzero (done {1}))
+
+awaitClosed-ok : checkP [] awaitClosed ≡ ok []
+awaitClosed-ok = refl
+
+ignoreClosed : PTm 0
+ignoreClosed = seq nil bze (ignore fzero (done {1}))
+
+ignoreClosed-ok : checkP [] ignoreClosed ≡ ok []
+ignoreClosed-ok = refl
+
+nignoreClosed : PTm 0
+nignoreClosed = seq nil bze (nignore fzero (done {1}))
+
+nignoreClosed-ok : checkP [] nignoreClosed ≡ ok []
+nignoreClosed-ok = refl
+
+defSpawn : PTm 0
+defSpawn =
+  seq (bze ∷ₗ nil) (bref zero)
+    (spawn (skip t[]) (done {0}) (done {1}))
+
+defSpawn-ok : checkP [] defSpawn ≡ ok []
+defSpawn-ok = refl
+
+-- The binder `seq` introduces is ω. `spawn` copies it and does not
+-- rewrite `await` or `ignore` into the tagged forms. `checkP` still
+-- accepts the surface term.
+
+spawnIgnore : PTm 0
+spawnIgnore =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (ignore fzero (done {1})))
+
+spawnIgnore-ok : checkP [] spawnIgnore ≡ ok []
+spawnIgnore-ok = refl
+
+spawnAwait : PTm 0
+spawnAwait =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+spawnAwait-ok : checkP [] spawnAwait ≡ ok []
+spawnAwait-ok = refl
+
+g0send : PTm 0
+g0send = seq nil bze (recv g0 g0 (send zero fzero (done {2})))
+
+g0send-no : checkP [] g0send ≡ fail "erased variable used computationally"
+g0send-no = refl

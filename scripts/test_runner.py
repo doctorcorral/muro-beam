@@ -40,7 +40,8 @@ EVENT = re.compile(
     r"tr-(alloc|spend|send|recv|spawn|step|collect|down)( |\(|$)"
 )
 
-# once (suc 0). drive keeps v1 and stops stuck.
+# once (suc 0). The continuation is done, so the value stays on
+# saved over seg. drive keeps v1 and stops stuck.
 ONCE_APP = (
     "(muro-beam-image 1 (boundary 1) (entry (seq "
     "(gapp (glam (1 0) (gvar 0)) (gsu gze)) (done))))\n"
@@ -89,6 +90,30 @@ REFUSE = [
     ("unclosed", "(muro-beam-image 1 (boundary 1) (entry (seq gze (done)))", "truncated"),
     ("newline-open", "(muro-beam-image 1 (boundary 1) (entry (seq gze (done)))\n", "junk"),
     ("junk", "not-an-image\n", "junk"),
+    ("not-surface",
+     "(muro-beam-image 1 (boundary 1) (entry (awaitT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-flushT",
+     "(muro-beam-image 1 (boundary 1) (entry (flushT 0 (done))))\n",
+     "not surface"),
+    ("defs-need-seq",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
+     "defs need a seq entry"),
+    ("spawn-short",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done))))\n",
+     "junk"),
+    ("send-scope",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (send 0 0 (done)) (done))))\n",
+     "out of scope"),
+    ("thin-scope",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn (keep t[]) (done) (done))))\n",
+     "out of scope"),
+    ("g0-send",
+     "(muro-beam-image 1 (boundary 1) (entry (seq gze (recv (0 0) (send 0 0 (done))))))\n",
+     "erased variable used computationally"),
+    ("proc-trunc",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (done))))",
+     "truncated"),
     ("junk-tail", WRAP.format(body="gze") + "x", "junk"),
     ("leading-zero", WRAP.format(body="(glam (1 0) (gvar 01))"), "junk"),
     (
@@ -136,12 +161,9 @@ def write_tmp_bytes(data):
     return fh.name
 
 
-# Every checked-in .mbi, and every success fixture here, is a pure
-# (seq <btm> (done)) entry. drive stops stuck 0: seq1 pushes saved
-# over seg, and bind1 does not resume that stack. mark also maps
-# halted and deadlock to exit 0, but those outcomes need a process
-# form the loader does not read, so they are not reached through a
-# .mbi in this suite.
+# Pure (seq <btm> (done)) entries stop stuck 0. The continuation is
+# done, so bind1 leaves saved over seg in place. Process entries are
+# checked by check_proc: bind1 resumes a continuation that is not done.
 def check_line(name, out, value):
     m = LINE.match(out)
     if m is None:
@@ -157,6 +179,44 @@ def check_line(name, out, value):
     if "tr-step 0" not in m.group(2):
         fail(name + ": no tr-step")
     print("ok " + name + " " + m.group(1) + " " + value)
+
+
+# outcome is "halted", "deadlock", or "stuck N". value is "v2" or "v-".
+# need is a list of event substrings. The full line is showDrove.
+PROC = {
+    "spawn-done": ("halted", "v-", ["tr-spawn 0 1", "tr-collect"]),
+    "bare-done": ("halted", "v-", ["tr-collect"]),
+    "send-recv": ("halted", "v2", ["tr-spawn 0 1", "tr-send", "tr-recv", "tr-collect"]),
+    "await-seq": ("stuck 0", "v0", ["tr-step 0"]),
+    "ignore-seq": ("stuck 0", "v0", ["tr-step 0"]),
+    "nignore-seq": ("stuck 0", "v0", ["tr-step 0"]),
+    "spawn-ignore": ("stuck 0", "v0", ["tr-spawn 0 1", "tr-send"]),
+    "spawn-await": ("stuck 0", "v0", ["tr-spawn 0 1", "tr-send"]),
+    "def-spawn": ("halted", "v0", ["tr-step 0", "tr-spawn 0 1", "tr-collect"]),
+}
+
+
+def check_proc(name, out, outcome, value, need):
+    m = LINE.match(out)
+    if m is None:
+        fail(name + ": bad line " + repr(out))
+    if m.group(1) != outcome:
+        fail(name + ": outcome " + m.group(1) + " line " + repr(out))
+    if not events_ok(m.group(2)):
+        fail(name + ": events " + m.group(2))
+    got = "v" + m.group(3)
+    if got != value:
+        fail(name + ": value " + got + " want " + value + " line " + repr(out))
+    for ev in need:
+        if ev not in m.group(2):
+            fail(name + ": missing " + ev + " in " + repr(out))
+    if name in ("spawn-done", "bare-done") and "tr-step" in m.group(2):
+        fail(name + ": unexpected tr-step " + repr(out))
+    if name in ("await-seq", "ignore-seq", "nignore-seq") and "tr-spawn" in m.group(2):
+        fail(name + ": unexpected tr-spawn " + repr(out))
+    if name in ("spawn-ignore", "spawn-await") and "tr-collect" in m.group(2):
+        fail(name + ": unexpected halt collect " + repr(out))
+    print("ok " + name + " " + m.group(1) + " " + value + " " + m.group(2))
 
 
 def main():
@@ -177,6 +237,12 @@ def main():
     if code != 0 or err != "":
         fail("once-app: " + repr((code, out, err)))
     check_line("once-app", out, "v1")
+    for name, (outcome, value, need) in PROC.items():
+        path = os.path.join(IMG, name + ".mbi")
+        code, out, err = run([path, "--fuel", "1000"])
+        if code != 0 or err != "":
+            fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
+        check_proc(name, out, outcome, value, need)
     path = write_tmp(V2_EMPTY)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":

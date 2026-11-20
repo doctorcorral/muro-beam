@@ -62,8 +62,9 @@ HAND = {
 # MIX_BUILD_PATH=/private/tmp/beam-b2-build. Muro.Load.file then
 # Muro.Session.eval_run("once", [1], book) and eval_run("applied", [], book)
 # both returned 1. The book has two run defs, so emit_mbi will not
-# write it; the image below is the same term by hand. drive keeps that
-# nat and stops stuck, because bind1 does not resume saved over seg.
+# write it; the image below is the same term by hand. The continuation
+# is done, so bind1 leaves the value on saved over seg. drive keeps
+# that nat and stops stuck.
 ONCE_APP = (
     "(muro-beam-image 1 (boundary 1) (entry (seq "
     "(gapp (glam (1 0) (gvar 0)) (gsu gze)) (done))))\n"
@@ -94,6 +95,21 @@ FORWARD = (
 )
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
+
+# Process entries. Not emitter goldens. `run` is one seq1 plus
+# runFor and does not call bind1, so these are checked with drive.
+# The string is "outcome value", the same text driveImage prints.
+PROC = {
+    "spawn-done": "halted v-",
+    "bare-done": "halted v-",
+    "send-recv": "halted v2",
+    "await-seq": "stuck 0 v0",
+    "ignore-seq": "stuck 0 v0",
+    "nignore-seq": "stuck 0 v0",
+    "spawn-ignore": "stuck 0 v0",
+    "spawn-await": "stuck 0 v0",
+    "def-spawn": "halted v0",
+}
 
 
 def fail(msg):
@@ -261,6 +277,15 @@ def main():
             if echoed != text:
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(text))
             check(name, call("run", path), want)
+        for name, want in PROC.items():
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            check(name, call("drive", path), want)
         path = write_tmp(ONCE_APP)
         check("once-app", call("run", path), "nat 1")
         # Elixir eval_run of this def returns 1. drive keeps that nat.
@@ -299,6 +324,45 @@ def main():
             ("junk", "not-an-image\n", "refuse: junk"),
             ("junk-tail", WRAP.format(body="gze") + "x", "refuse: junk"),
             ("leading-zero", WRAP.format(body="(glam (1 0) (gvar 01))"), "refuse: junk"),
+            ("not-surface",
+             "(muro-beam-image 1 (boundary 1) (entry (awaitT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-ignoreT",
+             "(muro-beam-image 1 (boundary 1) (entry (ignoreT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-flushT",
+             "(muro-beam-image 1 (boundary 1) (entry (flushT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-ncheckT",
+             "(muro-beam-image 1 (boundary 1) (entry (ncheckT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-ndemonT",
+             "(muro-beam-image 1 (boundary 1) (entry (ndemonT 0 (done))))\n",
+             "refuse: not surface"),
+            ("defs-need-seq",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
+             "refuse: defs need a seq entry"),
+            ("spawn-short",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done))))\n",
+             "refuse: junk"),
+            ("send-scope",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (send 0 0 (done)) (done))))\n",
+             "refuse: out of scope"),
+            ("thin-scope",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn (keep t[]) (done) (done))))\n",
+             "refuse: out of scope"),
+            ("await-scope",
+             "(muro-beam-image 1 (boundary 1) (entry (await 0 (done))))\n",
+             "refuse: out of scope"),
+            ("g0-send",
+             "(muro-beam-image 1 (boundary 1) (entry (seq gze (recv (0 0) (send 0 0 (done))))))\n",
+             "refuse: erased variable used computationally"),
+            ("done-extra",
+             "(muro-beam-image 1 (boundary 1) (entry (done x)))\n",
+             "refuse: junk"),
+            ("proc-trunc",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (done))))",
+             "refuse: truncated"),
         ]
         # bad-version replacement is fragile if "image 1 " matches twice.
         # The string has one "image 1 ".
