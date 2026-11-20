@@ -14,7 +14,7 @@ An image is the S-expression muro writes for `--backend mbi`. Format 2 adds a `(
 
 ## Run
 
-`make muro-beam` builds the `muro-beam` binary. Agda compiles `MuroBeam.RunImage` with `--safe` and `--ghc-dont-call-ghc`. `scripts/build_runner.py` links a Haskell main with `ghc -O0 -j1`. That main reads the path and the fuel. `load` and `drive` stay in the Agda module. The main is not an Agda file, so `make audit` still sees only `--safe` modules.
+`make muro-beam` builds the `muro-beam` binary. Agda compiles `MuroBeam.RunImage` with `--safe` and `--ghc-dont-call-ghc`. `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and links it with `ghc -O0 -j1`. That main reads the path and the fuel. `load` and `drive` stay in the Agda module. The main is not an Agda file, so `make audit` still sees only `--safe` modules.
 
 ```sh
 make muro-beam
@@ -22,12 +22,12 @@ make muro-beam
 ./muro-beam examples/images/suc.mbi --fuel 40
 ```
 
-The default fuel is 1000. A finished run prints one line: the outcome (`halted`, `deadlock`, `stuck <pid>`, or `fuel`), the event list, the fingerprint `h<heap>l<live>p<procs>`, and the nat `drive` kept (`v-` when it kept none). The event words are the ones in [docs/RUNTIME-BOOK.md](docs/RUNTIME-BOOK.md). A pure image stops `stuck 0` with that nat. `seq1` pushes `saved` over `seg`, and `bind1` does not resume that stack, so the schedule does not reach `done`.
+The default fuel is 1000. The printed line is the outcome (`halted`, `deadlock`, `stuck <pid>`, or `fuel`), the event list, the fingerprint `h<heap>l<live>p<procs>`, and the nat `drive` kept (`v-` when it kept none). The event words are the ones in [docs/RUNTIME-BOOK.md](docs/RUNTIME-BOOK.md). `fuel` is not a finished run: it is the exit-3 case below. A pure image stops `stuck 0` with that nat. `seq1` pushes `saved` over `seg`, and `bind1` does not resume that stack, so the schedule does not reach `done`.
 
 | Exit | Meaning |
 | --- | --- |
 | 0 | `drive` finished `halted`, `deadlock`, or `stuck` |
-| 1 | usage, a missing file, or a fuel argument that is not a natural |
+| 1 | usage, a file that cannot be read, or a fuel argument that is not a natural |
 | 2 | the file did not parse, or `load` refused it |
 | 3 | `drive` returned out of fuel |
 

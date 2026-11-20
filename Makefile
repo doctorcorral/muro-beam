@@ -19,6 +19,8 @@ agda:
 # and does not call GHC. scripts/conform.py compiles the driver with
 # -O0 -j1 and diffs the two runs. --ghc-dont-call-ghc keeps the audit
 # on --safe modules: the driver is scripts/, not an Agda main.
+# Conform and the muro-beam CLI share MuroBeam.Show, so this
+# comparison also pins the binary's event spelling and decimals.
 conformance: book-show
 	$(AGDA) $(RTS) $(AFLAGS) --safe --ghc --ghc-dont-call-ghc \
 		--compile-dir=. \
@@ -41,8 +43,10 @@ audit:
 
 # Parse, load, and run the checked-in images. agda writes the Haskell
 # and does not call GHC. scripts/run_image.py compiles the pid-0 driver.
-# scripts/build_runner.py links muro-beam. That main reads the file
-# and the fuel. load and drive stay in RunImage, which is --safe.
+# scripts/build_runner.py writes MAlonzo/RunnerMain.hs and links
+# muro-beam. That main reads the file and the fuel. load and drive
+# stay in RunImage, which is --safe. The printed line is showDrove
+# from MuroBeam.Show, the same printer make conformance checks.
 malonzo-image:
 	$(AGDA) $(RTS) $(AFLAGS) --safe --ghc --ghc-dont-call-ghc \
 		--compile-dir=. \

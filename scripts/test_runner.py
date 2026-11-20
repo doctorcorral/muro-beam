@@ -3,7 +3,8 @@
 #
 # The binary loads a .mbi file and runs drive. These checks cover
 # format 1, format 2 with gref, a refusal, a truncated file, junk,
-# and fuel 0. The kept nat is the one the pid-0 harness prints.
+# fuel 0, invalid UTF-8, a file over the 1 MiB cap, and a bare
+# --fuel. The kept nat is the one the pid-0 harness prints.
 # The event words are the book trace constructors.
 
 import os
@@ -128,6 +129,19 @@ def events_ok(body):
     return True
 
 
+def write_tmp_bytes(data):
+    fh = tempfile.NamedTemporaryFile("wb", suffix=".mbi", delete=False)
+    fh.write(data)
+    fh.close()
+    return fh.name
+
+
+# Every checked-in .mbi, and every success fixture here, is a pure
+# (seq <btm> (done)) entry. drive stops stuck 0: seq1 pushes saved
+# over seg, and bind1 does not resume that stack. mark also maps
+# halted and deadlock to exit 0, but those outcomes need a process
+# form the loader does not read, so they are not reached through a
+# .mbi in this suite.
 def check_line(name, out, value):
     m = LINE.match(out)
     if m is None:
@@ -208,10 +222,39 @@ def main():
     if code != 1 or "bad fuel" not in err:
         fail("bad fuel: " + repr((code, out, err)))
     print("ok bad-fuel")
+    code, out, err = run([os.path.join(IMG, "suc.mbi"), "--fuel"])
+    if code != 1 or out != "" or err != "muro-beam: --fuel needs a natural\n":
+        fail("bare fuel: " + repr((code, out, err)))
+    print("ok bare-fuel")
     code, out, err = run([os.path.join(IMG, "suc.mbi"), "--fuel", "1", "--fuel", "2"])
     if code != 1 or "twice" not in err:
         fail("twice: " + repr((code, out, err)))
     print("ok fuel-twice")
+    path = write_tmp_bytes(b"\xff\xfe not utf-8\n")
+    code, out, err = run([path])
+    if code != 1 or out != "" or "cannot read" not in err or "invalid UTF-8" not in err:
+        fail("utf8: " + repr((code, out, err)))
+    print("ok invalid-utf8")
+    # 1 MiB + 1 byte, same cap as scripts/build_runner.py.
+    from build_runner import MAX_IMAGE_BYTES
+    path = write_tmp_bytes(b"x" * (MAX_IMAGE_BYTES + 1))
+    code, out, err = run([path])
+    if code != 1 or out != "" or "cannot read" not in err or "file too large" not in err:
+        fail("too-large: " + repr((code, out, err)))
+    print("ok too-large")
+    code, out, err = run([IMG])
+    if code != 1 or out != "" or "cannot read" not in err:
+        fail("directory: " + repr((code, out, err)))
+    print("ok directory")
+    path = write_tmp(WRAP.format(body="gze"))
+    os.chmod(path, 0)
+    try:
+        code, out, err = run([path])
+    finally:
+        os.chmod(path, 0o644)
+    if code != 1 or out != "" or "cannot read" not in err:
+        fail("denied: " + repr((code, out, err)))
+    print("ok permission")
     print("runner ok")
     return 0
 

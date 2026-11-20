@@ -96,34 +96,43 @@ an open sexp, is `truncated`. A newline while a sexp is still open is
 ## Runner
 
 `muro-beam` reads one image file and an optional `--fuel N` (default
-1000). `scripts/build_runner.py` is the Haskell main. It is not an
-Agda module. `MuroBeam.RunImage.cliRun` calls `load`, then `drive` at
-that fuel, from cursor 0, with no meetings and no kept nat. The
-printed line is the outcome, the events, the fingerprint
-`h<heap>l<live>p<procs>`, and the kept nat. The event spelling is the
-one `MuroBeam.Conform` prints for the book. Decimals on that line are
-`showNat`. On the numerals a run of these images prints, that text
-matches the book printer.
+1000). `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and
+links it. That Haskell main is not an Agda module.
+`MuroBeam.RunImage.cliRun` calls `load`, then `drive` at that fuel,
+from cursor 0, with no meetings and no kept nat. The printed line is
+the outcome, the events, the fingerprint `h<heap>l<live>p<procs>`,
+and the kept nat. The event spelling and the decimals are
+`MuroBeam.Show`, the same module `MuroBeam.Conform` uses for the book,
+so `make conformance` pins the CLI line as well. A numeral past eight
+digits is `overflow`.
 
 Exit 0 is `halted`, `deadlock`, or `stuck`. Exit 2 is a parse or load
 refusal, and stderr is `muro-beam:` plus the reason (`bad version`,
 `bad gref`, `junk`, `truncated`, `outside the boundary`, and the
 others `load` returns). Exit 3 is out of fuel: stderr says so, and
-stdout is still the partial line. Exit 1 is usage, a missing file, or
-a fuel argument that is not a natural.
+stdout is still the partial line. Exit 1 is usage, a fuel argument
+that is not a natural, or a file the main cannot read: a missing
+file, permission denied, a directory, invalid UTF-8, or a file
+larger than 1 MiB. Those read failures print `muro-beam: cannot
+read …` on stderr.
 
 A pure image stops `stuck 0`. `seq1` pushes `saved` over `seg`, and
 `bind1` resumes only `saved ∷ []`, so the process never reaches
 `done`. The kept nat is the value on that returned reference. A
 closure keeps nothing (`v-`). Fuel 0 does not step: the line is
-`fuel [] h0l0p1 v-`.
+`fuel [] h0l0p1 v-`. `mark` also maps `halted` and `deadlock` to
+exit 0, but the file has no process form, so those outcomes are not
+reached through a `.mbi`.
 
-What this proves is `load` of the bytes that were read, then one
-fuelled `drive` of `lowerP`. `drive-sound` is the `PStep*` on that
-run. It does not prove `budget-adequate`, `MatchFree`, or
-`no-stray-reply`. A loaded `gmatch` is still outside `MatchFree`.
-The file still has no process form, so spawn, send, and recv are not
-an image the loader reads.
+What this shows is `load` of the `String` the Haskell main passed
+in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so
+Agda never sees the bytes, only that `String`. `cliRun` takes
+`proj₁` of `drive`, so `PStep*` is typechecked into existence
+rather than carried as a CLI witness. `drive-sound` is the
+`PStep*` on that run. It does not show `budget-adequate`,
+`MatchFree`, or `no-stray-reply`. A loaded `gmatch` is still
+outside `MatchFree`. The file still has no process form, so spawn,
+send, and recv are not an image the loader reads.
 
 The Haskell main and the muro emitter are outside the TCB. `make
 audit` does not see them. Hex muro 0.22.13 writes the checked-in

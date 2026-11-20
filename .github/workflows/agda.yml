@@ -180,7 +180,8 @@ jobs:
   # Load and run the checked-in images, then the muro-beam binary.
   # Separate cache from conformance: the conform-v4 key stays put.
   # runner-v1 is the drive CLI. A hit relinks. It does not reuse an
-  # images-v1 tree.
+  # images-v1 tree. The key also hashes the image fixtures and the
+  # runner/emit scripts, so a changed fixture or test is a miss.
   images:
     name: image runner
     runs-on: ubuntu-24.04
@@ -196,7 +197,7 @@ jobs:
           path: |
             MAlonzo
             vendor/agda-stdlib
-          key: runner-v1-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/run_image.py', 'scripts/build_runner.py') }}
+          key: runner-v1-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/run_image.py', 'scripts/build_runner.py', 'scripts/test_runner.py', 'scripts/emit_check.py', 'examples/images/**') }}
 
       - name: Install Agda 2.8.0
         run: |
