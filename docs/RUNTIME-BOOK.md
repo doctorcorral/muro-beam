@@ -235,7 +235,7 @@ The OTP image in muro 0.21.0 (`Muro.Emit.Otp` at tag `v0.21.0`) is the behaviour
 - `d-send` models only the consumed put. It is `nothing` on the halt path, where `dead` is false. OTP's `peer_dead` is the failure mark, not the halt mark. A successful enqueue is still the existing send.
 - One monitor and two processes. A third process, a monitor set, credit, and acks are not in this meeting.
 - The steps are not `PStep`. `no-stray-reply` does not quantify over them. `d-done` sets the state and the halt flag. It does not run `done1`, so it does not clear roots.
-- This is not a runnable VM. The image and the loader are Agda (`docs/IMAGE.md`, `MuroBeam.Load`). The emitter is muro's `--backend mbi`, outside this book. A harness runs one pure image on pid 0. `drive` runs a system it is given, on fuel. The file image has no process form. There is no CLI and no I/O. There is no bounded-wait theorem.
+- This is not a host VM. The image and the loader are Agda (`docs/IMAGE.md`, `MuroBeam.Load`). The emitter is muro's `--backend mbi`, outside this book. A harness runs one pure image on pid 0. `drive` runs a system it is given, on fuel. A `.mbi` entry may be a surface process term; `load` re-checks it and `muro-beam` runs `drive` on `lowerP`. There is no host I/O. There is no bounded-wait theorem. The book `seq` still pushes only `saved`.
 
 ## Names
 
