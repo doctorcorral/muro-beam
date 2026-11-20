@@ -626,11 +626,12 @@ openCont (ndemonT _ _)   = true
 -- checked at grade 1. The cell `eval` just returned is still ω.
 -- Regrade it to g1 when it is not already g1 and it is the only
 -- reference to its object, so the following spawn moves it and
--- `markProto` rewrites the parent root. An aliased non-g1 result is
--- left as it is: a second g1 alias would break `Grade1Unique`.
--- `checkP` refuses that alias for a reply root (`freshBody`), so a
--- loaded image does not take this branch. A singleton `saved` is the
--- book bind and is not regraded.
+-- `markProto` rewrites the parent root. An aliased non-g1 result
+-- is refused (`nothing`): a second g1 alias would break
+-- `Grade1Unique`, and the ω alias would not be the move `markProto`
+-- tags. `checkP` refuses a non-fresh body (`freshBody`). There is
+-- no theorem from that guard to this count. A singleton `saved` is
+-- the book bind and is not regraded.
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
   lookup ps i >>= λ _ →
@@ -651,9 +652,7 @@ bind1 (sys h ps) i =
   ... | true  | _     =
     setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
     just (sys h ps')
-  ... | false | false =
-    setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
-    just (sys h ps')
+  ... | false | false = nothing
   ... | false | true  =
     setProc ps i (pr (go k (regrade r g1 ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
     just (sys h ps')

@@ -30,6 +30,7 @@ open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _+_)
 open import Data.Product.Base using (proj₁)
 open import Data.String.Base using (String; _++_; fromList)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 open import Muro.Base using (Result; ok; fail)
 
 open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; obj)
@@ -37,15 +38,16 @@ open import MuroBeam.Image using (showImage; showNat)
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Load using (load)
 open import MuroBeam.Parse using (parse)
-open import MuroBeam.PRun using (seq1)
-open import MuroBeam.PTm using (lowerP)
+open import MuroBeam.PRun using (seq1; bind1)
+open import MuroBeam.PTm using
+  ( lowerP; CheckedP; checkedP; spawnAwait; spawnAwait-ok )
 open import MuroBeam.Sched using
   ( drive; Drove; oc; val; plain; Outcome
   ; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 open import MuroBeam.Show using (showOc; showVal; showDrove)
 open import MuroBeam.Process using
-  ( Sys; heap; procs; Proc; ctl; Ctl; rv
-  ; Frame; saved; seg; eval1; runFor; payloadAt )
+  ( Sys; sys; heap; procs; Proc; ctl; Ctl; rv
+  ; Frame; saved; seg; eval1; runFor; payloadAt; setProc )
 
 data Halt : Set where
   hnat  : ℕ → Halt
@@ -143,6 +145,53 @@ droveImage : String → String
 droveImage src with load src
 ... | fail e = "refuse: " ++ e
 ... | ok p   = showDrove (proj₁ (drive imgFuel zero [] nothing (lowerP p)))
+
+------------------------------------------------------------------------
+-- An aliased non-g1 reply is refused. `checkP` already rejects a
+-- non-fresh body, and a fresh head's returning step allocates at
+-- `length` of the heap. There is no theorem from `freshBody` to the
+-- tag. This probe loads a reply image, runs the body until `eval1`
+-- stops on `saved ∷ seg`, and plants a second reference to that cell.
+-- `bind1` then returns `nothing` instead of resuming the ω alias.
+-- Eight eval steps cover `gze` and `gsu gze`. `runFor` stops when
+-- `eval1` returns `nothing`, so the rest of the fuel is not a loop.
+------------------------------------------------------------------------
+
+aliasFuel : ℕ
+aliasFuel = suc (suc (suc (suc (suc (suc (suc (suc zero)))))))
+
+plantCtl : Ctl → Maybe Ctl
+plantCtl (rv r env (saved c ∷ seg ds ∷ [])) =
+  just (rv r (r ∷ env) (saved c ∷ seg ds ∷ []))
+plantCtl _ = nothing
+
+plantAlias : Sys → Maybe Sys
+plantAlias (sys h ps) with lookup ps zero
+... | nothing = nothing
+... | just p with plantCtl (ctl p)
+... | nothing = nothing
+... | just c with setProc ps zero c
+... | nothing = nothing
+... | just ps' = just (sys h ps')
+
+aliasStep : CheckedP → String
+aliasStep p with seq1 (lowerP p) zero
+... | nothing = "missed"
+... | just s with runFor aliasFuel s
+... | s2 with plantAlias s2
+... | nothing = "missed"
+... | just s3 with bind1 s3 zero
+... | nothing = "refuse: aliased reply result"
+... | just _  = "accepted"
+
+alias-await-refuses :
+  aliasStep (checkedP spawnAwait spawnAwait-ok) ≡ "refuse: aliased reply result"
+alias-await-refuses = refl
+
+aliasImage : String → String
+aliasImage src with load src
+... | fail e = "refuse: " ++ e
+... | ok p   = aliasStep p
 
 ------------------------------------------------------------------------
 -- The line `muro-beam` prints is `showDrove` from MuroBeam.Show.

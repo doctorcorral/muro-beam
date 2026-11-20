@@ -164,9 +164,9 @@ read …` on stderr.
 
 A pure image stops `stuck 0`. `seq1` pushes `saved` over `seg`.
 `bind1` resumes a singleton `saved` stack, and it resumes
-`saved ∷ seg ∷ []` when the continuation is not `done`. A `done`
-continuation on that stack stays parked, so a pure image still
-never reaches `done`. The kept nat is the value on that returned
+`saved ∷ seg ∷ []` when the continuation is not `done`, except an
+aliased non-g1 reply, which is refused. A `done` continuation on
+that stack stays parked, so a pure image still never reaches `done`. The kept nat is the value on that returned
 reference. A closure keeps nothing (`v-`). Fuel 0 does not step:
 the line is `fuel [] h0l0p1 v-`.
 
@@ -224,18 +224,25 @@ is that refusal: the body is an application that can return a pointer
 the closure still holds. `seq-reply-fresh` says an accepted reply
 `seq` has `freshBody ≡ true`.
 
-`bind1` still does not promote an aliased non-g1 cell. A second `g1`
-alias would break `Grade1Unique`. `bind-promotes` says that when the
-returned cell is not `g1` and `count` of its object is 1, the installed
-head is `regrade r g1`. `regrade-move` says that head is `Kmove`.
-`split-head` and `reply-slot` (`spawn-reply-tag`) say a kept move at
-index 0 tags the protocol root and later moves leave the tag.
-A fresh head allocates at `length` of the heap. Under `Bound` that
-index was not named, and the returning step adds one reference, which
-is why the count is 1 on the images that `checkP` accepts. That count
-is the allocator's story. It is not a separate theorem from `checkP`
-to the tag. `grefAwait-ok` is the direct fresh `gref`. `spawn-await.mbi`
-and `spawn-ignore.mbi` are the fresh `gze` runs that do tag the slot.
+`bind1` refuses an aliased non-g1 cell: that branch is `nothing`.
+A second `g1` alias would break `Grade1Unique`, and installing the
+ω reference would leave `await` and `ignore` untagged. `bind-promotes`
+says that when the returned cell is not `g1` and `count` of its
+object is 1, the installed head is `regrade r g1`. `regrade-move`
+says that head is `Kmove`. `split-head` and `reply-slot`
+(`spawn-reply-tag`) say a kept move at index 0 tags the protocol
+root and later moves leave the tag. A fresh head allocates at
+`length` of the heap. Under `Bound` that index was not named, and
+the returning step adds one reference, which is why the count is 1
+on the images that `checkP` accepts. That count is the allocator's
+story. It is not a theorem from `checkP` to the tag.
+`alias-await-refuses` plants a second reference on the cell
+`spawn-await` returns and `bind1` is `nothing`. `alias-bind.mbi`
+is that shape with `gsu gze`: `drive` still promotes and halts,
+and `aliasImage` loads the file, plants the alias, and prints
+`refuse: aliased reply result`. `grefAwait-ok` is the direct fresh
+`gref`. `spawn-await.mbi` and `spawn-ignore.mbi` are the fresh
+`gze` runs that do tag the slot.
 
 `run` in the pid-0 harness is `seq1` then `runFor`. It does not call
 `bind1`. `run` of `send-recv.mbi` prints `nat 2`, the seq payload,

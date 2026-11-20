@@ -2090,20 +2090,7 @@ module Preserve (τ : ℕ) where
         zfl = proj₂ (++0 cenv (flightRefs eth) zboth)
         znew = 0++ (r ∷ (env ++ cenv)) (flightRefs eth)
                  (cons0 r (env ++ cenv) nr (0++ env cenv ze0 zcenv)) zfl
-      ... | false | false =
-        sealProc h ps i t c' ze zctl zr fit znew eqc
-        where
-        c' = pr (go k (r ∷ (env ++ cenv)) eth d dm)
-        tail0 = env ++ ((cenv ++ flightRefs eth) ++ [])
-        nr = proj₁ (head0 r tail0 (ctl0 ec here))
-        zrest = proj₂ (head0 r tail0 (ctl0 ec here))
-        ze0 = proj₁ (++0 env ((cenv ++ flightRefs eth) ++ []) zrest)
-        zpad = proj₂ (++0 env ((cenv ++ flightRefs eth) ++ []) zrest)
-        zboth = trans (sym (count-idʳ (cenv ++ flightRefs eth))) zpad
-        zcenv = proj₁ (++0 cenv (flightRefs eth) zboth)
-        zfl = proj₂ (++0 cenv (flightRefs eth) zboth)
-        znew = 0++ (r ∷ (env ++ cenv)) (flightRefs eth)
-                 (cons0 r (env ++ cenv) nr (0++ env cenv ze0 zcenv)) zfl
+      ... | false | false = nope eqc
       ... | false | true =
         sealProc h ps i t c' ze zctl zr fit znew eqc
         where

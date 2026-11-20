@@ -125,6 +125,12 @@ PROC = {
         "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(1 2)] h3l1p2 v0"
     ),
+    # Fresh gsu. drive promotes. The alias probe plants a second ref.
+    "alias-bind": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1"
+    ),
 }
 REFUSE = [
     ("await-seq", "protocol is not a spawn reply"),
@@ -170,6 +176,7 @@ def build():
     echo_sym = symbol("d_echoImage")
     drive_sym = symbol("d_driveImage")
     drove_sym = symbol("d_droveImage")
+    alias_sym = symbol("d_aliasImage")
     with open(MAIN, "w", encoding="utf-8") as fh:
         fh.write(
             "\n".join(
@@ -179,7 +186,8 @@ def build():
                     "import qualified Data.Text as T",
                     "import qualified Data.Text.IO as TIO",
                     "import MAlonzo.Code.MuroBeam.RunImage ("
-                    + run_sym + ", " + echo_sym + ", " + drive_sym + ", " + drove_sym + ")",
+                    + run_sym + ", " + echo_sym + ", " + drive_sym + ", " + drove_sym
+                    + ", " + alias_sym + ")",
                     "main :: IO ()",
                     "main = do",
                     "  args <- getArgs",
@@ -196,7 +204,10 @@ def build():
                     '    ["drove", path] -> do',
                     "      src <- TIO.readFile path",
                     "      TIO.putStr (" + drove_sym + " src)",
-                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH"',
+                    '    ["alias", path] -> do',
+                    "      src <- TIO.readFile path",
+                    "      TIO.putStr (" + alias_sym + " src)",
+                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH | alias PATH"',
                     "",
                 ]
             )
@@ -227,6 +238,8 @@ def call(mode, path, fuel="200"):
         cmd = [BIN, "drive", path]
     elif mode == "drove":
         cmd = [BIN, "drove", path]
+    elif mode == "alias":
+        cmd = [BIN, "alias", path]
     else:
         cmd = [BIN, "run", path, fuel]
     proc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE)
@@ -329,6 +342,13 @@ def main():
             text = "refuse: " + reason
             check(name + "-drive", call("drive", path), text)
             check(name + "-run", call("run", path), text)
+        # Fresh body, so load and drive succeed. The probe plants a
+        # second reference on the returned cell. bind1 refuses it.
+        check(
+            "alias-bind-plant",
+            call("alias", os.path.join(IMG, "alias-bind.mbi")),
+            "refuse: aliased reply result",
+        )
         # runSys is seq1 then runFor. It does not call bind1.
         # send-recv prints the seq nat; the spawn stays parked.
         # spawn-done's seq1 returns nothing. spawn-await prints the

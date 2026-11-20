@@ -660,12 +660,7 @@ bind-wf h ps i t wf eq = from (lookup ps i) eq refl
         (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (bind-has q r env cenv eth))
         (bind-bound r env cenv eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
       where c = pr (go k (r ∷ (env ++ cenv)) eth d dm)
-    ... | false | false =
-      keep-counts h ps i p c t wf lk0 eqc
-        (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))
-        (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (bind-has q r env cenv eth))
-        (bind-bound r env cenv eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
-      where c = pr (go k (r ∷ (env ++ cenv)) eth d dm)
+    ... | false | false = nope eqc
     ... | false | true =
       promote-set h ps i p c t (obj r) wf lk0 eqc
         (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec)

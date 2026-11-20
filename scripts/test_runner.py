@@ -231,6 +231,11 @@ PROC = {
         "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(1 2)] h3l1p2 v0\n"
     ),
+    "alias-bind": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1\n"
+    ),
 }
 
 
@@ -274,6 +279,13 @@ def main():
         if code != 0 or err != "":
             fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
         check_proc(name, out, want)
+    # Same file as the halting pin above. --alias-bind loads it, plants
+    # a second reference, and bind1 refuses. Exit 0: the probe ran.
+    path = os.path.join(IMG, "alias-bind.mbi")
+    code, out, err = run(["--alias-bind", path])
+    if code != 0 or err != "" or out != "refuse: aliased reply result\n":
+        fail("alias-bind-plant: " + repr((code, out, err)))
+    print("ok alias-bind-plant")
     path = write_tmp(V2_EMPTY)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":
