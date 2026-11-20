@@ -36,7 +36,7 @@ open import MuroBeam.Lib using
   ( ⊥; ⊥-elim; ≤-refl; ≤-trans; ≤-antisym; ≤-subst; ≤-step
   ; +-assoc; +-comm; +-identityʳ; +-zero; +-suc; +-swap; +-mono
   ; k≤n+k; m≤m+k; ≤-+ˡ; ≤-+ʳ
-  ; ≡ᵇ-sound; ≡ᵇ-refl
+  ; ≡ᵇ-sound; ≡ᵇ-refl; ≡ᵇ-sym
   ; ∨-assoc; ∨-comm; ∨-swap; ∨-falseʳ; ∨-trueʳ; ext
   ; lookup; update; mapCons
   ; ++-assoc; ++-identityʳ )
@@ -46,14 +46,15 @@ open import MuroBeam.Process using
   ; Frame; ar; fn; su; mt; bd; saved; seg
   ; roots; inbox; state; Msg; msg; mapRef; post
   ; refsP; refsPs; refsOf; ctlRefs; ctlRefsPs; framesRefs; frameRefs
-  ; preOf; mapSys; setProc; snoc
+  ; preOf; mapSys; setProc; snoc; regrade
   ; AllInv; residual-inv-refs; ctlEq-update )
   renaming (done to pstDone)
 open import MuroBeam.Collect using (Step)
 open import MuroBeam.PSyntax using
   ( Thin; PTm; done; send; recv; spawn; seq; await; ignore; nignore
   ; awaitT; ignoreT; flushT; ncheckT; ndemonT
-  ; Flight; flight; flightRef; flightRefs; Code; go; codeRefs; applyMoves )
+  ; Flight; flight; flightRef; flightRefs; Code; go; codeRefs; applyMoves
+  ; replyRoot )
 open import MuroBeam.PRun using
   ( PStep; PStep*; p-lift; p-spawn; p-emit; p-deliver; p-recv
   ; p-await; p-arm; p-flush; p-npeek; p-ndemon; p-seq; p-bind; p-done
@@ -79,7 +80,8 @@ open import MuroBeam.Unique using
   ; bound-lookup
   ; post-count; post-has; post-bound; true≢false; ∧-falseʳ; just-inj
   ; +-right; has-count; mapRef-++
-  ; lift-plus; lift-has; set-ctl-bound; bound-snoc; bound-repl-< )
+  ; lift-plus; lift-count; lift-has; set-ctl-bound; bound-snoc; bound-repl-<
+  ; refs-count; refs-has )
 open import MuroBeam.Stray using
   ( Hand; hn-nil; hn-skip; hn-move; hn-copy; split-hand
   ; flightRefs-++ ; refsPs-++ ; ctlRefsPs-++ )
@@ -517,6 +519,104 @@ seq-wf h ps i t wf eq = from (lookup ps i) eq refl
         (seq-bound env eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
       where c = ev e env (saved (go k [] eth d dm) ∷ seg ds ∷ [])
 
+-- Regrading keeps the object index, so the `<` proof on the head moves.
+bound-rehead : ∀ {n} r g rs → Bound n (r ∷ rs) → Bound n (regrade r g ∷ rs)
+bound-rehead r g rs (bcons lt rest) = bcons lt rest
+
+-- A grade-1 bit that does not name `i0` is unchanged by the regrade,
+-- and the regraded index is unique because its count stays 1.
+flip-unique : ∀ {old new} i0 →
+  (∀ i → count i new ≡ count i old) →
+  (∀ i → (i ≡ᵇ i0) ≡ false → hasG1 i new ≡ hasG1 i old) →
+  count i0 old ≡ 1 →
+  Grade1Unique old → Grade1Unique new
+flip-unique {old} {new} i0 cq hq c1 u i hn with i ≡ᵇ i0 in eb
+... | true =
+  trans (cq i) (trans (cong (λ j → count j old) (≡ᵇ-sound i i0 eb)) c1)
+... | false =
+  trans (cq i) (u i (trans (sym (hq i eb)) hn))
+
+gbit-miss : ∀ r k → (obj r ≡ᵇ k) ≡ false → gbit r k ≡ false
+gbit-miss r k eq rewrite eq = refl
+
+-- Both heads miss `k`, so the two arrangements of the same tail agree.
+off-bind-has : ∀ k r r' env cenv eth →
+  gbit r k ≡ false →
+  gbit r' k ≡ false →
+  hasG1 k ((r' ∷ (env ++ cenv)) ++ flightRefs eth) ≡
+  hasG1 k (r ∷ env ++ ((cenv ++ flightRefs eth) ++ []))
+off-bind-has k r r' env cenv eth zr zr' =
+  trans (trans newR' (drop zr')) (sym (trans newR (drop zr)))
+  where
+  fl = flightRefs eth
+  rest = hasG1 k env ∨ (hasG1 k cenv ∨ hasG1 k fl)
+  drop : ∀ {a} → a ≡ false → (a ∨ rest) ≡ rest
+  drop {a} eq =
+    trans (cong (_∨ rest) eq)
+          (trans (∨-comm false rest) (∨-falseʳ rest))
+  newR' : hasG1 k ((r' ∷ (env ++ cenv)) ++ fl) ≡ gbit r' k ∨ rest
+  newR' =
+    trans (has-++ k (r' ∷ (env ++ cenv)) fl)
+    (trans (cong (_∨ hasG1 k fl) (cong (gbit r' k ∨_) (has-++ k env cenv)))
+    (trans (∨-assoc (gbit r' k) (hasG1 k env ∨ hasG1 k cenv) (hasG1 k fl))
+           (cong (gbit r' k ∨_) (∨-assoc (hasG1 k env) (hasG1 k cenv) (hasG1 k fl)))))
+  newR : hasG1 k (r ∷ env ++ ((cenv ++ fl) ++ [])) ≡ gbit r k ∨ rest
+  newR =
+    trans (cong (gbit r k ∨_) (has-++ k env ((cenv ++ fl) ++ [])))
+    (trans (cong (λ z → gbit r k ∨ (hasG1 k env ∨ z)) (has-++ k (cenv ++ fl) []))
+    (trans (cong (λ z → gbit r k ∨ (hasG1 k env ∨ (z ∨ false))) (has-++ k cenv fl))
+           (cong (λ z → gbit r k ∨ (hasG1 k env ∨ z))
+                 (∨-falseʳ (hasG1 k cenv ∨ hasG1 k fl)))))
+
+-- `setProc` that regrades one returned reference. Counts do not change.
+-- `hasG1` changes only at that object, whose old count is 1.
+promote-set : ∀ h ps i p c t i0 →
+  WF (sys h ps) →
+  lookup ps i ≡ just p →
+  (setProc ps i c >>= λ ps' → just (sys h ps')) ≡ just t →
+  (∀ k → count k (ctlRefs c) ≡ count k (ctlRefs (ctl p))) →
+  (∀ k → (k ≡ᵇ i0) ≡ false →
+        hasG1 k (ctlRefs c) ≡ hasG1 k (ctlRefs (ctl p))) →
+  count i0 (refsOf (sys h ps)) ≡ 1 →
+  Bound (length h) (ctlRefs c) →
+  WF t
+promote-set h ps i p c t i0 wf lk eq cq hq c1 bc =
+  landed (setProc ps i c) eq refl
+  where
+  missBind : nothing ≡ just t → WF t
+  missBind ()
+  landed : (m : Maybe (List Proc)) →
+           (m >>= λ ps' → just (sys h ps')) ≡ just t →
+           setProc ps i c ≡ m → WF t
+  landed nothing eql el rewrite el = missBind eql
+  landed (just ps') refl es =
+    bound-++ (bound-++ bEdge bCtl') (subst (Bound (length h)) (sym rq) bRs)
+    , flip-unique {refsOf (sys h ps)} {refsOf (sys h ps')} i0 cEq hEq c1 uq
+    where
+    bdF = proj₁ wf
+    uq = proj₂ wf
+    rq = set-refsPs i ps c ps' es
+    bPre = proj₁ (bound-split (preOf h ps) (refsPs ps) bdF)
+    bEdge = proj₁ (bound-split (edgeRefs h) (ctlRefsPs ps) bPre)
+    bCtl = proj₂ (bound-split (edgeRefs h) (ctlRefsPs ps) bPre)
+    bRs = proj₂ (bound-split (preOf h ps) (refsPs ps) bdF)
+    bCtl' = set-ctl-bound i ps p c ps' lk es bCtl bc
+    cEq : ∀ k → count k (refsOf (sys h ps')) ≡ count k (refsOf (sys h ps))
+    cEq k =
+      trans (refs-count k h ps')
+      (trans (cong (λ n → count k (edgeRefs h) + n + count k (refsPs ps'))
+                   (lift-count k i ps p c ps' lk es (cq k)))
+      (trans (cong (λ rs → count k (edgeRefs h) + count k (ctlRefsPs ps) + count k rs) rq)
+             (sym (refs-count k h ps))))
+    hEq : ∀ k → (k ≡ᵇ i0) ≡ false →
+          hasG1 k (refsOf (sys h ps')) ≡ hasG1 k (refsOf (sys h ps))
+    hEq k neq =
+      trans (refs-has k h ps')
+      (trans (cong (λ n → (hasG1 k (edgeRefs h) ∨ n) ∨ hasG1 k (refsPs ps'))
+                   (lift-has k i ps p c ps' lk es (hq k neq)))
+      (trans (cong (λ rs → (hasG1 k (edgeRefs h) ∨ hasG1 k (ctlRefsPs ps)) ∨ hasG1 k rs) rq)
+             (sym (refs-has k h ps))))
+
 bind-wf : ∀ h ps i t → WF (sys h ps) → bind1 (sys h ps) i ≡ just t → WF t
 bind-wf h ps i t wf eq = from (lookup ps i) eq refl
   where
@@ -546,12 +646,39 @@ bind-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (rv r env (saved (go k cenv eth d dm) ∷ seg _ ∷ [])) eqc lk0 ec
         rewrite lk0 | ec with openCont k
     ... | false = nope eqc
-    ... | true =
+    ... | true with replyRoot k
+    ... | false =
       keep-counts h ps i p c t wf lk0 eqc
         (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))
         (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (bind-has q r env cenv eth))
         (bind-bound r env cenv eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
       where c = pr (go k (r ∷ (env ++ cenv)) eth d dm)
+    ... | true with isG1 (checked r) | count (obj r) (refsOf (sys h ps)) ≡ᵇ 1 in ceq
+    ... | true | _ =
+      keep-counts h ps i p c t wf lk0 eqc
+        (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))
+        (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (bind-has q r env cenv eth))
+        (bind-bound r env cenv eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
+      where c = pr (go k (r ∷ (env ++ cenv)) eth d dm)
+    ... | false | false =
+      keep-counts h ps i p c t wf lk0 eqc
+        (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))
+        (λ q → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec) (bind-has q r env cenv eth))
+        (bind-bound r env cenv eth (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0)))
+      where c = pr (go k (r ∷ (env ++ cenv)) eth d dm)
+    ... | false | true =
+      promote-set h ps i p c t (obj r) wf lk0 eqc
+        (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec)
+                 (bind-count q (regrade r g1) env cenv eth))
+        (λ q neq → subst (λ c0 → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs c0)) (sym ec)
+                 (off-bind-has q r (regrade r g1) env cenv eth
+                   (gbit-miss r q (trans (≡ᵇ-sym (obj r) q) neq))
+                   (gbit-miss (regrade r g1) q (trans (≡ᵇ-sym (obj r) q) neq))))
+        (≡ᵇ-sound (count (obj r) (refsOf (sys h ps))) 1 ceq)
+        (bind-bound (regrade r g1) env cenv eth
+          (bound-rehead r g1 (env ++ ((cenv ++ flightRefs eth) ++ []))
+            (subst (λ c0 → Bound (length h) (ctlRefs c0)) ec (ctlHere h ps i p wf lk0))))
+      where c = pr (go k (regrade r g1 ∷ (env ++ cenv)) eth d dm)
     onC (rv r env (saved (go k cenv eth d dm) ∷ [])) eqc lk0 ec rewrite lk0 | ec =
       keep-counts h ps i p c t wf lk0 eqc
         (λ q → subst (λ c0 → count q (ctlRefs c) ≡ count q (ctlRefs c0)) (sym ec) (bind-count q r env cenv eth))

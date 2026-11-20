@@ -96,6 +96,24 @@ REFUSE = [
     ("not-surface-flushT",
      "(muro-beam-image 1 (boundary 1) (entry (flushT 0 (done))))\n",
      "not surface"),
+    ("not-surface-ignoreT",
+     "(muro-beam-image 1 (boundary 1) (entry (ignoreT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-ncheckT",
+     "(muro-beam-image 1 (boundary 1) (entry (ncheckT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-ndemonT",
+     "(muro-beam-image 1 (boundary 1) (entry (ndemonT 0 (done))))\n",
+     "not surface"),
+    ("await-scope",
+     "(muro-beam-image 1 (boundary 1) (entry (await 0 (done))))\n",
+     "out of scope"),
+    ("done-extra",
+     "(muro-beam-image 1 (boundary 1) (entry (done x)))\n",
+     "junk"),
+    ("await-seq", None, "protocol is not a spawn reply"),
+    ("ignore-seq", None, "protocol is not a spawn reply"),
+    ("nignore-seq", None, "protocol is not a spawn reply"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),
@@ -163,7 +181,7 @@ def write_tmp_bytes(data):
 
 # Pure (seq <btm> (done)) entries stop stuck 0. The continuation is
 # done, so bind1 leaves saved over seg in place. Process entries are
-# checked by check_proc: bind1 resumes a continuation that is not done.
+# checked by check_proc against the full showDrove line.
 def check_line(name, out, value):
     m = LINE.match(out)
     if m is None:
@@ -181,42 +199,36 @@ def check_line(name, out, value):
     print("ok " + name + " " + m.group(1) + " " + value)
 
 
-# outcome is "halted", "deadlock", or "stuck N". value is "v2" or "v-".
-# need is a list of event substrings. The full line is showDrove.
+# Full showDrove line, including the newline the Haskell main adds.
+# The event list and the heap/process fingerprint are the whole line,
+# the same text MuroBeam.Show prints for conformance.
+REPLY = (
+    "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+    "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+    "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0\n"
+)
 PROC = {
-    "spawn-done": ("halted", "v-", ["tr-spawn 0 1", "tr-collect"]),
-    "bare-done": ("halted", "v-", ["tr-collect"]),
-    "send-recv": ("halted", "v2", ["tr-spawn 0 1", "tr-send", "tr-recv", "tr-collect"]),
-    "await-seq": ("stuck 0", "v0", ["tr-step 0"]),
-    "ignore-seq": ("stuck 0", "v0", ["tr-step 0"]),
-    "nignore-seq": ("stuck 0", "v0", ["tr-step 0"]),
-    "spawn-ignore": ("stuck 0", "v0", ["tr-spawn 0 1", "tr-send"]),
-    "spawn-await": ("stuck 0", "v0", ["tr-spawn 0 1", "tr-send"]),
-    "def-spawn": ("halted", "v0", ["tr-step 0", "tr-spawn 0 1", "tr-collect"]),
+    "spawn-done": "halted [tr-spawn 0 1, tr-collect(0)] h1l0p2 v-\n",
+    "bare-done": "halted [tr-collect()] h0l0p1 v-\n",
+    "send-recv": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-step 0, "
+        "tr-spawn 0 1, tr-send 1 0 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, "
+        "tr-recv 0 ref(2,pt(inf),pt(inf),omega-kept), "
+        "tr-collect(0 1 2 3)] h4l0p2 v2\n"
+    ),
+    "spawn-ignore": REPLY,
+    "spawn-await": REPLY,
+    "def-spawn": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, "
+        "tr-collect(0 1)] h2l0p2 v0\n"
+    ),
 }
 
 
-def check_proc(name, out, outcome, value, need):
-    m = LINE.match(out)
-    if m is None:
-        fail(name + ": bad line " + repr(out))
-    if m.group(1) != outcome:
-        fail(name + ": outcome " + m.group(1) + " line " + repr(out))
-    if not events_ok(m.group(2)):
-        fail(name + ": events " + m.group(2))
-    got = "v" + m.group(3)
-    if got != value:
-        fail(name + ": value " + got + " want " + value + " line " + repr(out))
-    for ev in need:
-        if ev not in m.group(2):
-            fail(name + ": missing " + ev + " in " + repr(out))
-    if name in ("spawn-done", "bare-done") and "tr-step" in m.group(2):
-        fail(name + ": unexpected tr-step " + repr(out))
-    if name in ("await-seq", "ignore-seq", "nignore-seq") and "tr-spawn" in m.group(2):
-        fail(name + ": unexpected tr-spawn " + repr(out))
-    if name in ("spawn-ignore", "spawn-await") and "tr-collect" in m.group(2):
-        fail(name + ": unexpected halt collect " + repr(out))
-    print("ok " + name + " " + m.group(1) + " " + value + " " + m.group(2))
+def check_proc(name, out, want):
+    if out != want:
+        fail(name + ": got " + repr(out) + " want " + repr(want))
+    print("ok " + name)
 
 
 def main():
@@ -232,17 +244,27 @@ def main():
     if code != 0 or not out.endswith(" v2\n"):
         fail("default fuel: " + repr((code, out, err)))
     print("ok default-fuel")
+    # imgFuel is 1000, the same default this binary uses when --fuel
+    # is omitted. plus stops stuck 0 and keeps v5 at that fuel.
+    # The event list is long; the lock is the outcome and the nat.
+    code, out, err = run([os.path.join(IMG, "plus.mbi")])
+    if code != 0 or err != "":
+        fail("plus-default: " + repr((code, out, err)))
+    m = LINE.match(out)
+    if m is None or m.group(1) != "stuck 0" or m.group(3) != "5":
+        fail("plus-default line " + repr(out))
+    print("ok plus-default")
     path = write_tmp(ONCE_APP)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":
         fail("once-app: " + repr((code, out, err)))
     check_line("once-app", out, "v1")
-    for name, (outcome, value, need) in PROC.items():
+    for name, want in PROC.items():
         path = os.path.join(IMG, name + ".mbi")
         code, out, err = run([path, "--fuel", "1000"])
         if code != 0 or err != "":
             fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
-        check_proc(name, out, outcome, value, need)
+        check_proc(name, out, want)
     path = write_tmp(V2_EMPTY)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":
@@ -264,8 +286,8 @@ def main():
         fail("fuel1: " + repr((code, out, err)))
     print("ok fuel1")
     for name, text, reason in REFUSE:
-        if name == "pi":
-            path = os.path.join(IMG, "pi.mbi")
+        if text is None:
+            path = os.path.join(IMG, name + ".mbi")
         else:
             path = write_tmp(text)
         code, out, err = run([path])

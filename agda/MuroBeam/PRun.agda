@@ -18,9 +18,9 @@ open import Data.Nat.Base using (ℕ; zero; suc; _≤_; _≡ᵇ_; z≤n)
 open import Data.Product.Base using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
-open import Muro.Grade using (Grade; g0; GTm)
+open import Muro.Grade using (Grade; g0; g1; GTm)
 
-open import MuroBeam.Grade using (selfKept; isZeroGrade; kind; Kind; Kmove; Kcopy)
+open import MuroBeam.Grade using (selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using
   ( Obj; cell; live; Val; nat; suc↑; clo; payload; kids
   ; Ref; ref; obj; checked; residual; repl
@@ -33,12 +33,13 @@ open import MuroBeam.PSyntax using
   ; PTm; done; send; recv; spawn; seq; await; ignore; nignore
   ; awaitT; ignoreT; flushT; ncheckT; ndemonT
   ; Flight; flight; flightRefs; Code; go; codeDead; codeDemo
-  ; applyMoves )
+  ; applyMoves; replyRoot )
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
   ; Frame; ar; fn; su; mt; bd; saved; seg
-  ; roots; inbox; state; Msg; msg; post; setProc; snoc )
+  ; roots; inbox; state; Msg; msg; post; setProc; snoc
+  ; refsOf; regrade )
   renaming (done to pstDone)
 open import MuroBeam.Collect using (Step)
 
@@ -588,6 +589,7 @@ ndemon1 (sys h ps) i =
 -- bind resumes `saved ∷ []`, and it resumes `saved ∷ seg ∷ []` when
 -- the continuation is not `done`. A `done` continuation stays parked,
 -- which is how a pure `(seq <btm> (done))` image stops stuck.
+-- A reply root regrades a unique returned cell to g1. See `bind1`.
 -- done drops roots and the environment and keeps flights.
 ------------------------------------------------------------------------
 
@@ -620,6 +622,13 @@ openCont (flushT _ _)    = true
 openCont (ncheckT _ _)   = true
 openCont (ndemonT _ _)   = true
 
+-- Resume `saved` over `seg`. A reply root names slot 0, which `seq`
+-- checked at grade 1. The cell `eval` just returned is still ω.
+-- Regrade it to g1 when it is not already g1 and it is the only
+-- reference to its object, so the following spawn moves it and
+-- `markProto` rewrites the parent root. An aliased non-g1 result is
+-- left as it is: a second g1 alias would break `Grade1Unique`.
+-- A singleton `saved` is the book bind and is not regraded.
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
   lookup ps i >>= λ _ →
@@ -632,8 +641,19 @@ bind1 (sys h ps) i =
     just (sys h ps')
   bound (rv r env (saved (go k cenv eth d dm) ∷ seg _ ∷ [])) with openCont k
   ... | false = nothing
-  ... | true =
+  ... | true with replyRoot k
+  ... | false =
     setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
+  ... | true with isG1 (checked r) | count (obj r) (refsOf (sys h ps)) ≡ᵇ 1
+  ... | true  | _     =
+    setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
+  ... | false | false =
+    setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
+  ... | false | true  =
+    setProc ps i (pr (go k (regrade r g1 ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
     just (sys h ps')
   bound _ = nothing
 

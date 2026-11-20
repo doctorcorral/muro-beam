@@ -56,7 +56,11 @@ nearest variable to the child, and `skip` leaves it with the parent.
 A thinning that does not match the scope is `out of scope`, as is a
 de Bruijn index that does not fit. `(await <index> <ptm>)`,
 `(ignore <index> <ptm>)`, and `(nignore <index> <ptm>)` are the same
-one-index shape.
+one-index shape. `checkP` accepts that shape only as the parent root
+of a `spawn` whose thinning keeps the named slot and whose grade on
+that slot moves. Anywhere else the reason is
+`protocol is not a spawn reply`. A skipped or copied slot is
+`protocol slot is not moved`.
 
 `awaitT`, `ignoreT`, `flushT`, `ncheckT`, and `ndemonT` are not
 surface syntax. `spawn` writes them once a moved reply has an object
@@ -168,20 +172,59 @@ the line is `fuel [] h0l0p1 v-`.
 
 A process image is the same path: `load`, then `lowerP`, then
 `drive`. `spawn t[]` of two `done` terms halts. A bare `(done)`
-halts. `examples/images/send-recv.mbi` binds `2` at ω, spawns a
-child that sends that variable to pid 0, and receives it at `(w 0)`.
-That run halts and keeps `v2`. `await`, `ignore`, and `nignore`
-under that `seq` binder are accepted by `checkP`: the binder is ω,
-and one computational use of ω is legal. `spawn` records a move
-only for a finite point. An ω slot is copied and is not rewritten
-to `awaitT`, `ignoreT`, or `ncheckT`. `await1` and the flush steps
-match only those tagged forms, so a closed image does not run the
-reply protocol. `await-seq.mbi`, `ignore-seq.mbi`, and
-`nignore-seq.mbi` stop `stuck 0` with the bound nat.
-`spawn-ignore.mbi` and `spawn-await.mbi` spawn, the child sends
-the copied nat, and the parent stops `stuck 0` on the surface
-form. That is a test of the schedule that actually runs. It is not
-a run of `no-stray-reply`.
+halts. `examples/images/send-recv.mbi` binds `2` at ω, because the
+continuation is `recv`. The child sends that variable to pid 0 and
+the parent receives it at `(w 0)`. The send is `Kcopy`. The run
+halts and keeps `v2`.
+
+`seq` binds its result at grade 1 when the continuation is a reply
+root: `spawn` of a `keep` whose parent root is `await`, `ignore`, or
+`nignore` of the slot the thinning kept at index 0. `bind1` regrades
+that returned cell from ω to `g1` when the cell is not already `g1`
+and it is the only reference to its object. The following spawn
+records a move, and `markProto` rewrites that parent root to the
+tagged form the reply steps match. `spawn-await.mbi` and
+`spawn-ignore.mbi` halt. The child sends
+`ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))`
+with kind `Kmove`, the schedule collects `(0 1 2 3)`, the fingerprint
+is `h4l0p2`, and the kept nat is the seq payload `v0`.
+`await-halted`, `await-val`, `ignore-halted`, and `ignore-val` are
+those two facts at `driveFuel` (16). `await-line` and `ignore-line`
+are the printed lines. That schedule runs the reply. It is not a
+proof of `no-stray-reply`: that theorem still needs `ReplyDone` at
+the start.
+
+A protocol form that is not that spawn parent root is refused at
+`checkP` with `protocol is not a spawn reply`. `await-seq.mbi`,
+`ignore-seq.mbi`, and `nignore-seq.mbi` are that refusal. A bare
+`seq` of `await`, `ignore`, or `nignore` never spawns. A protocol
+buried under another constructor, including `seq` under `spawn`, is
+the same refusal. `markProto` still rewrites only the root, so the
+checker refuses the shape it would leave untouched. A spawn that
+skips the protocol slot, or that keeps it at a copied grade, is
+refused with `protocol slot is not moved`.
+
+`nignore` at a spawn parent root takes the same grade-1 binding and
+does run. Its steps are the naive peek and demonitor, so one cell
+stays live. A bare `nignore` under `seq` is the refusal above.
+
+An aliased non-g1 result of `seq` is left at its grade. Promoting it
+would put a second `g1` reference on one object, and `Grade1Unique`
+forbids that. Checked images whose body is `gze` or `gsu` allocate a
+fresh cell, so the count is 1 and the promotion runs.
+
+`run` in the pid-0 harness is `seq1` then `runFor`. It does not call
+`bind1`. `run` of `send-recv.mbi` prints `nat 2`, the seq payload,
+with the spawn still parked. `run` of `spawn-done.mbi` prints
+`stuck`, because `seq1` does not return a value. `run` of
+`spawn-await.mbi` prints `nat 0`. Calling `bind1` after that eval
+would resume the spawn, and the harness would print `stuck`.
+
+`imgFuel` is 1000, the same default as `scripts/build_runner.py`
+`DEFAULT_FUEL`. `drive` of `plus.mbi` at that fuel stops `stuck 0`
+and keeps `v5` on both the harness and the binary. `driveFuel` in
+`MuroBeam.SchedThm` stays 16. The closed spawn and reply proofs
+finish inside it. It is a separate budget from the image fuel.
 
 What this shows is `load` of the `String` the Haskell main passed
 in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so

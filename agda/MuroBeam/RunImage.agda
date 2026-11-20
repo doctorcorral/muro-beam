@@ -27,7 +27,7 @@ module MuroBeam.RunImage where
 
 open import Data.List.Base using (List; []; _∷_; length)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc)
+open import Data.Nat.Base using (ℕ; zero; suc; _+_)
 open import Data.Product.Base using (proj₁)
 open import Data.String.Base using (String; _++_; fromList)
 open import Muro.Base using (Result; ok; fail)
@@ -112,9 +112,23 @@ dbl : ℕ → ℕ
 dbl zero = zero
 dbl (suc n) = suc (suc (dbl n))
 
--- 32.
+-- 1000, the same default `scripts/build_runner.py` `DEFAULT_FUEL` uses.
+-- `driveImage` and `muro-beam` therefore stop on the same fuel.
+-- `MuroBeam.SchedThm.driveFuel` stays 16: the closed `refl`s recompute
+-- `drive`, and a pure image that has already stopped does not need the
+-- runner's budget.
 imgFuel : ℕ
-imgFuel = dbl (dbl (dbl (dbl (dbl (suc zero)))))
+imgFuel =
+  let p2   = dbl (suc zero)
+      p4   = dbl p2
+      p8   = dbl p4
+      p16  = dbl p8
+      p32  = dbl p16
+      p64  = dbl p32
+      p128 = dbl p64
+      p256 = dbl p128
+      p512 = dbl p256
+  in p512 + p256 + p128 + p64 + p32 + p8
 
 driveImage : String → String
 driveImage src with load src

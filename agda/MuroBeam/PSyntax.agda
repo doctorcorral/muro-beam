@@ -66,6 +66,22 @@ applyMoves : ∀ {n} → List (ℕ × ℕ) → PTm n → PTm n
 applyMoves []              p = p
 applyMoves ((i , τ) ∷ mv)  p = applyMoves mv (markProto i τ p)
 
+-- Spawn whose parent root consumes the slot the thinning kept at
+-- index 0. `markProto` rewrites that root and nothing under it, so a
+-- consumer buried under another constructor is not a reply root.
+replyRoot : ∀ {n} → PTm n → Bool
+replyRoot (spawn (keep _) _ pa) = isProtoAt zero pa
+replyRoot _                      = false
+
+-- Parent index `i` is a `keep` in the thinning.
+keptAt : ∀ {m n} → ℕ → Thin m n → Bool
+keptAt zero    (keep _)  = true
+keptAt zero    (skip _)  = false
+keptAt zero    t[]       = false
+keptAt (suc i) (keep th) = keptAt i th
+keptAt (suc i) (skip th) = keptAt i th
+keptAt (suc _) t[]       = false
+
 ------------------------------------------------------------------------
 -- A flight is a message the sender has emitted and nobody has
 -- delivered. The reference stays in the sender's control until then.

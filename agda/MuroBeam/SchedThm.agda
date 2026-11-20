@@ -41,11 +41,14 @@ open import MuroBeam.Process using
   renaming (done to pstDone)
 open import MuroBeam.PRun using (mailHas; deadAt)
 open import MuroBeam.PSyntax using (PTm; t[]; done; spawn; recv; send; go)
-open import MuroBeam.PTm using (CheckedP; checkedP; checkP; lowerP)
+open import MuroBeam.PTm using
+  ( CheckedP; checkedP; checkP; lowerP
+  ; spawnAwait; spawnAwait-ok; spawnIgnore; spawnIgnore-ok )
 open import MuroBeam.PWf using (psteps)
 open import MuroBeam.Sched using
   ( drive; final; oc; val; plain; plain-halted; plain-deadlock; plain-stuck
   ; halted; allDone )
+open import MuroBeam.Show using (showDrove)
 open import MuroBeam.Stray using (ReplyDone; replied; no-stray-reply)
 open import MuroBeam.Unique using (WF)
 
@@ -128,6 +131,50 @@ three-halted :
   plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP threeP))))
     ≡ plain-halted
 three-halted = refl
+
+-- A closed image that spawns and awaits the reply. `seq` binds the
+-- nat at grade 1, `bind1` regrades the fresh ω cell, and `spawn`
+-- moves it, so `await` consumes the child's send. The kept nat is
+-- that cell: zero, which is what the child was given.
+awaitP : CheckedP
+awaitP = checkedP spawnAwait spawnAwait-ok
+
+await-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP awaitP))))
+    ≡ plain-halted
+await-halted = refl
+
+await-val :
+  val (proj₁ (drive driveFuel zero nil nothing (lowerP awaitP)))
+    ≡ just zero
+await-val = refl
+
+-- The same binder, ignored. `arm1` then `flush1` finish the reply
+-- and the schedule halts. The kept nat is still the seq payload.
+ignoreP : CheckedP
+ignoreP = checkedP spawnIgnore spawnIgnore-ok
+
+ignore-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP))))
+    ≡ plain-halted
+ignore-halted = refl
+
+ignore-val :
+  val (proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP)))
+    ≡ just zero
+ignore-val = refl
+
+-- The printed line is `showDrove`. No newline: the Haskell main adds one.
+-- Both runs move the fresh cell and collect every index.
+await-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP awaitP)))
+    ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+await-line = refl
+
+ignore-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP ignoreP)))
+    ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+ignore-line = refl
 
 deadTm : PTm zero
 deadTm = recv g1 g0 (done {suc zero})

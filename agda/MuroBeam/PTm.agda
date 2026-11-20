@@ -41,7 +41,7 @@ open import MuroBeam.PSyntax using
   ; PTm; done; send; recv; spawn; seq
   ; await; ignore; nignore
   ; awaitT; ignoreT; flushT; ncheckT; ndemonT
-  ; Code; go; Flight; isProtoAt )
+  ; Code; go; Flight; isProtoAt; replyRoot; keptAt )
 open import MuroBeam.PRun using (spawn1)
 open import MuroBeam.Unique using (WF)
 
@@ -101,12 +101,38 @@ thinCtx t[]             []       = ok []
 thinCtx (skip th)       (_ ∷ Γ)  = thinCtx th Γ
 thinCtx (keep th)       (p ∷ Γ)  = thinCtx th Γ >>= λ Γ' → ok (p ∷ Γ')
 
+-- A kept protocol slot has to move. `markProto` rewrites only the
+-- parent root, and only a moved slot. A copy leaves that rewrite
+-- with an empty move list, so `checkP` refuses the copy.
+isMove : Grade → Bool
+isMove g with kind g
+... | just Kmove = true
+... | _          = false
+
+-- The binder `seq` introduces is g1 exactly when the continuation is
+-- a spawn that keeps slot 0 and whose parent root is the protocol.
+-- Otherwise the binder stays ω, which is what `send`/`recv` copy.
+seqGrade : ∀ {n} → PTm n → Grade
+seqGrade k with replyRoot k
+... | true  = g1
+... | false = gω
+
+-- A protocol name has to be a kept slot. A skipped slot never reaches
+-- `slot`, so the guard there cannot see it.
+protoKept : ∀ {m n} → Thin m n → PTm n → Bool
+protoKept th (await x _)   = keptAt (toℕ x) th
+protoKept th (ignore x _)  = keptAt (toℕ x) th
+protoKept th (nignore x _) = keptAt (toℕ x) th
+protoKept _ _              = true
+
 -- A protocol consumer at this index is one computational use, and that
--- use is not added to the child's. Anything else moved must be quiet
--- in the parent. A copy is held on each side and the parent use remains.
+-- use is not added to the child's. The slot itself must move.
+-- Anything else moved must be quiet in the parent. A copy is held on
+-- each side and the parent use remains.
 slot : ∀ {n} → ℕ → Grade → Grade → Spent → Spent → PTm n → Result Spent
 slot i c t v u tm with isProtoAt i tm
 ... | true =
+  guard "protocol slot is not moved" (isMove c) >>
   guard "protocol" (isOneCount (compOf u)) >>
   hold run c t v >>
   ok v
@@ -152,6 +178,13 @@ checkDefs : ℕ → List (BTm 0) → Result ⊤
 checkDefs _ nil = ok tt
 checkDefs i (d ∷ₗ ds) = checkDef (suc i) d >> checkDefs (suc i) ds
 
+-- Join a child use and a parent use. A protocol name that the
+-- thinning skipped never reaches `slot`, so it is refused here.
+checkSpawn : ∀ {m n} → Thin m n → GCtx n → Uses m → Uses n → PTm n → Result (Uses n)
+checkSpawn th Γ cu pu pa =
+  guard "protocol slot is not moved" (protoKept th pa) >>
+  merge zero th Γ cu pu pa
+
 checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
 checkP {n} Γ done = ok (zeros {n})
 checkP Γ (send _ x k) =
@@ -161,27 +194,40 @@ checkP Γ (send _ x k) =
 checkP Γ (recv c t k) =
   checkP (gp c t ∷ Γ) k >>= λ uk →
   under run c t uk
+-- The protocol form is legal only as this spawn parent. Its
+-- continuation is checked with `checkP`, so a protocol buried under
+-- the continuation is refused. The parent's one use is the shape
+-- check inside `slot` and is not added again.
+checkP Γ (spawn th ch (await x k)) =
+  thinCtx th Γ >>= λ Γ' →
+  checkP Γ' ch >>= λ cu →
+  checkP Γ k >>= λ uk →
+  checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (await x k)
+checkP Γ (spawn th ch (ignore x k)) =
+  thinCtx th Γ >>= λ Γ' →
+  checkP Γ' ch >>= λ cu →
+  checkP Γ k >>= λ uk →
+  checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (ignore x k)
+checkP Γ (spawn th ch (nignore x k)) =
+  thinCtx th Γ >>= λ Γ' →
+  checkP Γ' ch >>= λ cu →
+  checkP Γ k >>= λ uk →
+  checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (nignore x k)
 checkP Γ (spawn th ch pa) =
   thinCtx th Γ >>= λ Γ' →
   checkP Γ' ch >>= λ cu →
   checkP Γ pa >>= λ pu →
-  merge zero th Γ cu pu pa
+  checkSpawn th Γ cu pu pa
 checkP Γ (seq ds e k) =
   checkDefs zero ds >>
   boundaryOk (inB? (comps Γ) e) >>
   decideB (length ds) run Γ e >>= λ eu →
-  checkP (gp gω g0 ∷ Γ) k >>= λ uk →
-  under run gω g0 uk >>= λ ku →
+  checkP (gp (seqGrade k) g0 ∷ Γ) k >>= λ uk →
+  under run (seqGrade k) g0 uk >>= λ ku →
   ok (addU eu ku)
-checkP Γ (await x k) =
-  checkP Γ k >>= λ uk →
-  ok (addU (oneS x (charge run)) uk)
-checkP Γ (ignore x k) =
-  checkP Γ k >>= λ uk →
-  ok (addU (oneS x (charge run)) uk)
-checkP Γ (nignore x k) =
-  checkP Γ k >>= λ uk →
-  ok (addU (oneS x (charge run)) uk)
+checkP _ (await _ _)   = fail "protocol is not a spawn reply"
+checkP _ (ignore _ _)  = fail "protocol is not a spawn reply"
+checkP _ (nignore _ _) = fail "protocol is not a spawn reply"
 checkP Γ (awaitT _ k)  = replyTok >> checkP Γ k
 checkP Γ (ignoreT _ k) = replyTok >> checkP Γ k
 checkP Γ (flushT _ k)  = replyTok >> checkP Γ k
@@ -249,8 +295,9 @@ closed-checks = refl
 -- Closed programs a `.mbi` entry can name. A file starts at scope 0,
 -- so these are `PTm 0`. `spawn t[]` of `done` is the same program as
 -- `twoTm` in `MuroBeam.SchedThm`. The send copies the ω nat `seq`
--- binds. `await`, `ignore`, and `nignore` each spend that binder once.
--- A `g0` recv binder does not.
+-- binds, because the continuation is `recv`, not a reply root.
+-- A bare `await`, `ignore`, or `nignore` is refused. A `g0` recv
+-- binder does not send.
 
 spawnClosed : PTm 0
 spawnClosed = spawn t[] (done {0}) (done {0})
@@ -280,20 +327,21 @@ sendRecv-ok = refl
 awaitClosed : PTm 0
 awaitClosed = seq nil bze (await fzero (done {1}))
 
-awaitClosed-ok : checkP [] awaitClosed ≡ ok []
-awaitClosed-ok = refl
+-- A bare consumer is not a spawn parent, so the binder is not a reply.
+awaitClosed-no : checkP [] awaitClosed ≡ fail "protocol is not a spawn reply"
+awaitClosed-no = refl
 
 ignoreClosed : PTm 0
 ignoreClosed = seq nil bze (ignore fzero (done {1}))
 
-ignoreClosed-ok : checkP [] ignoreClosed ≡ ok []
-ignoreClosed-ok = refl
+ignoreClosed-no : checkP [] ignoreClosed ≡ fail "protocol is not a spawn reply"
+ignoreClosed-no = refl
 
 nignoreClosed : PTm 0
 nignoreClosed = seq nil bze (nignore fzero (done {1}))
 
-nignoreClosed-ok : checkP [] nignoreClosed ≡ ok []
-nignoreClosed-ok = refl
+nignoreClosed-no : checkP [] nignoreClosed ≡ fail "protocol is not a spawn reply"
+nignoreClosed-no = refl
 
 defSpawn : PTm 0
 defSpawn =
@@ -303,9 +351,10 @@ defSpawn =
 defSpawn-ok : checkP [] defSpawn ≡ ok []
 defSpawn-ok = refl
 
--- The binder `seq` introduces is ω. `spawn` copies it and does not
--- rewrite `await` or `ignore` into the tagged forms. `checkP` still
--- accepts the surface term.
+-- The continuation is a spawn that keeps slot 0 and awaits or ignores
+-- it, so `seq` binds that slot at g1. `spawn` moves it. A skipped
+-- protocol slot, a copied protocol slot, and a protocol buried under
+-- `seq` are refused: they would not be rewritten.
 
 spawnIgnore : PTm 0
 spawnIgnore =
@@ -332,3 +381,34 @@ g0send = seq nil bze (recv g0 g0 (send zero fzero (done {2})))
 
 g0send-no : checkP [] g0send ≡ fail "erased variable used computationally"
 g0send-no = refl
+
+skipAwait : PTm 0
+skipAwait =
+  seq nil bze
+    (spawn (skip t[])
+      (done {0})
+      (await fzero (done {1})))
+
+skipAwait-no : checkP [] skipAwait ≡ fail "protocol slot is not moved"
+skipAwait-no = refl
+
+ωctx : GCtx 1
+ωctx = gp gω g0 ∷ []
+
+copyAwait : PTm 1
+copyAwait =
+  spawn (keep t[])
+    (send zero fzero (done {1}))
+    (await fzero (done {1}))
+
+copyAwait-no : checkP ωctx copyAwait ≡ fail "protocol slot is not moved"
+copyAwait-no = refl
+
+buriedAwait : PTm 0
+buriedAwait =
+  spawn t[]
+    (done {0})
+    (seq nil bze (await fzero (done {1})))
+
+buriedAwait-no : checkP [] buriedAwait ≡ fail "protocol is not a spawn reply"
+buriedAwait-no = refl

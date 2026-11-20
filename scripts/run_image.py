@@ -96,18 +96,16 @@ FORWARD = (
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
 
-# Process entries. Not emitter goldens. `run` is one seq1 plus
-# runFor and does not call bind1, so these are checked with drive.
-# The string is "outcome value", the same text driveImage prints.
+# Process entries. Not emitter goldens. `drive` is load then drive
+# at imgFuel (1000). The string is "outcome value", the text
+# driveImage prints. Bare await/ignore/nignore under seq are refusals
+# and are checked below, on drive and on run.
 PROC = {
     "spawn-done": "halted v-",
     "bare-done": "halted v-",
     "send-recv": "halted v2",
-    "await-seq": "stuck 0 v0",
-    "ignore-seq": "stuck 0 v0",
-    "nignore-seq": "stuck 0 v0",
-    "spawn-ignore": "stuck 0 v0",
-    "spawn-await": "stuck 0 v0",
+    "spawn-ignore": "halted v0",
+    "spawn-await": "halted v0",
     "def-spawn": "halted v0",
 }
 
@@ -286,6 +284,29 @@ def main():
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
             print("ok echo " + name)
             check(name, call("drive", path), want)
+        # Bare protocol under seq never spawns. checkP refuses it.
+        for name in ("await-seq", "ignore-seq", "nignore-seq"):
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            reason = "refuse: protocol is not a spawn reply"
+            check(name + "-drive", call("drive", path), reason)
+            check(name + "-run", call("run", path), reason)
+        # runSys is seq1 then runFor. It does not call bind1.
+        # send-recv prints the seq nat; the spawn stays parked.
+        # spawn-done's seq1 returns nothing. spawn-await prints the
+        # seq payload. A bind after that eval would resume the spawn
+        # and the harness would print stuck.
+        check("run-send-recv", call("run", os.path.join(IMG, "send-recv.mbi")), "nat 2")
+        check("run-spawn-done", call("run", os.path.join(IMG, "spawn-done.mbi")), "stuck")
+        check("run-spawn-await", call("run", os.path.join(IMG, "spawn-await.mbi")), "nat 0")
+        # imgFuel is 1000, the same default the binary uses. plus
+        # stops stuck and keeps 5. Fuel 32 is still out of fuel here.
+        check("plus-drive", call("drive", os.path.join(IMG, "plus.mbi")), "stuck 0 v5")
         path = write_tmp(ONCE_APP)
         check("once-app", call("run", path), "nat 1")
         # Elixir eval_run of this def returns 1. drive keeps that nat.
