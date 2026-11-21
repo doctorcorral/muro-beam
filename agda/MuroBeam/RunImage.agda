@@ -118,7 +118,8 @@ dbl (suc n) = suc (suc (dbl n))
 -- `driveImage` and `muro-beam` therefore stop on the same fuel.
 -- `MuroBeam.SchedThm.driveFuel` stays 16: the closed `refl`s recompute
 -- `drive`, and a pure image that has already stopped does not need the
--- runner's budget.
+-- runner's budget. `gtypReply` does not halt at 16. Its pin is
+-- `gtypFuel`, which is 20.
 imgFuel : ℕ
 imgFuel =
   let p2   = dbl (suc zero)

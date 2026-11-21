@@ -627,10 +627,17 @@ openCont (ndemonT _ _)   = true
 -- Regrade it to g1 when it is not already g1 and it is the only
 -- reference to its object (`bind-promotes`). `regrade-move` says
 -- that head is `Kmove`. `bind-spawn-tag` is the step from this
--- `just` through one `spawn1` to the tagged parent. `bind-count-one`
--- derives the count from this `just` on the promoting branch. The
--- lemma still assumes `isProtoAt` and the tail of the environment
--- splits. `checkP`'s fresh-body guard is not a premise of that lemma.
+-- `just` through one `spawn1` to the tagged parent. On an open reply
+-- stack, `bind1 ≡ just` and `isG1 (checked r) ≡ false` are the
+-- promoting branch. `bind-count-one` derives `(count ≡ᵇ 1) ≡ true`
+-- from those two facts and the stack: the `false | false` clause is
+-- `nothing`, so the count bit is 1, and that bit selects the
+-- promoting arm. `bind-spawn-tag` still assumes three premises this
+-- `just` does not discharge: `isProtoAt zero pa ≡ true`,
+-- `isG1 (checked r) ≡ false` (the already-g1 arm, lines below,
+-- returns `just` without consulting the count), and the tail
+-- `splitGo (suc zero) (placeholder h) th (env ++ cenv)`.
+-- `checkP`'s fresh-body guard is not a premise of that lemma.
 -- An aliased non-g1 result is refused (`bind-count-refuses`): a
 -- second g1 alias would break `Grade1Unique`, and the ω alias
 -- would not be the move `markProto` tags. The already-g1 branch
@@ -740,8 +747,10 @@ bind-count-refuses h ps i r env k cenv eth d dm p lk ce oc rr ng many
 
 -- On an open reply stack, `bind1 ≡ just` and `isG1 ≡ false` are the
 -- promoting branch. `bind-count-refuses` is the `false | false`
--- clause (`nothing`), so the count bit is 1. `bind-spawn-tag` uses
--- this and does not take the count as a premise.
+-- clause (`nothing`), so the count bit is 1, and that bit selects
+-- the promoting arm. `bind-spawn-tag` uses this and does not take
+-- the count as a premise. The already-g1 arm returns `just` without
+-- reading the count, so `isG1 ≡ false` is still a premise here.
 bind-count-one :
   ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p t →
   lookup ps i ≡ just p →

@@ -583,6 +583,53 @@ glamG1 =
 glamG1-no : checkP [] glamG1 ≡ fail "glam reply under g1"
 glamG1-no = refl
 
+-- Direct `glam` at scope 0. No `g1` is in scope, so `guardGlam`
+-- allows it. The file is `examples/images/glam-reply.mbi`. The
+-- payload is a closure. `drive` does not keep it as a nat.
+glamReply : PTm 0
+glamReply =
+  seq nil (glam gω g0 bze)
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+glamReply-ok : checkP [] glamReply ≡ ok []
+glamReply-ok = refl
+
+-- Direct `gpi`. `evalTm` ignores the body and allocates nat zero.
+-- The body is a successor, so that zero is not the body. The file
+-- is `examples/images/gpi-reply.mbi`.
+gpiReply : PTm 0
+gpiReply =
+  seq nil (gpi gω g0 (bsu bze))
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+gpiReply-ok : checkP [] gpiReply ≡ ok []
+gpiReply-ok = refl
+
+-- `(gtyp 0)` needs a binder whose type grade allows one use. A `seq`
+-- binder is type grade 0, which is `type grade 0 does not allow 1 uses`.
+-- The child sends a closure, not a nat. `drive` keeps the first
+-- delivered nat, and `readNat` of a closure is nothing, so the kept
+-- nat is the cell `evalTm` allocates for `gtyp`. A child that sent
+-- `gsu gze` would keep that successor instead. The closure body is a
+-- successor and is not evaluated. The file is `examples/images/gtyp-reply.mbi`.
+gtypReply : PTm 0
+gtypReply =
+  spawn t[]
+    (seq nil (glam gω g0 (bsu bze))
+      (send zero fzero (done {1})))
+    (recv gω gω
+      (seq nil (gtyp fzero)
+        (spawn (keep (skip t[]))
+          (send zero fzero (done {1}))
+          (await fzero (done {2})))))
+
+gtypReply-ok : checkP [] gtypReply ≡ ok []
+gtypReply-ok = refl
+
 ------------------------------------------------------------------------
 -- An accepted reply `seq` has a fresh body. `guardGlam` sits before
 -- `inB?`, and `guardReply` sits after `decideB`, so peeling those

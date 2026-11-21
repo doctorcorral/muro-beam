@@ -144,10 +144,14 @@ PROC = {
         "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(0 1 2 3)] h4l0p2 v-"
     ),
-    # Direct gpi. evalTm allocates nat zero, so the line matches gze.
+    # Direct gpi. The body is (gsu gze). evalTm ignores it and
+    # allocates nat zero, so the line is that allocation, not the
+    # successor the body would be.
     "gpi-reply": REPLY,
-    # gtyp names a variable. The child sends a nat, the parent recvs it
-    # at (w w), and the reply body is (gtyp 0). Scope 0 has no such index.
+    # gtyp names a variable. The child sends a closure, not a nat.
+    # drive keeps the first delivered nat, and readNat of a closure
+    # is nothing, so v0 is the cell evalTm allocated for (gtyp 0).
+    # A child that sent (gsu gze) would keep v1, the received value.
     "gtyp-reply": (
         "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 "
         "ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 "

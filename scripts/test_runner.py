@@ -264,10 +264,12 @@ PROC = {
         "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(0 1 2 3)] h4l0p2 v-\n"
     ),
-    # Direct gpi allocates nat zero. The line matches the gze reply.
+    # Direct gpi. The body is (gsu gze). evalTm ignores it and
+    # allocates nat zero, so the line is that allocation, not the body.
     "gpi-reply": REPLY,
     # (gtyp 0) needs a variable whose type grade allows one use.
-    # The child delivers a nat; the parent recvs it at (w w).
+    # The child sends a closure. v0 is the gtyp allocation: a
+    # received nat would be the kept value instead.
     "gtyp-reply": (
         "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 "
         "ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 "

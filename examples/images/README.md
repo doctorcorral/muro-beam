@@ -68,12 +68,15 @@ slot. `glam-g1.mbi` is a `recv` at grade 1 whose `seq` body is a
 `glam`. `checkP` refuses it with `glam reply under g1`.
 `glam-reply.mbi` is that `(glam (w 0) gze)` at scope 0. No `g1` is
 in scope, so load accepts it. `drive` halts and keeps `v-`: the
-payload is a closure. `gpi-reply.mbi` is a direct `(gpi (w 0) gze)`
-reply. It allocates nat zero and halts with the same line as the
-`gze` reply. `gtyp-reply.mbi` is a direct `(gtyp 0)`. The child
-sends a nat, the parent receives it at `(w w)`, and the reply body
-names that variable. `drive` promotes the cell and halts
-(`h6l0p3 v0`). A scope-0 `gtyp` is out of scope.
+payload is a closure. `gpi-reply.mbi` is a direct `(gpi (w 0) (gsu gze))`
+reply. `evalTm` ignores the successor body and allocates nat zero,
+so the line is `v0`, not that successor. `gtyp-reply.mbi` is a
+direct `(gtyp 0)`. The child sends a closure, `(glam (w 0) (gsu gze))`,
+the parent receives it at `(w w)`, and the reply body names that
+variable. `drive` keeps the first delivered nat. A closure is not a
+nat, so `v0` is the cell `evalTm` allocated for `gtyp`. A child
+that sent `gsu gze` would keep `v1`. `drive` promotes the cell and
+halts (`h6l0p3 v0`). A scope-0 `gtyp` is out of scope.
 `nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
 definition list is attached only to the root `seq`, so that body
 is `bad gref`. `alias-bind.mbi` is a fresh `gsu`

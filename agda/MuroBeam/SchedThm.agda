@@ -44,7 +44,9 @@ open import MuroBeam.PSyntax using (PTm; t[]; done; spawn; recv; send; go)
 open import MuroBeam.PTm using
   ( CheckedP; checkedP; checkP; lowerP
   ; spawnAwait; spawnAwait-ok; spawnIgnore; spawnIgnore-ok
-  ; spawnNignore; spawnNignore-ok )
+  ; spawnNignore; spawnNignore-ok
+  ; glamReply; glamReply-ok; gpiReply; gpiReply-ok
+  ; gtypReply; gtypReply-ok )
 open import MuroBeam.PWf using (psteps)
 open import MuroBeam.RunImage using (imgFuel)
 open import MuroBeam.Sched using
@@ -146,8 +148,13 @@ three-halted = refl
 -- `driveFuel`. They are not a load of `spawn-await.mbi`. They do not
 -- prove the regrade, the move, or the await. `bind-spawn-tag` in
 -- `MuroBeam.PRun` is the step from a promoting `bind1` to the tagged
--- parent. The count on that step is `bind-count-one`. The tail of the
--- environment split stays a premise. These pins do not discharge it.
+-- parent. `bind-count-one` derives `(count ≡ᵇ 1) ≡ true` from
+-- `bind1 ≡ just`, `isG1 (checked r) ≡ false`, and the reply stack,
+-- and that count selects the promoting arm. The premises that step
+-- still assumes, which this `just` does not discharge, are
+-- `isProtoAt zero pa ≡ true`, `isG1 (checked r) ≡ false` (the
+-- already-g1 arm of `bind1` returns `just` without consulting the
+-- count), and the tail `splitGo`. These pins do not discharge them.
 -- The kept nat on this program is zero, the cell the child was given.
 awaitP : CheckedP
 awaitP = checkedP spawnAwait spawnAwait-ok
@@ -251,6 +258,114 @@ nignore-line = refl
 nignore-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP nignoreP)))
             ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP nignoreP)))
 nignore-img = cong showDrove nignore-fuel
+
+-- Closed `refl` pins for the hand-built reply terms `glamReply`,
+-- `gpiReply`, and `gtypReply`. They are not a load of the `.mbi`
+-- files. They do not prove the regrade, the move, or `evalTm`.
+-- `glam` and `gpi` halt inside `driveFuel`. `gtypReply` does not:
+-- at 16 the run is still `fuel`. It halts at `gtypFuel` (20).
+-- `glam-val` is `nothing`: the payload is a closure. `gpi-val` is
+-- zero, the cell `evalTm` allocated, not the successor body.
+-- `gtyp-val` is zero, that same allocation. The child sent a
+-- closure, and `readNat` of a closure is nothing, so this zero is
+-- not a received nat. A child that sent `gsu gze` would keep the
+-- successor instead.
+glamP : CheckedP
+glamP = checkedP glamReply glamReply-ok
+
+glam-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP glamP))))
+    ≡ plain-halted
+glam-halted = refl
+
+glam-val :
+  val (proj₁ (drive driveFuel zero nil nothing (lowerP glamP)))
+    ≡ nothing
+glam-val = refl
+
+glam-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP glamP)))
+    ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p2 v-"
+glam-line = refl
+
+glam-fuel :
+  proj₁ (drive imgFuel zero nil nothing (lowerP glamP))
+    ≡ proj₁ (drive driveFuel zero nil nothing (lowerP glamP))
+glam-fuel =
+  drive-fuel driveFuel imgFuel zero nil nothing (lowerP glamP) fuel-≤ glam-halted
+
+glam-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP glamP)))
+         ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP glamP)))
+glam-img = cong showDrove glam-fuel
+
+gpiP : CheckedP
+gpiP = checkedP gpiReply gpiReply-ok
+
+gpi-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP gpiP))))
+    ≡ plain-halted
+gpi-halted = refl
+
+gpi-val :
+  val (proj₁ (drive driveFuel zero nil nothing (lowerP gpiP)))
+    ≡ just zero
+gpi-val = refl
+
+gpi-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP gpiP)))
+    ≡ "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+gpi-line = refl
+
+gpi-fuel :
+  proj₁ (drive imgFuel zero nil nothing (lowerP gpiP))
+    ≡ proj₁ (drive driveFuel zero nil nothing (lowerP gpiP))
+gpi-fuel =
+  drive-fuel driveFuel imgFuel zero nil nothing (lowerP gpiP) fuel-≤ gpi-halted
+
+gpi-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP gpiP)))
+        ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP gpiP)))
+gpi-img = cong showDrove gpi-fuel
+
+-- 20. `gtypReply` is out of fuel at `driveFuel` and halted here.
+gtypFuel : ℕ
+gtypFuel =
+  suc (suc (suc (suc driveFuel)))
+
+gtyp-≤ : gtypFuel ≤ imgFuel
+gtyp-≤ =
+  s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s
+  (s≤s (s≤s (s≤s (s≤s z≤n)))))))))))))))))))
+
+gtypP : CheckedP
+gtypP = checkedP gtypReply gtypReply-ok
+
+gtyp-halted :
+  plain (oc (proj₁ (drive gtypFuel zero nil nothing (lowerP gtypP))))
+    ≡ plain-halted
+gtyp-halted = refl
+
+gtyp-val :
+  val (proj₁ (drive gtypFuel zero nil nothing (lowerP gtypP)))
+    ≡ just zero
+gtyp-val = refl
+
+gtyp-line :
+  showDrove (proj₁ (drive gtypFuel zero nil nothing (lowerP gtypP)))
+    ≡ "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(1,pt(inf),pt(inf),omega-kept), tr-step 0, tr-spawn 0 2, tr-send 2 0 ref(2,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3 4 5)] h6l0p3 v0"
+gtyp-line = refl
+
+gtyp-fuel :
+  proj₁ (drive imgFuel zero nil nothing (lowerP gtypP))
+    ≡ proj₁ (drive gtypFuel zero nil nothing (lowerP gtypP))
+gtyp-fuel =
+  drive-fuel gtypFuel imgFuel zero nil nothing (lowerP gtypP) gtyp-≤ gtyp-halted
+
+gtyp-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP gtypP)))
+         ≡ showDrove (proj₁ (drive gtypFuel zero nil nothing (lowerP gtypP)))
+gtyp-img = cong showDrove gtyp-fuel
 
 deadTm : PTm zero
 deadTm = recv g1 g0 (done {suc zero})

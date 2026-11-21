@@ -268,10 +268,13 @@ and `spawn-reply-tag`: a promoting `bind1` whose continuation is
 `protoTag (obj r) pa` in the parent. `bind-count-one` derives
 `(count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true` from
 `bind1 ≡ just`, `isG1 (checked r) ≡ false`, and that reply stack:
-the `false | false` clause is `nothing`. The premises `bind1 ≡ just`
+the `false | false` clause is `nothing`, so the count bit is 1, and
+that bit selects the promoting arm. The premises `bind1 ≡ just`
 does not discharge are `isProtoAt zero pa ≡ true`,
 `isG1 (checked r) ≡ false`, and
 `splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv)`.
+`isG1 ≡ false` stays a premise because the already-`g1` arm of
+`bind1` returns `just` without consulting the count.
 A later `keep` of a `g0` cell, or a thinning that does not match the
 tail, is still `nothing`. `freshBody` is not a premise. The already-`g1`
 branch is not this lemma. `openCont` of a `spawn` holds by computation.
@@ -300,13 +303,18 @@ grade 1 whose `seq` body is `glam`. `inB?` refuses the same body.
 `glam-reply.mbi` is that same `(glam (w 0) gze)` at scope 0, where
 no `g1` is in scope, so `guardGlam` allows it. `load` accepts it.
 `drive` promotes the closure and halts. The payload is not a nat, so
-the line keeps `v-`. `gpi-reply.mbi` is a direct `(gpi (w 0) gze)`
-reply. `evalTm` of `gpi` allocates nat zero, and the `showDrove` line
-matches the `gze` reply. `gtyp-reply.mbi` is a direct `(gtyp 0)`.
+the line keeps `v-`. `gpi-reply.mbi` is a direct `(gpi (w 0) (gsu gze))`
+reply. `evalTm` of `gpi` ignores the body and allocates nat zero, so
+the `showDrove` line is that allocation (`v0`), not the successor
+the body would be. `gtyp-reply.mbi` is a direct `(gtyp 0)`.
 A scope-0 `gtyp` is `out of scope`, and a binder whose type grade is
 0 is `type grade 0 does not allow 1 uses`. The image spawns a child
-that sends a nat; the parent receives it at `(w w)` and the reply
-body is `(gtyp 0)`. `drive` promotes that cell and halts (`h6l0p3 v0`).
+that sends a closure, `(glam (w 0) (gsu gze))`; the parent receives
+it at `(w w)` and the reply body is `(gtyp 0)`. `drive` keeps the
+first delivered nat. `readNat` of a closure is nothing, so `v0` is
+the cell `evalTm` allocated for `gtyp`, not the received value. A
+child that sent `gsu gze` would keep `v1`. The run promotes that
+cell and halts (`h6l0p3 v0`).
 A `gref` of a `glam` runs under `[]`, so `guardGlam` does not refuse
 it. An ω binder can still hold a runtime `g1` reference;
 `guardGlam` does not see that. A nested `seq` does not inherit the
@@ -315,7 +323,9 @@ is a root `seq` of `gze` whose continuation is `seq (gref 0)`, with
 one definition `gze`. The nested body is `bad gref`. The files `spawn-await.mbi` and
 `spawn-ignore.mbi` are the fresh `gze` images the harness runs.
 The halt pins are `await-halted` and `ignore-halted` on the
-hand-built terms `spawnAwait` and `spawnIgnore`.
+hand-built terms `spawnAwait` and `spawnIgnore`. `glam-halted`,
+`gpi-halted`, and `gtyp-halted` are the same kind of pin for
+`glamReply`, `gpiReply`, and `gtypReply`.
 
 `run` in the pid-0 harness is `seq1` then `runFor`. It does not call
 `bind1`. `run` of `send-recv.mbi` prints `nat 2`, the seq payload,
@@ -327,16 +337,23 @@ would resume the spawn, and the harness would print `stuck`.
 `imgFuel` is 1000, the same default as `scripts/build_runner.py`
 `DEFAULT_FUEL`. `drive` of `plus.mbi` at that fuel stops `stuck 0`
 and keeps `v5` on both the harness and the binary. `driveFuel` in
-`MuroBeam.SchedThm` stays 16. The closed spawn and reply proofs
-finish inside it. `drive-fuel` says a run that has already halted at
+`MuroBeam.SchedThm` stays 16. The closed spawn proofs and the
+`glam` and `gpi` reply pins finish inside it. `gtypReply` does not:
+it is out of fuel at 16 and halted at `gtypFuel` (20). `drive-fuel` says a run that has already halted at
 fuel n returns the same `Drove` at every m ≥ n. `await-fuel`,
 `ignore-fuel`, and `nignore-fuel` are that fact for the three reply
 images at `imgFuel`. `await-line`, `ignore-line`, and `nignore-line`
 are the `showDrove` content pins at `driveFuel`. `await-img`,
 `ignore-img`, and `nignore-img` are the fuel-bridge equalities:
-the line at `imgFuel` equals the line at `driveFuel`. The harness
-`drove` pins the content lines, and the binary's line is the same
-text plus a newline.
+the line at `imgFuel` equals the line at `driveFuel`. `glam-line`,
+`gpi-line`, and `gtyp-line` are the same kind of pin for
+`glamReply`, `gpiReply`, and `gtypReply`. `glam` and `gpi` halt at
+`driveFuel`. `gtypReply` is out of fuel at 16 and halts at
+`gtypFuel` (20); `gtyp-img` bridges that line to `imgFuel`. These
+pins are not a load of the files, and they do not discharge
+`isProtoAt zero pa`, `isG1 (checked r) ≡ false`, or the tail
+`splitGo`. The harness `drove` pins the content lines, and the
+binary's line is the same text plus a newline.
 
 What this shows is `load` of the `String` the Haskell main passed
 in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so
