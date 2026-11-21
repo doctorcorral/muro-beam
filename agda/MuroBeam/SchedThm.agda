@@ -142,12 +142,13 @@ three-halted = refl
 -- the same `showDrove` line at `imgFuel`. The content pins are the
 -- `*-line` equations.
 --
--- Closed `refl` pins for `spawnAwait` at `driveFuel`. They do not
+-- Closed `refl` pins for the hand-built term `spawnAwait` at
+-- `driveFuel`. They are not a load of `spawn-await.mbi`. They do not
 -- prove the regrade, the move, or the await. `bind-spawn-tag` in
 -- `MuroBeam.PRun` is the step from a promoting `bind1` to the tagged
--- parent, and it still assumes the tail of the environment splits.
--- These pins do not discharge that assumption. The kept nat on this
--- program is zero, the cell the child was given.
+-- parent. The count on that step is `bind-count-one`. The tail of the
+-- environment split stays a premise. These pins do not discharge it.
+-- The kept nat on this program is zero, the cell the child was given.
 awaitP : CheckedP
 awaitP = checkedP spawnAwait spawnAwait-ok
 

@@ -627,9 +627,10 @@ openCont (ndemonT _ _)   = true
 -- Regrade it to g1 when it is not already g1 and it is the only
 -- reference to its object (`bind-promotes`). `regrade-move` says
 -- that head is `Kmove`. `bind-spawn-tag` is the step from this
--- `just` through one `spawn1` to the tagged parent. It still
--- assumes the tail of the environment splits. `checkP`'s fresh-body
--- guard is not a premise of that lemma.
+-- `just` through one `spawn1` to the tagged parent. `bind-count-one`
+-- derives the count from this `just` on the promoting branch. The
+-- lemma still assumes `isProtoAt` and the tail of the environment
+-- splits. `checkP`'s fresh-body guard is not a premise of that lemma.
 -- An aliased non-g1 result is refused (`bind-count-refuses`): a
 -- second g1 alias would break `Grade1Unique`, and the ω alias
 -- would not be the move `markProto` tags. The already-g1 branch
@@ -737,6 +738,36 @@ bind-count-refuses :
 bind-count-refuses h ps i r env k cenv eth d dm p lk ce oc rr ng many
   rewrite lk | ce | oc | rr | ng | many = refl
 
+-- On an open reply stack, `bind1 ≡ just` and `isG1 ≡ false` are the
+-- promoting branch. `bind-count-refuses` is the `false | false`
+-- clause (`nothing`), so the count bit is 1. `bind-spawn-tag` uses
+-- this and does not take the count as a premise.
+bind-count-one :
+  ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p t →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  openCont k ≡ true →
+  replyRoot k ≡ true →
+  isG1 (checked r) ≡ false →
+  bind1 (sys h ps) i ≡ just t →
+  (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true
+bind-count-one h ps i r env k cenv eth d dm p t lk ce oc rr ng bj =
+  force (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) refl
+  where
+  force : (b : Bool) →
+          (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ b →
+          b ≡ true
+  force true _ = refl
+  force false cb =
+    contra
+      (trans
+        (sym (bind-count-refuses h ps i r env k cenv eth d dm p
+               lk ce oc rr ng cb))
+        bj)
+    where
+    contra : nothing ≡ just t → false ≡ true
+    contra ()
+
 -- `keep` of a `Kmove` cell records `(index, object)` and continues.
 split-keep-move : ∀ {m n} i ph (th : Thin m n) r rs ce pe mv →
   kind (checked r) ≡ just Kmove →
@@ -841,27 +872,37 @@ spawn-at h ps i p th ch pa env eth d dm ce pe mv τ ps1 lk cq sq tq spe
 -- A promoting `bind1` whose continuation is `spawn (keep th) ch pa`,
 -- followed by one `spawn1`, tags that parent.
 --
--- Composes `bind-promotes`, `regrade-move`, `split-keep-move`, and
--- `spawn-reply-tag` (`split-head` and `reply-slot`).
+-- Composes `bind-count-one`, `bind-promotes`, `regrade-move`,
+-- `split-keep-move`, and `spawn-reply-tag` (`split-head` and
+-- `reply-slot`).
+--
+-- `bind-count-one` derives `(count ≡ᵇ 1) ≡ true` from `bind1 ≡ just`,
+-- `isG1 ≡ false`, and this reply stack. The `false | false` clause is
+-- `nothing`.
 --
 -- Premises `bind1 ≡ just` does not discharge:
 -- * the continuation is this `spawn (keep th)`, so the head slot is
 --   the one `keep` moves (`replyRoot` of that term is `isProtoAt zero pa`);
--- * `isG1 (checked r) ≡ false` and the count is 1, the branch that
---   regrades (the already-`g1` branch installs `r` unchanged);
+-- * `isProtoAt zero pa ≡ true`;
+-- * `isG1 (checked r) ≡ false` (the already-`g1` branch installs `r`
+--   unchanged and is not this lemma);
 -- * `splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv)`.
 --   A later `keep` of a `g0` cell, or a thinning that does not match
 --   the tail, is still `nothing`. `placeholder h` is the cell `spawn1`
 --   allocates. `bind1` does not change the heap, so that cell is the
 --   one `spawn1` computes from `t`.
 -- * `freshBody` is not a premise. There is no theorem from that guard
---   to this tag.
+--   to this tag. That a fresh allocation is counted once is the
+--   allocator's story, not this lemma.
 --
 -- `openCont` of a `spawn` is `true`, so that premise of `bind-promotes`
 -- holds by computation. The object's index is `obj r` after `regrade`.
--- The conclusion is the parent's control. `u` also snocs the placeholder
+-- The conclusion names both processes. `p1` is pid `i` after `bind1`:
+-- its control is the spawn whose head is `regrade r g1`. `u` is the
+-- system after `spawn1`, and pid `i` there is `p1` with that control
+-- replaced by `protoTag (obj r) pa`. `u` also snocs the placeholder
 -- and appends the child; those are what `spawn1` builds and are not
--- restated as a separate equation.
+-- a separate equation.
 --
 -- The proof splits `bind1` once, on the promoting branch `bind-promotes`
 -- names, and passes that lemma's lookup to `setProc-just`. `spawn-at`
@@ -877,20 +918,20 @@ bind-spawn-tag :
       (saved (go (spawn (keep th) ch pa) cenv eth d dm) ∷ seg ds ∷ []) →
   isProtoAt zero pa ≡ true →
   isG1 (checked r) ≡ false →
-  (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true →
   bind1 (sys h ps) i ≡ just t →
   splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv) →
-  ∃ λ u →
+  ∃ λ p1 → ∃ λ u →
+    lookup (procs t) i ≡ just p1 ×
+    ctl p1 ≡
+      pr (go (spawn (keep th) ch pa)
+             (regrade r g1 ∷ (env ++ cenv)) eth d dm) ×
     spawn1 t i ≡ just u ×
     lookup (procs u) i ≡
-      just (record (record p { ctl =
-              pr (go (spawn (keep th) ch pa)
-                     (regrade r g1 ∷ (env ++ cenv)) eth d dm) })
-            { ctl =
+      just (record p1 { ctl =
               pr (go (protoTag (obj r) pa)
                      (placeholder h ∷ pe) eth d dm) })
 bind-spawn-tag h ps i r env th ch pa cenv eth d dm {ds} p t ce pe mv
-  lk ctlq proto ng uniq bq tail =
+  lk ctlq proto ng bq tail =
   fromBind bq
   where
   k = spawn (keep th) ch pa
@@ -907,33 +948,37 @@ bind-spawn-tag h ps i r env th ch pa cenv eth d dm {ds} p t ce pe mv
   full = split-keep-move zero ph th rg rest ce pe mv km tail
   tagq = spawn-reply-tag ph th pa rg rest ce0 pe0 mv0 km full proto
   pcode = pr (go (protoTag (obj r) pa) pe0 eth d dm)
+  uniq = bind-count-one h ps i r env k cenv eth d dm p t lk ctlq refl proto ng bq
   lkPost = bind-promotes h ps i r env k cenv eth d dm p t lk ctlq refl proto ng uniq bq
   parent = record p1 { ctl = pcode }
 
-  fromBind : bind1 (sys h ps) i ≡ just t →
-              ∃ λ u → spawn1 t i ≡ just u × lookup (procs u) i ≡ just parent
+  Out = ∃ λ p1' → ∃ λ u →
+          lookup (procs t) i ≡ just p1' ×
+          ctl p1' ≡ c0 ×
+          spawn1 t i ≡ just u ×
+          lookup (procs u) i ≡ just (record p1' { ctl = pcode })
+
+  fromBind : bind1 (sys h ps) i ≡ just t → Out
   fromBind eq rewrite lk | ctlq | proto | ng | uniq = finish eq
     where
-    finish : (setProc ps i c0 >>= λ ps' → just (sys h ps')) ≡ just t →
-             ∃ λ u → spawn1 t i ≡ just u × lookup (procs u) i ≡ just parent
+    finish : (setProc ps i c0 >>= λ ps' → just (sys h ps')) ≡ just t → Out
     finish eq2 with setProc ps i c0
     ... | nothing = no eq2
       where
-      no : nothing ≡ just t →
-           ∃ λ u → spawn1 t i ≡ just u × lookup (procs u) i ≡ just parent
+      no : nothing ≡ just t → Out
       no ()
     ... | just ps' = yes eq2
       where
-      yes : just (sys h ps') ≡ just t →
-            ∃ λ u → spawn1 t i ≡ just u × lookup (procs u) i ≡ just parent
+      yes : just (sys h ps') ≡ just t → Out
       yes refl =
         let ps1 , spe = setProc-just ps' i p1 pcode lkPost
             child = proc (length ps') ready [] [] (pr (go ch ce0 [] [] []))
             u = sys (snoc h (nat zero)) (ps1 ++ child ∷ [])
-        in u , spawn-at h ps' i p1 (keep th) ch pa env' eth d dm
-                 ce0 pe0 mv0 (obj r) ps1 lkPost refl full tagq spe ,
-             lookup-++-just ps1 (child ∷ []) i parent
-               (setProc-lookup ps' i pcode p1 ps1 lkPost spe)
+        in p1 , u , lkPost , refl ,
+           spawn-at h ps' i p1 (keep th) ch pa env' eth d dm
+             ce0 pe0 mv0 (obj r) ps1 lkPost refl full tagq spe ,
+           lookup-++-just ps1 (child ∷ []) i parent
+             (setProc-lookup ps' i pcode p1 ps1 lkPost spe)
 
 -- Top-level so a proof can pass the process it found. `done1` is
 -- this function after lookup. The control match is the whole story:

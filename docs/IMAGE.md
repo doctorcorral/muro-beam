@@ -204,11 +204,13 @@ tagged form the reply steps match. `spawn-await.mbi` and
 with kind `Kmove`, the schedule collects `(0 1 2 3)`, the fingerprint
 is `h4l0p2`, and the kept nat is the seq payload `v0`.
 `await-halted`, `await-val`, `ignore-halted`, and `ignore-val` are
-regression pins: closed `refl`s for those two schedules at
-`driveFuel` (16). `await-line` and `ignore-line` are the printed
-lines, the same kind of pin. That schedule runs the reply. It is not a
-proof of `no-stray-reply`: that theorem still needs `ReplyDone` at
-the start.
+regression pins: closed `refl`s for the hand-built terms `spawnAwait`
+and `spawnIgnore` at `driveFuel` (16). They are not a load of
+`spawn-await.mbi` or `spawn-ignore.mbi`. The files are what the
+harness and the binary run. `await-line` and `ignore-line` are the
+printed lines of those hand-built terms, the same kind of pin. That
+schedule runs the reply. It is not a proof of `no-stray-reply`: that
+theorem still needs `ReplyDone` at the start.
 
 A protocol form that is not that spawn parent root is refused at
 `checkP` with `protocol is not a spawn reply`. `await-seq.mbi`,
@@ -248,32 +250,40 @@ on those hand-built terms. `seq-reply-fresh` says an accepted reply
 `bind1` refuses an aliased non-g1 cell: that branch is `nothing`.
 `bind-count-refuses` is that fact for every open reply stack whose
 returned cell is not `g1` (`isG1 ≡ false`) and whose `count` is not 1.
-A cell that is already `g1` does not consult the count. A second `g1`
-alias would break `Grade1Unique`, and installing the ω reference would
-leave `await` and `ignore` untagged. `bind-promotes` says that when
-the returned cell is not `g1` and `count` of its object is 1, the
+A cell that is already `g1` does not consult the count. Under `WF`,
+`hasG1 i (refsOf s) ≡ true` and `count i (refsOf s) ≢ 1` contradict
+`Grade1Unique`, so an already-`g1` cell whose count is not 1 is not a
+well-formed state. The branch still does not read the count. A second
+`g1` alias would break `Grade1Unique`, and installing the ω reference
+would leave `await` and `ignore` untagged. `bind-promotes` says that
+when the returned cell is not `g1` and `count` of its object is 1, the
 installed head is `regrade r g1`. `regrade-move` says that head is
 `Kmove`. `split-head` says a kept move at index 0 is the head of the
 move list. `reply-slot` says `applyMoves` of a list that starts with
 `(zero , τ)` tags a protocol root. `spawn-reply-tag` is that fact
 after `split-head`. It is not `reply-slot`. `bind-spawn-tag` composes
-`bind-promotes`, `regrade-move`, `split-keep-move`, and
-`spawn-reply-tag`: a promoting `bind1` whose continuation is
+`bind-count-one`, `bind-promotes`, `regrade-move`, `split-keep-move`,
+and `spawn-reply-tag`: a promoting `bind1` whose continuation is
 `spawn (keep th) ch pa`, followed by one `spawn1`, puts
-`protoTag (obj r) pa` in the parent. The premises it does not
-discharge are `isProtoAt zero pa ≡ true`, `isG1 (checked r) ≡ false`,
-the count being 1, and
+`protoTag (obj r) pa` in the parent. `bind-count-one` derives
+`(count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true` from
+`bind1 ≡ just`, `isG1 (checked r) ≡ false`, and that reply stack:
+the `false | false` clause is `nothing`. The premises `bind1 ≡ just`
+does not discharge are `isProtoAt zero pa ≡ true`,
+`isG1 (checked r) ≡ false`, and
 `splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv)`.
 A later `keep` of a `g0` cell, or a thinning that does not match the
 tail, is still `nothing`. `freshBody` is not a premise. The already-`g1`
 branch is not this lemma. `openCont` of a `spawn` holds by computation.
 `bind1` does not change the heap, so the placeholder is the cell
-`spawn1` allocates.
+`spawn1` allocates. The conclusion names both processes: after `bind1`,
+pid `i` has control `spawn (keep th)` with head `regrade r g1`; after
+`spawn1`, that process has control `protoTag (obj r) pa`.
 A fresh head allocates at `length` of the heap. Under `Bound` that
-index was not named, and the returning step adds one reference,
-which is why the count is 1 on the images that `checkP` accepts.
-That count is the allocator's story. It is not a theorem from
-`checkP` to the tag. `alias-await-probe` is a closed test of
+index was not named, and the returning step adds one reference.
+That is why the count is 1 on the images the harness runs. It is the
+allocator's story. It is not a theorem from `checkP` to the tag, and
+`bind-spawn-tag` does not claim that a loaded fresh body promotes. `alias-await-probe` is a closed test of
 `bind-count-refuses` on the hand-built term `spawnAwait`: the plant
 adds a second reference and `bind1` is `nothing`. The string is
 `refuse: aliased reply result`. `alias-bind.mbi` is a file with
@@ -287,6 +297,16 @@ accepts it, and `drive` promotes the cell the definition allocates.
 when the context already has a `g1` (`glam reply under g1`).
 `glamG1-no` is that equation. `glam-g1.mbi` is the file: a `recv` at
 grade 1 whose `seq` body is `glam`. `inB?` refuses the same body.
+`glam-reply.mbi` is that same `(glam (w 0) gze)` at scope 0, where
+no `g1` is in scope, so `guardGlam` allows it. `load` accepts it.
+`drive` promotes the closure and halts. The payload is not a nat, so
+the line keeps `v-`. `gpi-reply.mbi` is a direct `(gpi (w 0) gze)`
+reply. `evalTm` of `gpi` allocates nat zero, and the `showDrove` line
+matches the `gze` reply. `gtyp-reply.mbi` is a direct `(gtyp 0)`.
+A scope-0 `gtyp` is `out of scope`, and a binder whose type grade is
+0 is `type grade 0 does not allow 1 uses`. The image spawns a child
+that sends a nat; the parent receives it at `(w w)` and the reply
+body is `(gtyp 0)`. `drive` promotes that cell and halts (`h6l0p3 v0`).
 A `gref` of a `glam` runs under `[]`, so `guardGlam` does not refuse
 it. An ω binder can still hold a runtime `g1` reference;
 `guardGlam` does not see that. A nested `seq` does not inherit the

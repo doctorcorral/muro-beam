@@ -45,12 +45,14 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `skip-await.mbi`, `copy-await.mbi`, `buried-await.mbi`,
 `alias-await.mbi`, `gmatch-await.mbi`, `gvar-await.mbi`,
 `gref-chain.mbi`, `alias-bind.mbi`, `gref-await.mbi`, `glam-g1.mbi`,
-and `nested-seq.mbi` are not emitter goldens. They are surface process
+`glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`, and
+`nested-seq.mbi` are not emitter goldens. They are surface process
 entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
 halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
 halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
-`v0`: the child sends the bound nat at grade 1 and the parent runs
-the reply. `spawn-nignore.mbi` is the same spawn with `nignore`. It
+`v0`. The harness and the binary check those files. `await-halted`
+and `ignore-halted` are `refl` pins of the hand-built terms
+`spawnAwait` and `spawnIgnore`, not of a load of the files. `spawn-nignore.mbi` is the same spawn with `nignore`. It
 halts with `v0` and fingerprint `h3l1p2`: the reply is not flushed,
 so collect leaves the cell at index 0. `await-seq.mbi`,
 `ignore-seq.mbi`, and `nignore-seq.mbi` are refused at load
@@ -64,6 +66,14 @@ Those three are the same refusal. `gref-await.mbi` is a loadable
 direct fresh `gref` of `gze` whose continuation awaits the moved
 slot. `glam-g1.mbi` is a `recv` at grade 1 whose `seq` body is a
 `glam`. `checkP` refuses it with `glam reply under g1`.
+`glam-reply.mbi` is that `(glam (w 0) gze)` at scope 0. No `g1` is
+in scope, so load accepts it. `drive` halts and keeps `v-`: the
+payload is a closure. `gpi-reply.mbi` is a direct `(gpi (w 0) gze)`
+reply. It allocates nat zero and halts with the same line as the
+`gze` reply. `gtyp-reply.mbi` is a direct `(gtyp 0)`. The child
+sends a nat, the parent receives it at `(w w)`, and the reply body
+names that variable. `drive` promotes the cell and halts
+(`h6l0p3 v0`). A scope-0 `gtyp` is out of scope.
 `nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
 definition list is attached only to the root `seq`, so that body
 is `bad gref`. `alias-bind.mbi` is a fresh `gsu`

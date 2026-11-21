@@ -137,6 +137,24 @@ PROC = {
         "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
     ),
+    # Direct glam at scope 0. No g1 is in scope, so guardGlam allows it.
+    # The payload is a closure, which drive does not keep as a nat.
+    "glam-reply": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v-"
+    ),
+    # Direct gpi. evalTm allocates nat zero, so the line matches gze.
+    "gpi-reply": REPLY,
+    # gtyp names a variable. The child sends a nat, the parent recvs it
+    # at (w w), and the reply body is (gtyp 0). Scope 0 has no such index.
+    "gtyp-reply": (
+        "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept), tr-step 0, tr-spawn 0 2, "
+        "tr-send 2 0 ref(2,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4 5)] h6l0p3 v0"
+    ),
 }
 REFUSE = [
     ("await-seq", "protocol is not a spawn reply"),

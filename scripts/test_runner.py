@@ -257,6 +257,24 @@ PROC = {
         "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0\n"
     ),
+    # Direct glam at scope 0. glam-g1.mbi is the same body under a g1 recv.
+    # A closure is not a nat, so the kept value is v-.
+    "glam-reply": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v-\n"
+    ),
+    # Direct gpi allocates nat zero. The line matches the gze reply.
+    "gpi-reply": REPLY,
+    # (gtyp 0) needs a variable whose type grade allows one use.
+    # The child delivers a nat; the parent recvs it at (w w).
+    "gtyp-reply": (
+        "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept), tr-step 0, tr-spawn 0 2, "
+        "tr-send 2 0 ref(2,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4 5)] h6l0p3 v0\n"
+    ),
 }
 
 
