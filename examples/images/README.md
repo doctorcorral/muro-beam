@@ -48,10 +48,13 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`,
 `nested-seq.mbi`, `comp-await.mbi`, `comp-ignore.mbi`,
 `comp-nignore.mbi`, `type-await.mbi`, `type-ignore.mbi`,
-`type-nignore.mbi`, `tagged-spawn.mbi`, `buried-awaitT.mbi`,
-`buried-ignoreT.mbi`, `buried-flushT.mbi`, `buried-ncheckT.mbi`,
-and `buried-ndemonT.mbi` are not emitter goldens.
-They are surface process entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
+`type-nignore.mbi`, and `recv-move.mbi` are not emitter goldens.
+They are surface process entries written for this loader.
+`tagged-spawn.mbi`, `buried-awaitT.mbi`, `buried-ignoreT.mbi`,
+`buried-flushT.mbi`, `buried-ncheckT.mbi`, and `buried-ndemonT.mbi`
+are not surface entries. Parse refuses each with `not surface`.
+
+`spawn-done.mbi` and `bare-done.mbi`
 halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
 halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
 `v0`. The harness and the binary check those files. `await-halted`
@@ -62,7 +65,10 @@ so collect leaves the cell at index 0. `await-seq.mbi`,
 `ignore-seq.mbi`, and `nignore-seq.mbi` are refused at load
 (`protocol is not a spawn reply`). `buried-await.mbi` is the same
 refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
-`protocol slot is not moved`. `alias-await.mbi` is refused with
+`protocol slot is not moved`. `recv-move.mbi` is a `g1` `recv`
+binder holding the ω cell `(gsu gze)` that the child sends.
+`checkP` refuses it with `protocol slot came from recv`.
+`recvMoveAwait-no` is that equation. It is not a run of the file. `alias-await.mbi` is refused with
 `reply result is not fresh`. `gmatch-await.mbi` is a `gmatch`
 body, `gvar-await.mbi` is a `gvar` under `recv`, and
 `gref-chain.mbi` is a `gref` whose definition is itself a `gref`.

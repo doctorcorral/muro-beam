@@ -155,6 +155,9 @@ REFUSE = [
     ("type-await", None, "protocol slot has a type use"),
     ("type-ignore", None, "protocol slot has a type use"),
     ("type-nignore", None, "protocol slot has a type use"),
+    # g1 recv binder, ω payload from seq of gsu. checkP refuses it.
+    # recvMoveAwait-no is the hand-built equation, not this file's load.
+    ("recv-move", None, "protocol slot came from recv"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),

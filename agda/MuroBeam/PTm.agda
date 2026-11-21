@@ -100,9 +100,25 @@ thinCtx t[]             []       = ok []
 thinCtx (skip th)       (_ ∷ Γ)  = thinCtx th Γ
 thinCtx (keep th)       (p ∷ Γ)  = thinCtx th Γ >>= λ Γ' → ok (p ∷ Γ')
 
+-- Same thinning as `thinCtx`, on the recv-origin mask.
+thinMask : ∀ {m n} → Thin m n → Vec Bool n → Vec Bool m
+thinMask t[]       []       = []
+thinMask (skip th) (_ ∷ ρ) = thinMask th ρ
+thinMask (keep th) (b ∷ ρ) = b ∷ thinMask th ρ
+
+-- No binder in this context was introduced by `recv`.
+falses : ∀ {n} → Vec Bool n
+falses {zero}  = []
+falses {suc n} = false ∷ falses
+
 -- A kept protocol slot has to move. `markProto` rewrites only the
 -- parent root, and only a moved slot. A copy leaves that rewrite
 -- with an empty move list, so `checkP` refuses the copy.
+-- `isMove` reads the binder grade. That grade is the runtime grade
+-- for a `seq` binder and for a context the caller passed in. It is
+-- not the runtime grade of a `recv` binder: `recvStep` installs the
+-- sender's reference and does not regrade it, and `spawn1` moves by
+-- `kind (checked r)`.
 isMove : Grade → Bool
 isMove g with kind g
 ... | just Kmove = true
@@ -139,13 +155,18 @@ protoKept _ _              = true
 -- `seq (gtyp 0) done` under `await 0`, is in `typeOf u`. Returning the
 -- child use `v` would drop it, and the reply binder's type grade is
 -- `g0`, so `under` would not see it. Both guards run before that drop.
--- The slot itself must move.
+-- The slot itself must move. `fromRecv` is true when this binder
+-- was introduced by `recv`. The annotation can be `g1` while the
+-- payload `recvStep` installed is a copy, so `isMove` on that
+-- annotation is not a move guarantee. The recv guard runs after the
+-- move guard: a copied annotation is still `protocol slot is not moved`.
 -- Anything else moved must be quiet in the parent. A copy is held on
 -- each side and the parent use remains.
-slot : ∀ {n} → ℕ → Grade → Grade → Spent → Spent → PTm n → Result Spent
-slot i c t v u tm with isProtoAt i tm
+slot : ∀ {n} → ℕ → Bool → Grade → Grade → Spent → Spent → PTm n → Result Spent
+slot i fromRecv c t v u tm with isProtoAt i tm
 ... | true =
   guard "protocol slot is not moved" (isMove c) >>
+  guard "protocol slot came from recv" (not fromRecv) >>
   guard "protocol slot is not one computational use" (isOneCount (compOf u)) >>
   guard "protocol slot has a type use" (isZeroCount (typeOf u)) >>
   hold run c t v >>
@@ -163,13 +184,13 @@ slot i c t v u tm with isProtoAt i tm
   hold run c t u >>
   ok u
 
-merge : ∀ {m n k} → ℕ → Thin m n → GCtx n → Uses m → Uses n → PTm k → Result (Uses n)
-merge _ t[]       []           []        []       _  = ok []
-merge i (skip th) (_ ∷ Γ)      cu        (u ∷ pu) tm =
-  merge (suc i) th Γ cu pu tm >>= λ rest → ok (u ∷ rest)
-merge i (keep th) (gp c t ∷ Γ) (v ∷ cu)  (u ∷ pu) tm =
-  slot i c t v u tm >>= λ w →
-  merge (suc i) th Γ cu pu tm >>= λ rest → ok (w ∷ rest)
+merge : ∀ {m n k} → ℕ → Thin m n → Vec Bool n → GCtx n → Uses m → Uses n → PTm k → Result (Uses n)
+merge _ t[]       []           []           []        []       _  = ok []
+merge i (skip th) (_ ∷ ρ)      (_ ∷ Γ)      cu        (u ∷ pu) tm =
+  merge (suc i) th ρ Γ cu pu tm >>= λ rest → ok (u ∷ rest)
+merge i (keep th) (b ∷ ρ)      (gp c t ∷ Γ) (v ∷ cu)  (u ∷ pu) tm =
+  slot i b c t v u tm >>= λ w →
+  merge (suc i) th ρ Γ cu pu tm >>= λ rest → ok (w ∷ rest)
 
 ------------------------------------------------------------------------
 -- The checker. `seq` asks `decideB` and `inB?`. A reply root also
@@ -200,10 +221,10 @@ checkDefs i (d ∷ₗ ds) = checkDef (suc i) d >> checkDefs (suc i) ds
 
 -- Join a child use and a parent use. A protocol name that the
 -- thinning skipped never reaches `slot`, so it is refused here.
-checkSpawn : ∀ {m n} → Thin m n → GCtx n → Uses m → Uses n → PTm n → Result (Uses n)
-checkSpawn th Γ cu pu pa =
+checkSpawn : ∀ {m n} → Thin m n → Vec Bool n → GCtx n → Uses m → Uses n → PTm n → Result (Uses n)
+checkSpawn th ρ Γ cu pu pa =
   guard "protocol slot is not moved" (protoKept th pa) >>
-  merge zero th Γ cu pu pa
+  merge zero th ρ Γ cu pu pa
 
 -- A fresh head allocates its result. `gsu` allocates the successor
 -- cell even when its argument is an existing pointer. `gvar`, `gapp`,
@@ -273,17 +294,23 @@ containsTag (flushT _ _)    = true
 containsTag (ncheckT _ _)   = true
 containsTag (ndemonT _ _)   = true
 
-checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
-checkP {n} Γ done = ok (zeros {n})
-checkP Γ (send _ x k) =
+-- `ρ` marks binders introduced by `recv`. `spawn1` moves by the
+-- runtime grade of the reference, and `recvStep` does not regrade
+-- the sender's reference to this annotation, so a protocol use of
+-- a marked slot is `protocol slot came from recv`. A `seq` binder
+-- is unmarked: its grade is `seqGrade`, and a reply root is what
+-- `bind1` regrades. The caller's context is unmarked too.
+checkGo : ∀ {n} → Vec Bool n → GCtx n → PTm n → Result (Uses n)
+checkGo {n} _ Γ done = ok (zeros {n})
+checkGo ρ Γ (send _ x k) =
   sendGate (pcomp (lookup Γ x)) >>
-  checkP Γ k >>= λ uk →
+  checkGo ρ Γ k >>= λ uk →
   ok (addU (oneS x (charge run)) uk)
-checkP Γ (recv c t k) =
-  checkP (gp c t ∷ Γ) k >>= λ uk →
+checkGo ρ Γ (recv c t k) =
+  checkGo (true ∷ ρ) (gp c t ∷ Γ) k >>= λ uk →
   under run c t uk
 -- The protocol form is legal only as this spawn parent. Its
--- continuation is checked with `checkP`, so an untagged protocol
+-- continuation is checked with `checkGo`, so an untagged protocol
 -- buried under the continuation is refused (`protocol is not a spawn
 -- reply`). A tag in that continuation is `tagged protocol`. The
 -- parent's one computational use is
@@ -291,22 +318,23 @@ checkP Γ (recv c t k) =
 -- computational use is `protocol slot is not one computational use`.
 -- A type use of that slot in the continuation is
 -- `protocol slot has a type use`. `slot` refuses both before it
--- returns the child use.
-checkP Γ (spawn th ch (await x k)) =
+-- returns the child use. A protocol slot marked by `recv` is
+-- `protocol slot came from recv` even when the annotation moves.
+checkGo ρ Γ (spawn th ch (await x k)) =
   thinCtx th Γ >>= λ Γ' →
-  checkP Γ' ch >>= λ cu →
-  checkP Γ k >>= λ uk →
-  checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (await x k)
-checkP Γ (spawn th ch (ignore x k)) =
+  checkGo (thinMask th ρ) Γ' ch >>= λ cu →
+  checkGo ρ Γ k >>= λ uk →
+  checkSpawn th ρ Γ cu (addU (oneS x (charge run)) uk) (await x k)
+checkGo ρ Γ (spawn th ch (ignore x k)) =
   thinCtx th Γ >>= λ Γ' →
-  checkP Γ' ch >>= λ cu →
-  checkP Γ k >>= λ uk →
-  checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (ignore x k)
-checkP Γ (spawn th ch (nignore x k)) =
+  checkGo (thinMask th ρ) Γ' ch >>= λ cu →
+  checkGo ρ Γ k >>= λ uk →
+  checkSpawn th ρ Γ cu (addU (oneS x (charge run)) uk) (ignore x k)
+checkGo ρ Γ (spawn th ch (nignore x k)) =
   thinCtx th Γ >>= λ Γ' →
-  checkP Γ' ch >>= λ cu →
-  checkP Γ k >>= λ uk →
-  checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (nignore x k)
+  checkGo (thinMask th ρ) Γ' ch >>= λ cu →
+  checkGo ρ Γ k >>= λ uk →
+  checkSpawn th ρ Γ cu (addU (oneS x (charge run)) uk) (nignore x k)
 -- A tagged parent is what `markProto`, `arm1`, and `npeek1` write
 -- after a move. `isProtoAt` does not see it, and `protoKept`'s
 -- catch-all is true, so the generic arm would skip the move,
@@ -315,34 +343,38 @@ checkP Γ (spawn th ch (nignore x k)) =
 -- these five. `spawnTagAwait-no` and the four sibling pins are the
 -- hand-built equations. `tagged-spawn.mbi` is the parse refusal
 -- `not surface` for an `awaitT` parent. It is not this equation.
-checkP _ (spawn _ _ (awaitT _ _))  = fail "tagged spawn parent"
-checkP _ (spawn _ _ (ignoreT _ _)) = fail "tagged spawn parent"
-checkP _ (spawn _ _ (flushT _ _))  = fail "tagged spawn parent"
-checkP _ (spawn _ _ (ncheckT _ _)) = fail "tagged spawn parent"
-checkP _ (spawn _ _ (ndemonT _ _)) = fail "tagged spawn parent"
+checkGo _ _ (spawn _ _ (awaitT _ _))  = fail "tagged spawn parent"
+checkGo _ _ (spawn _ _ (ignoreT _ _)) = fail "tagged spawn parent"
+checkGo _ _ (spawn _ _ (flushT _ _))  = fail "tagged spawn parent"
+checkGo _ _ (spawn _ _ (ncheckT _ _)) = fail "tagged spawn parent"
+checkGo _ _ (spawn _ _ (ndemonT _ _)) = fail "tagged spawn parent"
 -- A tag under this parent is not a protocol root. `isProtoAt` is
--- false on `seq` and on every tagged constructor, so `slot` would
+-- false on `seq`, `send`, `recv`, `spawn`, `await`, `ignore`, and
+-- `nignore`, and on every tagged constructor, so `slot` would
 -- skip the move, one-computational-use, and zero-type guards.
--- Refuse before that merge. The tag clauses below are the same
--- refusal when the tagged form itself is what `checkP` is called on.
-checkP Γ (spawn th ch pa) =
+-- `containsTag` walks each of those continuations. Refuse before
+-- that merge. The tag clauses below are the refusal when the tagged
+-- form itself is what `checkGo` is called on. A tag in the
+-- continuation of a protocol `await`, `ignore`, or `nignore` is
+-- this function on that continuation, not the `containsTag` guard.
+checkGo ρ Γ (spawn th ch pa) =
   guard "tagged protocol" (not (containsTag pa)) >>
   thinCtx th Γ >>= λ Γ' →
-  checkP Γ' ch >>= λ cu →
-  checkP Γ pa >>= λ pu →
-  checkSpawn th Γ cu pu pa
-checkP Γ (seq ds e k) =
+  checkGo (thinMask th ρ) Γ' ch >>= λ cu →
+  checkGo ρ Γ pa >>= λ pu →
+  checkSpawn th ρ Γ cu pu pa
+checkGo ρ Γ (seq ds e k) =
   checkDefs zero ds >>= λ _ →
   guardGlam Γ e k >>= λ _ →
   boundaryOk (inB? (comps Γ) e) >>= λ _ →
   decideB (length ds) run Γ e >>= λ eu →
   guardReply ds e k >>= λ _ →
-  checkP (gp (seqGrade k) g0 ∷ Γ) k >>= λ uk →
+  checkGo (false ∷ ρ) (gp (seqGrade k) g0 ∷ Γ) k >>= λ uk →
   under run (seqGrade k) g0 uk >>= λ ku →
   ok (addU eu ku)
-checkP _ (await _ _)   = fail "protocol is not a spawn reply"
-checkP _ (ignore _ _)  = fail "protocol is not a spawn reply"
-checkP _ (nignore _ _) = fail "protocol is not a spawn reply"
+checkGo _ _ (await _ _)   = fail "protocol is not a spawn reply"
+checkGo _ _ (ignore _ _)  = fail "protocol is not a spawn reply"
+checkGo _ _ (nignore _ _) = fail "protocol is not a spawn reply"
 -- Surface syntax has no tagged constructor (`SPtm`, `toP`), so `load`
 -- never builds these five. A hand-built tag that is not the direct
 -- spawn parent used to be accepted: the old clause was `replyTok`,
@@ -354,11 +386,16 @@ checkP _ (nignore _ _) = fail "protocol is not a spawn reply"
 -- There is no theorem from `checkP` or `load` to that promotion.
 -- Parse refuses the words with `not surface`. `tagAwait-no` and the
 -- four siblings are the hand-built equations, not a load of a file.
-checkP _ (awaitT _ _)  = fail "tagged protocol"
-checkP _ (ignoreT _ _) = fail "tagged protocol"
-checkP _ (flushT _ _)  = fail "tagged protocol"
-checkP _ (ncheckT _ _) = fail "tagged protocol"
-checkP _ (ndemonT _ _) = fail "tagged protocol"
+checkGo _ _ (awaitT _ _)  = fail "tagged protocol"
+checkGo _ _ (ignoreT _ _) = fail "tagged protocol"
+checkGo _ _ (flushT _ _)  = fail "tagged protocol"
+checkGo _ _ (ncheckT _ _) = fail "tagged protocol"
+checkGo _ _ (ndemonT _ _) = fail "tagged protocol"
+
+-- The mask starts false. Grades in the caller's context are not
+-- `recv` annotations.
+checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
+checkP Γ p = checkGo falses Γ p
 
 ------------------------------------------------------------------------
 -- Lowering. One process, empty heap, the checked program in `pr`.
@@ -891,6 +928,155 @@ buriedTagNdemon =
 buriedTagNdemon-no :
   checkP [] buriedTagNdemon ≡ fail "tagged protocol"
 buriedTagNdemon-no = refl
+
+-- `containsTag` walks `send`, `recv`, `spawn`, `await`, `ignore`,
+-- and `nignore`, not only `seq`. These parents are not protocol
+-- roots, so the generic arm runs that guard and does not merge.
+-- The outer `seq` in `sendTagAwait` only puts a slot in scope.
+
+sendTagAwait : PTm 0
+sendTagAwait =
+  seq nil bze
+    (spawn (skip t[]) (done {0})
+      (send zero fzero (awaitT zero (done {1}))))
+
+sendTagAwait-no : checkP [] sendTagAwait ≡ fail "tagged protocol"
+sendTagAwait-no = refl
+
+recvTagAwait : PTm 0
+recvTagAwait =
+  spawn t[] (done {0})
+    (recv gω g0 (awaitT zero (done {1})))
+
+recvTagAwait-no : checkP [] recvTagAwait ≡ fail "tagged protocol"
+recvTagAwait-no = refl
+
+spawnTagBuried : PTm 0
+spawnTagBuried =
+  spawn t[] (done {0})
+    (spawn t[] (done {0}) (awaitT zero (done {0})))
+
+spawnTagBuried-no : checkP [] spawnTagBuried ≡ fail "tagged protocol"
+spawnTagBuried-no = refl
+
+-- The `await` is under `recv`, so it is not the spawn parent root.
+-- `containsTag` walks `recv`, then `await`.
+awaitUnderRecv : PTm 0
+awaitUnderRecv =
+  spawn t[] (done {0})
+    (recv gω g0
+      (await fzero (awaitT zero (done {1}))))
+
+awaitUnderRecv-no : checkP [] awaitUnderRecv ≡ fail "tagged protocol"
+awaitUnderRecv-no = refl
+
+ignoreUnderRecv : PTm 0
+ignoreUnderRecv =
+  spawn t[] (done {0})
+    (recv gω g0
+      (ignore fzero (awaitT zero (done {1}))))
+
+ignoreUnderRecv-no : checkP [] ignoreUnderRecv ≡ fail "tagged protocol"
+ignoreUnderRecv-no = refl
+
+nignoreUnderRecv : PTm 0
+nignoreUnderRecv =
+  spawn t[] (done {0})
+    (recv gω g0
+      (nignore fzero (awaitT zero (done {1}))))
+
+nignoreUnderRecv-no : checkP [] nignoreUnderRecv ≡ fail "tagged protocol"
+nignoreUnderRecv-no = refl
+
+-- A tag in the continuation of a protocol consumer. This is the
+-- special arm: `checkGo` of that continuation hits the tag clause.
+-- It does not call `containsTag`.
+awaitContTag : PTm 0
+awaitContTag =
+  seq nil bze
+    (spawn (keep t[]) (done {1})
+      (await fzero (awaitT zero (done {1}))))
+
+awaitContTag-no : checkP [] awaitContTag ≡ fail "tagged protocol"
+awaitContTag-no = refl
+
+ignoreContTag : PTm 0
+ignoreContTag =
+  seq nil bze
+    (spawn (keep t[]) (done {1})
+      (ignore fzero (awaitT zero (done {1}))))
+
+ignoreContTag-no : checkP [] ignoreContTag ≡ fail "tagged protocol"
+ignoreContTag-no = refl
+
+nignoreContTag : PTm 0
+nignoreContTag =
+  seq nil bze
+    (spawn (keep t[]) (done {1})
+      (nignore fzero (awaitT zero (done {1}))))
+
+nignoreContTag-no : checkP [] nignoreContTag ≡ fail "tagged protocol"
+nignoreContTag-no = refl
+
+-- The child binds `(gsu gze)` at ω, because the continuation is
+-- `send`, not a reply root, and sends that cell with `Kcopy`.
+-- The parent `recv` annotates the binder `g1`. `recvStep` installs
+-- the sender's reference and does not regrade it. `spawn1` then
+-- copies, the move list is empty, and the parent `await` stays
+-- untagged. `await1` only matches `awaitT`. `checkP` refuses the
+-- protocol use. `recv-move.mbi` is this program. The ignore and
+-- nignore pins are the same guard. `recvMoveShift` awaits the
+-- `recv` binder at index 1, under a later `seq`.
+recvMoveAwait : PTm 0
+recvMoveAwait =
+  spawn t[]
+    (seq nil (bsu bze) (send zero fzero (done {1})))
+    (recv g1 g0
+      (spawn (keep t[])
+        (send zero fzero (done {1}))
+        (await fzero (done {1}))))
+
+recvMoveAwait-no :
+  checkP [] recvMoveAwait ≡ fail "protocol slot came from recv"
+recvMoveAwait-no = refl
+
+recvMoveIgnore : PTm 0
+recvMoveIgnore =
+  spawn t[]
+    (seq nil (bsu bze) (send zero fzero (done {1})))
+    (recv g1 g0
+      (spawn (keep t[])
+        (send zero fzero (done {1}))
+        (ignore fzero (done {1}))))
+
+recvMoveIgnore-no :
+  checkP [] recvMoveIgnore ≡ fail "protocol slot came from recv"
+recvMoveIgnore-no = refl
+
+recvMoveNignore : PTm 0
+recvMoveNignore =
+  spawn t[]
+    (seq nil (bsu bze) (send zero fzero (done {1})))
+    (recv g1 g0
+      (spawn (keep t[])
+        (send zero fzero (done {1}))
+        (nignore fzero (done {1}))))
+
+recvMoveNignore-no :
+  checkP [] recvMoveNignore ≡ fail "protocol slot came from recv"
+recvMoveNignore-no = refl
+
+recvMoveShift : PTm 0
+recvMoveShift =
+  recv g1 g0
+    (seq nil bze
+      (spawn (skip (keep t[]))
+        (send zero fzero (done {1}))
+        (await (fsuc fzero) (done {2}))))
+
+recvMoveShift-no :
+  checkP [] recvMoveShift ≡ fail "protocol slot came from recv"
+recvMoveShift-no = refl
 
 -- A nested `seq` does not inherit the root definition list.
 -- `(gref 0)` in the inner body is out of that empty bound.

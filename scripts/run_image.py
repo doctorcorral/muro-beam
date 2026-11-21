@@ -179,13 +179,19 @@ REFUSE = [
     ("type-await", "protocol slot has a type use"),
     ("type-ignore", "protocol slot has a type use"),
     ("type-nignore", "protocol slot has a type use"),
+    # g1 recv annotation, ω payload. checkP refuses the protocol slot.
+    # recvMoveAwait-no is that equation. The file is not a run.
+    ("recv-move", "protocol slot came from recv"),
 ]
 # Tagged heads are not surface syntax, so echo is not the source.
 # drive and run both print the parse reason. spawnTagAwait-no is
-# the checkP equation for a tagged parent. tagAwait-no is the same
-# equation for a tag that is not a spawn parent. buriedTagAwait-no
-# is the equation for a tag under seq as that parent. None of them
-# is a load of these files.
+# the checkP equation for a tagged spawn parent
+# (fail "tagged spawn parent"). tagAwait-no is a different equation:
+# a tag that is not a spawn parent is fail "tagged protocol".
+# buriedTagAwait-no is the equation for a tag under seq as that
+# parent, the same "tagged protocol" string, not the parent equation.
+# sendTagAwait-no, recvTagAwait-no, and awaitUnderRecv-no pin a tag
+# under send, recv, and await. None of them is a load of these files.
 PARSE_REFUSE = [
     ("tagged-spawn", "not surface"),
     ("buried-awaitT", "not surface"),

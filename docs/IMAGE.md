@@ -93,6 +93,17 @@ equations. A tag buried under `seq` as the spawn parent is the same
 refusal: `containsTag` runs before the generic arm merges, so the
 move, one-computational-use, and zero-type guards are not skipped.
 `buriedTagAwait-no` and the four sibling pins are that equation.
+`containsTag` also walks `send`, `recv`, `spawn`, `await`, `ignore`,
+and `nignore`. `sendTagAwait-no`, `recvTagAwait-no`,
+`spawnTagBuried-no`, `awaitUnderRecv-no`, `ignoreUnderRecv-no`, and
+`nignoreUnderRecv-no` are those equations, each
+`fail "tagged protocol"`. A tag in the continuation of a protocol
+`await`, `ignore`, or `nignore` does not take that guard. `checkP`
+of the continuation hits the tag clause. `awaitContTag-no`,
+`ignoreContTag-no`, and `nignoreContTag-no` are those equations.
+`tagAwait-no` is that same `tagged protocol` string for a tag that
+is not a spawn parent. It is not `spawnTagAwait-no`, which is
+`tagged spawn parent`.
 `buried-awaitT.mbi` and its four siblings are the parse refusal
 `not surface`. They are not a load of the pins. The old `replyTok`
 clause accepted these forms. Promotion does not need that
@@ -257,7 +268,20 @@ reach `checkP`: parse refuses it with `not surface`.
 shape it would leave untouched. A spawn that skips the protocol slot,
 or that keeps it at a copied grade, is refused with `protocol slot is
 not moved`. `skip-await.mbi` is the skip. `copy-await.mbi` is a closed
-`recv` at ω whose `keep` is a copy.
+`recv` at ω whose `keep` is a copy. That sentence is the checker, not
+a theorem that `spawn1` agrees with the binder grade. A `recv` binder
+whose annotation is a move is a different refusal. `recvStep` installs
+the sender's reference and does not regrade it, and `spawn1` moves by
+`kind (checked r)`. `checkP` refuses a protocol use of that slot with
+`protocol slot came from recv`, including when the annotation is `g1`.
+`recv-move.mbi` is the shape: the child binds `(gsu gze)` at ω because
+the continuation is `send`, sends that cell with `Kcopy`, and the
+parent receives it at `(1 0)` and awaits the slot. `recvMoveAwait-no`
+is the `checkP` equation. `recvMoveIgnore-no` and `recvMoveNignore-no`
+are the same guard. `recvMoveShift-no` awaits that binder at index 1,
+under a later `seq`. Accepting the annotation would load, then stick
+on a bare `await`, because `await1` only matches `awaitT`. There is
+still no theorem from `checkP` or `load` to promotion and tagging.
 
 `nignore` at a spawn parent root takes the same grade-1 binding and
 does run. `spawn-nignore.mbi` is that image. Its steps are the naive

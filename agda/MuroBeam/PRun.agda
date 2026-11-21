@@ -253,6 +253,10 @@ setCtlSt (p ∷ ps) (suc i) c st = mapCons p (setCtlSt ps i c st)
 
 -- Top-level so a proof can case on the state and the inbox without
 -- rewriting those projections. `recv1` is this function after lookup.
+-- The installed reference is the sender's. This step does not
+-- regrade it to the binder grades. `spawn1` classifies
+-- `kind (checked r)`. `checkP` refuses a protocol use of a slot
+-- this binder introduced.
 recvStep : List Obj → List Proc → ℕ → Proc → Ctl → PState → List Msg → Maybe Sys
 recvStep h ps i p (pr (go (recv _ _ k) env eth d dm)) _ (msg r ∷ ms) =
   let p' = record p
