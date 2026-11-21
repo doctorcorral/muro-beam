@@ -48,7 +48,9 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`,
 `nested-seq.mbi`, `comp-await.mbi`, `comp-ignore.mbi`,
 `comp-nignore.mbi`, `type-await.mbi`, `type-ignore.mbi`,
-`type-nignore.mbi`, and `recv-move.mbi` are not emitter goldens.
+`type-nignore.mbi`, `recv-move.mbi`, `recv-move-ignore.mbi`,
+`recv-move-nignore.mbi`, `recv-move-shift.mbi`, `recv-keep.mbi`,
+and `recv-keep-copy.mbi` are not emitter goldens.
 They are surface process entries written for this loader.
 `tagged-spawn.mbi`, `buried-awaitT.mbi`, `buried-ignoreT.mbi`,
 `buried-flushT.mbi`, `buried-ncheckT.mbi`, and `buried-ndemonT.mbi`
@@ -68,7 +70,19 @@ refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
 `protocol slot is not moved`. `recv-move.mbi` is a `g1` `recv`
 binder holding the ω cell `(gsu gze)` that the child sends.
 `checkP` refuses it with `protocol slot came from recv`.
-`recvMoveAwait-no` is that equation. It is not a run of the file. `alias-await.mbi` is refused with
+`recvMoveAwait-no` is that equation. It is not a run of the file.
+`recv-move-ignore.mbi`, `recv-move-nignore.mbi`, and
+`recv-move-shift.mbi` are the same refusal for `ignore`, `nignore`,
+and an `await` of that binder at index 1. `recvMoveIgnore-no`,
+`recvMoveNignore-no`, and `recvMoveShift-no` are those equations.
+`recv-keep.mbi` is that `g1` annotation with parent `done`. The keep
+is not a protocol slot, so `checkP` refuses it with `kept slot came
+from recv`. `recvKeep-no` is that equation. `recv-keep-copy.mbi` is
+an ω annotation with parent `done`, and `recvKeepCopy-no` is that
+equation. `kind g1` is `Kmove`. The refusal is not a theorem that
+the payload's kind matches the annotation. The stick on a bare
+`await` is this file's `Kcopy` payload, not a receive whose payload
+is `Kmove`. `alias-await.mbi` is refused with
 `reply result is not fresh`. `gmatch-await.mbi` is a `gmatch`
 body, `gvar-await.mbi` is a `gvar` under `recv`, and
 `gref-chain.mbi` is a `gref` whose definition is itself a `gref`.

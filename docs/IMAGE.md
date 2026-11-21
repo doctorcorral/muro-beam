@@ -57,8 +57,11 @@ A thinning that does not match the scope is `out of scope`, as is a
 de Bruijn index that does not fit. `(await <index> <ptm>)`,
 `(ignore <index> <ptm>)`, and `(nignore <index> <ptm>)` are the same
 one-index shape. `checkP` accepts that shape only as the parent root
-of a `spawn` whose thinning keeps the named slot and whose grade on
-that slot moves. Anywhere else the reason is
+of a `spawn` whose thinning keeps the named slot, whose grade on
+that slot moves, and whose binder did not come from `recv`. A
+recv-origin binder is refused even at `g1`. On a protocol parent
+the reason is `protocol slot came from recv`. On any other keep the
+reason is `kept slot came from recv`. Anywhere else the reason is
 `protocol is not a spawn reply`. A skipped or copied slot is
 `protocol slot is not moved`. The parent use of a kept moved slot has
 to be exactly one computational use and zero type uses. A further
@@ -271,17 +274,32 @@ not moved`. `skip-await.mbi` is the skip. `copy-await.mbi` is a closed
 `recv` at ω whose `keep` is a copy. That sentence is the checker, not
 a theorem that `spawn1` agrees with the binder grade. A `recv` binder
 whose annotation is a move is a different refusal. `recvStep` installs
-the sender's reference and does not regrade it, and `spawn1` moves by
-`kind (checked r)`. `checkP` refuses a protocol use of that slot with
+the sender's reference and does not regrade it, and `spawn1` moves or
+copies by `kind (checked r)`. `kind g1` is `Kmove`. The annotation is
+not a move guarantee. `checkP` refuses a protocol use of that slot with
 `protocol slot came from recv`, including when the annotation is `g1`.
 `recv-move.mbi` is the shape: the child binds `(gsu gze)` at ω because
 the continuation is `send`, sends that cell with `Kcopy`, and the
 parent receives it at `(1 0)` and awaits the slot. `recvMoveAwait-no`
-is the `checkP` equation. `recvMoveIgnore-no` and `recvMoveNignore-no`
-are the same guard. `recvMoveShift-no` awaits that binder at index 1,
-under a later `seq`. Accepting the annotation would load, then stick
-on a bare `await`, because `await1` only matches `awaitT`. There is
-still no theorem from `checkP` or `load` to promotion and tagging.
+is the `checkP` equation. `recv-move-ignore.mbi` and
+`recv-move-nignore.mbi` are the same guard for `ignore` and `nignore`.
+`recvMoveIgnore-no` and `recvMoveNignore-no` are those equations.
+`recv-move-shift.mbi` awaits that binder at index 1, under a later
+`seq`. `recvMoveShift-no` is that equation. For this `Kcopy` payload,
+`spawn1` would copy, the move list would be empty, and the parent
+`await` would stay untagged, so `await1` would not match it. A
+receive whose payload is actually `Kmove` is not this file: `spawn1`
+would move that reference. There is no theorem that a `g1` annotation
+is that payload. A keep that is not a protocol consumer is refused
+before `kind` is read, with `kept slot came from recv`. `recv-keep.mbi`
+is the same `g1` annotation and the same `Kcopy` sender, with parent
+`done`. `recvKeep-no` is that equation. `recv-keep-copy.mbi` is an ω
+annotation (`Kcopy`) with parent `done`. `recvKeepCopy-no` is that
+equation. Both are the checker. Neither is a theorem that the
+payload's kind differs from the annotation. `sendGate` still
+classifies a send by the annotation. That is not a theorem that
+`emit1` uses `kind (checked r)`. There is still no theorem from
+`checkP` or `load` to promotion and tagging.
 
 `nignore` at a spawn parent root takes the same grade-1 binding and
 does run. `spawn-nignore.mbi` is that image. Its steps are the naive
