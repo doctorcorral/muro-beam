@@ -128,14 +128,22 @@ protoKept th (nignore x _) = keptAt (toℕ x) th
 protoKept _ _              = true
 
 -- A protocol consumer at this index is one computational use, and that
--- use is not added to the child's. The slot itself must move.
+-- use is not added to the child's. The parent use at this index has to
+-- be exactly that one computational use, and it has to be zero in the
+-- type grade. `await` / `ignore` / `nignore` add `charge run`, whose
+-- type count is zero. A type use in the continuation, such as
+-- `seq (gtyp 0) done` under `await 0`, is in `typeOf u`. Returning the
+-- child use `v` would drop it, and the reply binder's type grade is
+-- `g0`, so `under` would not see it. Both guards run before that drop.
+-- The slot itself must move.
 -- Anything else moved must be quiet in the parent. A copy is held on
 -- each side and the parent use remains.
 slot : ∀ {n} → ℕ → Grade → Grade → Spent → Spent → PTm n → Result Spent
 slot i c t v u tm with isProtoAt i tm
 ... | true =
   guard "protocol slot is not moved" (isMove c) >>
-  guard "protocol" (isOneCount (compOf u)) >>
+  guard "protocol slot is not one computational use" (isOneCount (compOf u)) >>
+  guard "protocol slot has a type use" (isZeroCount (typeOf u)) >>
   hold run c t v >>
   ok v
 ... | false with kind c
@@ -254,8 +262,12 @@ checkP Γ (recv c t k) =
   under run c t uk
 -- The protocol form is legal only as this spawn parent. Its
 -- continuation is checked with `checkP`, so a protocol buried under
--- the continuation is refused. The parent's one use is the shape
--- check inside `slot` and is not added again.
+-- the continuation is refused. The parent's one computational use is
+-- the shape check inside `slot` and is not added again. A further
+-- computational use is `protocol slot is not one computational use`.
+-- A type use of that slot in the continuation is
+-- `protocol slot has a type use`. `slot` refuses both before it
+-- returns the child use.
 checkP Γ (spawn th ch (await x k)) =
   thinCtx th Γ >>= λ Γ' →
   checkP Γ' ch >>= λ cu →
@@ -629,6 +641,47 @@ gtypReply =
 
 gtypReply-ok : checkP [] gtypReply ≡ ok []
 gtypReply-ok = refl
+
+-- `seq (gtyp 0) done` under `await 0`. Index 0 is the reply binder,
+-- whose type grade is `g0`. `gtyp` records one type use. `slot` must
+-- refuse that use. Dropping the parent use would let `under` accept
+-- the binder. The same guard covers `ignore` and `nignore`.
+-- The file is `examples/images/type-await.mbi`.
+typeAwait : PTm 0
+typeAwait =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero
+        (seq nil (gtyp fzero) (done {2}))))
+
+typeAwait-no : checkP [] typeAwait ≡ fail "protocol slot has a type use"
+typeAwait-no = refl
+
+-- A nested `seq` does not inherit the root definition list.
+-- `(gref 0)` in the inner body is out of that empty bound.
+-- The file is `examples/images/nested-seq.mbi`.
+nestedSeq : PTm 0
+nestedSeq =
+  seq (bze ∷ₗ nil) bze
+    (seq nil (bref zero) (done {2}))
+
+nestedSeq-no : checkP [] nestedSeq ≡ fail "bad gref"
+nestedSeq-no = refl
+
+-- Fresh `gsu`. `load` accepts it and `drive` promotes the successor.
+-- The file is `examples/images/alias-bind.mbi`. The plant that
+-- refuses an alias of this shape is `alias-bind-plant`, on the
+-- file's text, not this `checkP` pin.
+aliasBind : PTm 0
+aliasBind =
+  seq nil (bsu bze)
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero (done {1})))
+
+aliasBind-ok : checkP [] aliasBind ≡ ok []
+aliasBind-ok = refl
 
 ------------------------------------------------------------------------
 -- An accepted reply `seq` has a fresh body. `guardGlam` sits before
