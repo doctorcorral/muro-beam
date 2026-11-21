@@ -20,9 +20,12 @@
 -- `budget-adequate` is
 -- `(e : Checked) {s : Sys} → NoEscape (term e) → MatchFree (term e) →
 --  Step* (lower e) s → Inv tight s`
--- (`MuroBeam.Budget`). `checkP` on `seq` runs
--- `boundaryOk (inB? (comps Γ) e)`. `load` calls that at `Γ = []` on
--- the entry term `e`. That decision is `InB [] e`. The capture
+-- (`MuroBeam.Budget`). `inB?` runs on a `seq` body
+-- (`boundaryOk (inB? (comps Γ) e)` in that clause) and on each
+-- definition (`checkDef`). A `done`, `spawn`, `send`, or `recv`
+-- entry does not call `inB?`. `load` of a root `seq` runs it at
+-- `Γ = []` on the body `e`, and that decision is `InB [] e` for
+-- that body. It is not a theorem for an arbitrary entry. The capture
 -- predicate on the same term is `NoEsc [] e`. `InBoundary` and
 -- `NoEscape` are those two predicates on `embed` of a `GTm`, and
 -- `inBoundary→noEscape` has that `GTm` type. There is no theorem

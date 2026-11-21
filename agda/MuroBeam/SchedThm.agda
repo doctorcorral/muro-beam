@@ -142,10 +142,12 @@ three-halted = refl
 -- the same `showDrove` line at `imgFuel`. The content pins are the
 -- `*-line` equations.
 --
--- A closed image that spawns and awaits the reply. `seq` binds the
--- nat at grade 1, `bind1` regrades the fresh ω cell, and `spawn`
--- moves it, so `await` consumes the child's send. The kept nat is
--- that cell: zero, which is what the child was given.
+-- Closed `refl` pins for `spawnAwait` at `driveFuel`. They do not
+-- prove the regrade, the move, or the await. `bind-spawn-tag` in
+-- `MuroBeam.PRun` is the step from a promoting `bind1` to the tagged
+-- parent, and it still assumes the tail of the environment splits.
+-- These pins do not discharge that assumption. The kept nat on this
+-- program is zero, the cell the child was given.
 awaitP : CheckedP
 awaitP = checkedP spawnAwait spawnAwait-ok
 
@@ -159,8 +161,9 @@ await-val :
     ≡ just zero
 await-val = refl
 
--- The same binder, ignored. `arm1` then `flush1` finish the reply
--- and the schedule halts. The kept nat is still the seq payload.
+-- The same program with `ignore` in place of `await`. This pin is
+-- `refl` too. It does not prove `arm1` or `flush1`. The kept nat is
+-- still the seq payload.
 ignoreP : CheckedP
 ignoreP = checkedP spawnIgnore spawnIgnore-ok
 

@@ -114,8 +114,11 @@ NoEscape (term e) → MatchFree (term e) →
 Step* (lower e) s → Inv tight s
 ```
 
-`checkP` on `seq` runs `boundaryOk (inB? (comps Γ) e)`. `load` calls
-that at `Γ = []` on the entry term `e`. That decision is `InB [] e`.
+`inB?` runs on a `seq` body (`boundaryOk (inB? (comps Γ) e)` in that
+clause) and on each definition (`checkDef`). A `done`, `spawn`,
+`send`, or `recv` entry does not call `inB?`. `load` of a root `seq`
+runs it at `Γ = []` on the body `e`. That decision is `InB [] e` for
+that body, not for an arbitrary entry.
 The capture predicate on the same term is `NoEsc [] e`. `InBoundary`
 and `NoEscape` are those two predicates on `embed` of a `GTm`, and
 `inBoundary→noEscape` has that `GTm` type. There is no theorem
@@ -139,6 +142,13 @@ and, from muro 0.21.22, a defs section. It does not write `spawn`,
 the old lines and the surface process term above. The round trip
 `parse-show` covers both. The surface type has no tagged constructor,
 so the round trip does not mention `awaitT` and the other four.
+`checkP` still accepts a hand-built tagged form: `replyTok` is
+`sat g1 (finᶜ 1)`, which holds, and the continuation is checked
+with `checkP`. Parse refuses those words with `not surface`, so
+`load` never builds them. `markProto` writes `awaitT`, `ignoreT`,
+and `ncheckT`. `arm1` writes `flushT`. `npeek1` writes `ndemonT`
+when the mailbox does not hold the tag. Those runtime terms are
+not re-checked.
 
 A complete sexp with no trailing newline, or a file that ends inside
 an open sexp, is `truncated`. A newline while a sexp is still open is
@@ -237,18 +247,28 @@ on those hand-built terms. `seq-reply-fresh` says an accepted reply
 
 `bind1` refuses an aliased non-g1 cell: that branch is `nothing`.
 `bind-count-refuses` is that fact for every open reply stack whose
-returned cell is not `g1` and whose `count` is not 1. A cell that
-is already `g1` does not consult the count. A second `g1` alias
-would break `Grade1Unique`, and installing the ω reference would
-leave `await` and `ignore` untagged. `bind-promotes`, `regrade-move`,
-`split-head`, and `reply-slot` (`spawn-reply-tag`) are separate
-local lemmas. `bind-promotes` says that when the returned cell is
-not `g1` and `count` of its object is 1, the installed head is
-`regrade r g1`. `regrade-move` says that head is `Kmove`.
-`split-head` says a kept move at index 0 is the head of the move
-list. `reply-slot` and `spawn-reply-tag` say `applyMoves` of a list
-that starts with that pair tags the protocol root. There is no
-lemma from a successful `bind1` through `spawn1` to that tag.
+returned cell is not `g1` (`isG1 ≡ false`) and whose `count` is not 1.
+A cell that is already `g1` does not consult the count. A second `g1`
+alias would break `Grade1Unique`, and installing the ω reference would
+leave `await` and `ignore` untagged. `bind-promotes` says that when
+the returned cell is not `g1` and `count` of its object is 1, the
+installed head is `regrade r g1`. `regrade-move` says that head is
+`Kmove`. `split-head` says a kept move at index 0 is the head of the
+move list. `reply-slot` says `applyMoves` of a list that starts with
+`(zero , τ)` tags a protocol root. `spawn-reply-tag` is that fact
+after `split-head`. It is not `reply-slot`. `bind-spawn-tag` composes
+`bind-promotes`, `regrade-move`, `split-keep-move`, and
+`spawn-reply-tag`: a promoting `bind1` whose continuation is
+`spawn (keep th) ch pa`, followed by one `spawn1`, puts
+`protoTag (obj r) pa` in the parent. The premises it does not
+discharge are `isProtoAt zero pa ≡ true`, `isG1 (checked r) ≡ false`,
+the count being 1, and
+`splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv)`.
+A later `keep` of a `g0` cell, or a thinning that does not match the
+tail, is still `nothing`. `freshBody` is not a premise. The already-`g1`
+branch is not this lemma. `openCont` of a `spawn` holds by computation.
+`bind1` does not change the heap, so the placeholder is the cell
+`spawn1` allocates.
 A fresh head allocates at `length` of the heap. Under `Bound` that
 index was not named, and the returning step adds one reference,
 which is why the count is 1 on the images that `checkP` accepts.
@@ -259,8 +279,20 @@ adds a second reference and `bind1` is `nothing`. The string is
 `refuse: aliased reply result`. `alias-bind.mbi` is a file with
 that spawn shape and body `gsu gze`. `drive` of the file still
 promotes and halts. `alias-bind-plant` is `aliasImage` of that
-file's text, the same plant. `grefAwait-ok` is the hand-built
-direct fresh `gref`. The files `spawn-await.mbi` and
+file's text, the same plant. `grefAwait-ok` is the hand-built direct fresh `gref`.
+`examples/images/gref-await.mbi` is that program as a file: `load`
+accepts it, and `drive` promotes the cell the definition allocates.
+`glam` is a fresh head, and `evalTm` takes it only when
+`not (anyG1 env)`. `guardGlam` refuses a direct `glam` reply body
+when the context already has a `g1` (`glam reply under g1`).
+`glamG1-no` is that equation. `glam-g1.mbi` is the file: a `recv` at
+grade 1 whose `seq` body is `glam`. `inB?` refuses the same body.
+A `gref` of a `glam` runs under `[]`, so `guardGlam` does not refuse
+it. An ω binder can still hold a runtime `g1` reference;
+`guardGlam` does not see that. A nested `seq` does not inherit the
+image's definition list (`toP` builds `seq []`). `nested-seq.mbi`
+is a root `seq` of `gze` whose continuation is `seq (gref 0)`, with
+one definition `gze`. The nested body is `bad gref`. The files `spawn-await.mbi` and
 `spawn-ignore.mbi` are the fresh `gze` images the harness runs.
 The halt pins are `await-halted` and `ignore-halted` on the
 hand-built terms `spawnAwait` and `spawnIgnore`.
@@ -288,10 +320,11 @@ text plus a newline.
 
 What this shows is `load` of the `String` the Haskell main passed
 in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so
-Agda never sees the bytes, only that `String`. `cliRun` takes
-`proj₁` of `drive`, so `PStep*` is typechecked into existence
-rather than carried as a CLI witness. `drive-sound` is the
-`PStep*` on that run. It does not show `budget-adequate`,
+Agda never sees the bytes, only that `String`. `cliRun` keeps
+`proj₁` of `drive` and discards `proj₂`. `cli-drove` is that
+equation: a successful `load` makes `cliRun` the `cliBody` of that
+`proj₁`. `drive-sound` names `proj₂` when a `Drove` is matched. It
+is not a witness for the string `cliRun` returns. It does not show `budget-adequate`,
 `MatchFree`, or `no-stray-reply`. A loaded `gmatch` is still
 outside `MatchFree`. `lowerP-wf` and `lowerP-safe` are the
 theorems that apply to a loaded process term. The `AllInv`

@@ -8,7 +8,7 @@
 
 module MuroBeam.PTm where
 
-open import Data.Bool.Base using (Bool; true; false; _∧_)
+open import Data.Bool.Base using (Bool; true; false; not; _∧_)
 open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; length) renaming ([] to nil; _∷_ to _∷ₗ_)
 open import Data.Maybe.Base using (just; nothing)
@@ -32,7 +32,7 @@ open import MuroBeam.BTm using
   ; gvar; gtyp; glam; gpi; gapp; gmatch )
   renaming (gze to bze; gsu to bsu; gref to bref)
 
-open import MuroBeam.Boundary using (inB?; Cxt)
+open import MuroBeam.Boundary using (inB?; Cxt; sharpCxt)
 open import MuroBeam.Grade using (kind; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using
   ( Obj; Ref; count; Bound; bnil; Grade1Unique; uniq-nil )
@@ -161,7 +161,11 @@ merge i (keep th) (gp c t ∷ Γ) (v ∷ cu)  (u ∷ pu) tm =
 
 ------------------------------------------------------------------------
 -- The checker. `seq` asks `decideB` and `inB?`. A reply root also
--- requires a fresh body, so an aliased result is not a checked image.
+-- requires a fresh body. `freshBody` is syntactic: it does not read
+-- the heap, so an aliased fresh head is still a checked image.
+-- `alias-bind.mbi` loads. `bind-count-refuses` refuses that alias
+-- later, when the count is not 1. There is no theorem from
+-- `freshBody` to the count.
 -- A recv binder is `under`. A send is one computational use, gated by
 -- `sat` or `checkGrade`.
 --
@@ -192,6 +196,11 @@ checkSpawn th Γ cu pu pa =
 -- A fresh head allocates its result. `gsu` allocates the successor
 -- cell even when its argument is an existing pointer. `gvar`, `gapp`,
 -- and `gmatch` can return a pointer that is already in scope.
+-- `glam` allocates a closure. `evalTm` takes that step only when
+-- `not (anyG1 env)`. `guardGlam` refuses a direct `glam` reply body
+-- when `sharpCxt` of the context is true, before `inB?`. A `gref`
+-- of a `glam` runs under `[]`, so it is not that guard. An ω binder
+-- can still hold a runtime `g1` reference; `guardGlam` does not see it.
 freshHead : ∀ {n} → BTm n → Bool
 freshHead bze           = true
 freshHead (bsu _)       = true
@@ -213,6 +222,26 @@ guardReply : ∀ {n} → List (BTm 0) → BTm n → PTm (suc n) → Result ⊤
 guardReply ds e k with replyRoot k
 ... | false = ok tt
 ... | true  = guard "reply result is not fresh" (freshBody ds e)
+
+-- A direct `glam` is evaluated in the caller's environment.
+-- `evalTm` refuses that step when `anyG1` is true. A `g1` already
+-- in `Γ` is `sharpCxt`. This guard names that reply case. `inB?`
+-- refuses the same body. A `gref` is not a direct `glam`.
+isGlam : ∀ {n} → BTm n → Bool
+isGlam (glam _ _ _)   = true
+isGlam (gvar _)       = false
+isGlam (gtyp _)       = false
+isGlam (gpi _ _ _)    = false
+isGlam (gapp _ _)     = false
+isGlam bze            = false
+isGlam (bsu _)        = false
+isGlam (gmatch _ _ _) = false
+isGlam (bref _)       = false
+
+guardGlam : ∀ {n} → GCtx n → BTm n → PTm (suc n) → Result ⊤
+guardGlam Γ e k with replyRoot k
+... | false = ok tt
+... | true  = guard "glam reply under g1" (not (isGlam e ∧ sharpCxt (comps Γ)))
 
 checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
 checkP {n} Γ done = ok (zeros {n})
@@ -249,6 +278,7 @@ checkP Γ (spawn th ch pa) =
   checkSpawn th Γ cu pu pa
 checkP Γ (seq ds e k) =
   checkDefs zero ds >>= λ _ →
+  guardGlam Γ e k >>= λ _ →
   boundaryOk (inB? (comps Γ) e) >>= λ _ →
   decideB (length ds) run Γ e >>= λ eu →
   guardReply ds e k >>= λ _ →
@@ -258,6 +288,14 @@ checkP Γ (seq ds e k) =
 checkP _ (await _ _)   = fail "protocol is not a spawn reply"
 checkP _ (ignore _ _)  = fail "protocol is not a spawn reply"
 checkP _ (nignore _ _) = fail "protocol is not a spawn reply"
+-- Surface syntax has no tagged constructor (`SPtm`, `toP`), so `load`
+-- never builds these five. `replyTok` is `sat g1 (finᶜ 1)`, which
+-- holds, so a hand-built `awaitT`, `ignoreT`, `flushT`, `ncheckT`, or
+-- `ndemonT` is accepted by `checkP` whenever its continuation is.
+-- That is not a file. Parse refuses the words with `not surface`.
+-- `markProto` writes `awaitT`, `ignoreT`, and `ncheckT` at runtime.
+-- `arm1` writes `flushT`. `npeek1` writes `ndemonT` when the mailbox
+-- does not hold the tag. Those runtime terms are not re-checked.
 checkP Γ (awaitT _ k)  = replyTok >> checkP Γ k
 checkP Γ (ignoreT _ k) = replyTok >> checkP Γ k
 checkP Γ (flushT _ k)  = replyTok >> checkP Γ k
@@ -531,10 +569,25 @@ grefChain =
 grefChain-no : checkP [] grefChain ≡ fail "reply result is not fresh"
 grefChain-no = refl
 
+-- A direct `glam` reply under a prior `g1` binder. `evalTm` would
+-- refuse the closure (`anyG1`). `guardGlam` refuses it at `checkP`.
+-- The file is `examples/images/glam-g1.mbi`.
+glamG1 : PTm 0
+glamG1 =
+  recv g1 g0
+    (seq nil (glam gω g0 bze)
+      (spawn (keep (skip t[]))
+        (send zero fzero (done {1}))
+        (await fzero (done {2}))))
+
+glamG1-no : checkP [] glamG1 ≡ fail "glam reply under g1"
+glamG1-no = refl
+
 ------------------------------------------------------------------------
--- An accepted reply `seq` has a fresh body. The guard sits after
--- `decideB` and before the continuation, so peeling three binds
--- reaches it. `decideB` does not have to reduce.
+-- An accepted reply `seq` has a fresh body. `guardGlam` sits before
+-- `inB?`, and `guardReply` sits after `decideB`, so peeling those
+-- binds reaches the fresh-body guard. `replyRoot` is already `true`,
+-- so `guardGlam` is the boolean guard. `decideB` does not have to reduce.
 ------------------------------------------------------------------------
 
 ok-bind : ∀ {A B : Set} {r : Result A} {f : A → Result B} {y : B} →
@@ -558,6 +611,12 @@ seq-reply-fresh Γ ds e k uk rr eq rewrite rr
   stuck : ∀ {A : Set} → fail msg ≡ ok uk → A
   stuck ()
 ... | ok _
+  with not (isGlam e ∧ sharpCxt (comps Γ))
+... | false = stuck eq
+  where
+  stuck : ∀ {A : Set} → fail "glam reply under g1" ≡ ok uk → A
+  stuck ()
+... | true
   with boundaryOk (inB? (comps Γ) e)
 ... | fail msg = stuck eq
   where

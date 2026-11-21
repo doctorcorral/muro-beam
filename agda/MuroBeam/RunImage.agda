@@ -246,3 +246,12 @@ cliRun : String → ℕ → String
 cliRun src fuel with load src
 ... | fail e = "load\n" ++ e
 ... | ok p   = cliBody (proj₁ (drive fuel zero [] nothing (lowerP p)))
+
+-- `cliRun` keeps `proj₁`. The `PStep*` is `proj₂` of that same `drive`,
+-- and this string does not carry it. `drive-sound` names `proj₂` when
+-- the `Drove` is matched. It is not a theorem about `cliRun`.
+cli-drove : ∀ src fuel p →
+  load src ≡ ok p →
+  cliRun src fuel ≡
+    cliBody (proj₁ (drive fuel zero [] nothing (lowerP p)))
+cli-drove src fuel p eq rewrite eq = refl

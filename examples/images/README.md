@@ -44,7 +44,8 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `spawn-await.mbi`, `spawn-nignore.mbi`, `def-spawn.mbi`,
 `skip-await.mbi`, `copy-await.mbi`, `buried-await.mbi`,
 `alias-await.mbi`, `gmatch-await.mbi`, `gvar-await.mbi`,
-`gref-chain.mbi`, and `alias-bind.mbi` are not emitter goldens. They are surface process
+`gref-chain.mbi`, `alias-bind.mbi`, `gref-await.mbi`, `glam-g1.mbi`,
+and `nested-seq.mbi` are not emitter goldens. They are surface process
 entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
 halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
 halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
@@ -59,7 +60,13 @@ refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
 `reply result is not fresh`. `gmatch-await.mbi` is a `gmatch`
 body, `gvar-await.mbi` is a `gvar` under `recv`, and
 `gref-chain.mbi` is a `gref` whose definition is itself a `gref`.
-Those three are the same refusal. `alias-bind.mbi` is a fresh `gsu`
+Those three are the same refusal. `gref-await.mbi` is a loadable
+direct fresh `gref` of `gze` whose continuation awaits the moved
+slot. `glam-g1.mbi` is a `recv` at grade 1 whose `seq` body is a
+`glam`. `checkP` refuses it with `glam reply under g1`.
+`nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
+definition list is attached only to the root `seq`, so that body
+is `bad gref`. `alias-bind.mbi` is a fresh `gsu`
 reply. A normal run promotes that cell and halts with `v1`.
 `--alias-bind` loads the same file, plants a second reference to
 the returned cell, and `bind1` refuses (`aliased reply result`,

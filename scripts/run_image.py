@@ -131,6 +131,12 @@ PROC = {
         "ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1"
     ),
+    # Direct fresh gref of gze. Three eval steps, then the same move.
+    "gref-await": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+    ),
 }
 REFUSE = [
     ("await-seq", "protocol is not a spawn reply"),
@@ -143,6 +149,8 @@ REFUSE = [
     ("gmatch-await", "reply result is not fresh"),
     ("gvar-await", "reply result is not fresh"),
     ("gref-chain", "reply result is not fresh"),
+    ("glam-g1", "glam reply under g1"),
+    ("nested-seq", "bad gref"),
 ]
 
 

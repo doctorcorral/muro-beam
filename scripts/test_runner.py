@@ -121,6 +121,8 @@ REFUSE = [
     ("gmatch-await", None, "reply result is not fresh"),
     ("gvar-await", None, "reply result is not fresh"),
     ("gref-chain", None, "reply result is not fresh"),
+    ("glam-g1", None, "glam reply under g1"),
+    ("nested-seq", None, "bad gref"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),
@@ -249,6 +251,11 @@ PROC = {
         "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
         "ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
         "Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1\n"
+    ),
+    "gref-await": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0\n"
     ),
 }
 
