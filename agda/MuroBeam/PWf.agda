@@ -202,8 +202,8 @@ reply-hasG1 :
   ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
   isG1 (checked r) ≡ true →
   hasG1 (obj r) (refsOf (sys h ps)) ≡ true
-reply-hasG1 h ps i p r env k cenv eth d dm lk ce g =
-  rv-hasG1 h ps i p r env k lk ce g
+reply-hasG1 h ps i p r env k cenv eth d dm {ds} lk ce g =
+  rv-hasG1 h ps i p r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) lk ce g
 
 reply-g1-count :
   ∀ {n} h ps i p r env (k : PTm n) cenv eth d dm {ds} →
