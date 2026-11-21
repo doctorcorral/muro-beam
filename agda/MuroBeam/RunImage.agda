@@ -188,11 +188,14 @@ aliasStep p with seq1 (lowerP p) zero
 -- Closed test of `bind-count-refuses`, not the lemma. The plant puts
 -- the returned cell in the environment as well as in `rv`, so the
 -- count is not 1, the cell is not `g1`, and the continuation is a
--- reply root. `aliasStep` prints the `nothing` branch. The general
--- fact is `bind-count-refuses` in `MuroBeam.PRun`.
-alias-await-probe :
+-- reply root. The term is the hand-built `spawnAwait`. It is not a
+-- load of `alias-await.mbi`: that file's body is not fresh, so
+-- `checkP` refuses it (`aliasAwait-no`) and `bind1` never runs.
+-- `aliasStep` prints the `nothing` branch. The general fact is
+-- `bind-count-refuses` in `MuroBeam.PRun`.
+spawnAwait-alias :
   aliasStep (checkedP spawnAwait spawnAwait-ok) ≡ "refuse: aliased reply result"
-alias-await-probe = refl
+spawnAwait-alias = refl
 
 aliasImage : String → String
 aliasImage src with load src

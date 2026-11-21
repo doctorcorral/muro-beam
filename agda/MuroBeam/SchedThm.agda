@@ -46,7 +46,10 @@ open import MuroBeam.PTm using
   ; spawnAwait; spawnAwait-ok; spawnIgnore; spawnIgnore-ok
   ; spawnNignore; spawnNignore-ok
   ; glamReply; glamReply-ok; gpiReply; gpiReply-ok
-  ; gtypReply; gtypReply-ok )
+  ; gtypReply; gtypReply-ok
+  ; spawnClosed; spawnClosed-ok; doneClosed; doneClosed-ok
+  ; sendRecv; sendRecv-ok; defSpawn; defSpawn-ok
+  ; grefAwait; grefAwait-ok; aliasBind; aliasBind-ok )
 open import MuroBeam.PWf using (psteps)
 open import MuroBeam.RunImage using (imgFuel)
 open import MuroBeam.Sched using
@@ -150,9 +153,10 @@ three-halted = refl
 -- `MuroBeam.PRun` is the step from a promoting `bind1` to the tagged
 -- parent. `bind-count-one` derives `(count ≡ᵇ 1) ≡ true` from
 -- `bind1 ≡ just`, `isG1 (checked r) ≡ false`, and the reply stack,
--- and that count selects the promoting arm. The premises that step
--- still assumes, which this `just` does not discharge, are
--- `isProtoAt zero pa ≡ true`, `isG1 (checked r) ≡ false` (the
+-- and that count selects the promoting arm. The hypotheses that step
+-- still assumes, which this `just` does not discharge, are the
+-- continuation `spawn (keep th)` (so the head slot is the one `keep`
+-- moves), `isProtoAt zero pa ≡ true`, `isG1 (checked r) ≡ false` (the
 -- already-g1 arm of `bind1` returns `just` without consulting the
 -- count), and the tail `splitGo`. These pins do not discharge them.
 -- The kept nat on this program is zero, the cell the child was given.
@@ -366,6 +370,63 @@ gtyp-fuel =
 gtyp-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP gtypP)))
          ≡ showDrove (proj₁ (drive gtypFuel zero nil nothing (lowerP gtypP)))
 gtyp-img = cong showDrove gtyp-fuel
+
+-- `showDrove` lines for the hand-built terms that match the process
+-- entries `scripts/test_runner.py` runs from `.mbi` files. Each pin is
+-- `refl` at `driveFuel`. None of them is `load` of the file bytes.
+-- Python is what reads the file and compares the binary's line,
+-- including the newline the Haskell main adds. The strings here are
+-- that line without the newline. There is no Agda theorem that the
+-- hand-built term is the program in the file.
+-- Pure images in that file's `VALUES` (`plus`, `half`, `suc`, and the
+-- rest) stay Python-only. Their traces are not these closed pins.
+spawnDoneP : CheckedP
+spawnDoneP = checkedP spawnClosed spawnClosed-ok
+
+spawn-done-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP spawnDoneP)))
+    ≡ "halted [tr-spawn 0 1, tr-collect(0)] h1l0p2 v-"
+spawn-done-line = refl
+
+bareDoneP : CheckedP
+bareDoneP = checkedP doneClosed doneClosed-ok
+
+bare-done-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP bareDoneP)))
+    ≡ "halted [tr-collect()] h0l0p1 v-"
+bare-done-line = refl
+
+sendRecvP : CheckedP
+sendRecvP = checkedP sendRecv sendRecv-ok
+
+send-recv-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP sendRecvP)))
+    ≡ "halted [tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(2,pt(inf),pt(inf),omega-kept), tr-collect(0 1 2 3)] h4l0p2 v2"
+send-recv-line = refl
+
+defSpawnP : CheckedP
+defSpawnP = checkedP defSpawn defSpawn-ok
+
+def-spawn-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP defSpawnP)))
+    ≡ "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-collect(0 1)] h2l0p2 v0"
+def-spawn-line = refl
+
+grefAwaitP : CheckedP
+grefAwaitP = checkedP grefAwait grefAwait-ok
+
+gref-await-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP grefAwaitP)))
+    ≡ "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+gref-await-line = refl
+
+aliasBindP : CheckedP
+aliasBindP = checkedP aliasBind aliasBind-ok
+
+alias-bind-line :
+  showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP aliasBindP)))
+    ≡ "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1"
+alias-bind-line = refl
 
 deadTm : PTm zero
 deadTm = recv g1 g0 (done {suc zero})
