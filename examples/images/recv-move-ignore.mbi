@@ -1,0 +1,1 @@
+(muro-beam-image 1 (boundary 1) (entry (spawn t[] (seq (gsu gze) (send 0 0 (done))) (recv (1 0) (spawn (keep t[]) (send 0 0 (done)) (ignore 0 (done)))))))

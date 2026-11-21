@@ -158,8 +158,13 @@ protoKept _ _              = true
 -- The slot itself must move. `fromRecv` is true when this binder
 -- was introduced by `recv`. The annotation can be `g1` while the
 -- payload `recvStep` installed is a copy, so `isMove` on that
--- annotation is not a move guarantee. The recv guard runs after the
--- move guard: a copied annotation is still `protocol slot is not moved`.
+-- annotation is not a move guarantee. `kind g1` is `Kmove`. The
+-- refusal is the checker, not a claim that the payload is not a
+-- move. The recv guard on a protocol consumer runs after the move
+-- guard: a copied annotation is still `protocol slot is not moved`.
+-- A keep that is not a protocol consumer would move or copy by
+-- `kind c`. That is the annotation, not `kind (checked r)`, so it
+-- is refused before `kind` is read, including at `g1` and at ω.
 -- Anything else moved must be quiet in the parent. A copy is held on
 -- each side and the parent use remains.
 slot : ∀ {n} → ℕ → Bool → Grade → Grade → Spent → Spent → PTm n → Result Spent
@@ -171,6 +176,8 @@ slot i fromRecv c t v u tm with isProtoAt i tm
   guard "protocol slot has a type use" (isZeroCount (typeOf u)) >>
   hold run c t v >>
   ok v
+... | false with fromRecv
+... | true = fail "kept slot came from recv"
 ... | false with kind c
 ... | nothing =
   guard "erased variable used computationally" (sat c (finᶜ 1)) >>
@@ -297,9 +304,10 @@ containsTag (ndemonT _ _)   = true
 -- `ρ` marks binders introduced by `recv`. `spawn1` moves by the
 -- runtime grade of the reference, and `recvStep` does not regrade
 -- the sender's reference to this annotation, so a protocol use of
--- a marked slot is `protocol slot came from recv`. A `seq` binder
--- is unmarked: its grade is `seqGrade`, and a reply root is what
--- `bind1` regrades. The caller's context is unmarked too.
+-- a marked slot is `protocol slot came from recv`. A keep that is
+-- not a protocol consumer is `kept slot came from recv`. A `seq`
+-- binder is unmarked: its grade is `seqGrade`, and a reply root is
+-- what `bind1` regrades. The caller's context is unmarked too.
 checkGo : ∀ {n} → Vec Bool n → GCtx n → PTm n → Result (Uses n)
 checkGo {n} _ Γ done = ok (zeros {n})
 checkGo ρ Γ (send _ x k) =
@@ -320,6 +328,8 @@ checkGo ρ Γ (recv c t k) =
 -- `protocol slot has a type use`. `slot` refuses both before it
 -- returns the child use. A protocol slot marked by `recv` is
 -- `protocol slot came from recv` even when the annotation moves.
+-- A marked slot whose parent is not a protocol form is
+-- `kept slot came from recv`.
 checkGo ρ Γ (spawn th ch (await x k)) =
   thinCtx th Γ >>= λ Γ' →
   checkGo (thinMask th ρ) Γ' ch >>= λ cu →
@@ -1021,12 +1031,15 @@ nignoreContTag-no = refl
 -- The child binds `(gsu gze)` at ω, because the continuation is
 -- `send`, not a reply root, and sends that cell with `Kcopy`.
 -- The parent `recv` annotates the binder `g1`. `recvStep` installs
--- the sender's reference and does not regrade it. `spawn1` then
--- copies, the move list is empty, and the parent `await` stays
--- untagged. `await1` only matches `awaitT`. `checkP` refuses the
--- protocol use. `recv-move.mbi` is this program. The ignore and
--- nignore pins are the same guard. `recvMoveShift` awaits the
--- `recv` binder at index 1, under a later `seq`.
+-- the sender's reference and does not regrade it. For this payload
+-- `spawn1` copies, the move list is empty, and the parent `await`
+-- stays untagged, so `await1` does not match it. A payload whose
+-- checked grade is `Kmove` is not this term: `spawn1` would move
+-- that reference. There is no theorem that the annotation is the
+-- payload's kind. `checkP` refuses the protocol use.
+-- `recv-move.mbi` is this program. `recv-move-ignore.mbi` and
+-- `recv-move-nignore.mbi` are the same guard. `recv-move-shift.mbi`
+-- awaits the `recv` binder at index 1, under a later `seq`.
 recvMoveAwait : PTm 0
 recvMoveAwait =
   spawn t[]
@@ -1077,6 +1090,41 @@ recvMoveShift =
 recvMoveShift-no :
   checkP [] recvMoveShift ≡ fail "protocol slot came from recv"
 recvMoveShift-no = refl
+
+-- Parent is `done`, so `isProtoAt` is false. The annotation is `g1`
+-- (`kind g1` is `Kmove`) and the child sends the slot once, so the
+-- old `kind` branch accepted the keep. The sender binds `(gsu gze)`
+-- at ω and sends `Kcopy`. `spawn1` would copy that payload. The
+-- guard runs before `kind`, so this is not a theorem that the
+-- grades differ. `recv-keep.mbi` is this program.
+recvKeep : PTm 0
+recvKeep =
+  spawn t[]
+    (seq nil (bsu bze) (send zero fzero (done {1})))
+    (recv g1 g0
+      (spawn (keep t[])
+        (send zero fzero (done {1}))
+        (done {1})))
+
+recvKeep-no :
+  checkP [] recvKeep ≡ fail "kept slot came from recv"
+recvKeep-no = refl
+
+-- The annotation is ω, so `kind` is `Kcopy`, and the parent is
+-- `done`. One send in the child is a use ω accepts, so the old copy
+-- branch accepted the keep. `spawn1` would still move a payload
+-- whose checked grade is `Kmove`. `recv-keep-copy.mbi` is this
+-- program. Same refusal, still not a grade theorem.
+recvKeepCopy : PTm 0
+recvKeepCopy =
+  recv gω g0
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (done {1}))
+
+recvKeepCopy-no :
+  checkP [] recvKeepCopy ≡ fail "kept slot came from recv"
+recvKeepCopy-no = refl
 
 -- A nested `seq` does not inherit the root definition list.
 -- `(gref 0)` in the inner body is out of that empty bound.
