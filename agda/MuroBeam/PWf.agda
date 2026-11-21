@@ -156,6 +156,65 @@ refsHere h ps i p wf lk =
   lookup-bound i ps p
     (proj₂ (bound-split (preOf h ps) (refsPs ps) (proj₁ wf))) lk
 
+-- The head of an `rv` is the head of `ctlRefs`. A checked g1 there is
+-- `hasG1` of its object, and `Grade1Unique` forces the count to 1.
+-- `bind1`'s already-g1 arm does not read the count. `reply-g1-count`
+-- is why a count other than 1 on that stack is not `WF`.
+hasG1-left : ∀ i xs ys → hasG1 i xs ≡ true → hasG1 i (xs ++ ys) ≡ true
+hasG1-left i xs ys hx rewrite has-++ i xs ys | hx = refl
+
+hasG1-right : ∀ i xs ys → hasG1 i ys ≡ true → hasG1 i (xs ++ ys) ≡ true
+hasG1-right i xs ys hy rewrite has-++ i xs ys | hy = ∨-trueʳ (hasG1 i xs)
+
+has-rv-head : ∀ r rs →
+  isG1 (checked r) ≡ true →
+  hasG1 (obj r) (r ∷ rs) ≡ true
+has-rv-head r rs g rewrite ≡ᵇ-refl (obj r) | g = refl
+
+ctl-rv-has : ∀ ps i p r env k →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env k →
+  isG1 (checked r) ≡ true →
+  hasG1 (obj r) (ctlRefsPs ps) ≡ true
+ctl-rv-has [] i p r env k ()
+ctl-rv-has (p ∷ ps) zero .p r env k refl ce g rewrite ce =
+  hasG1-left (obj r) (r ∷ env ++ framesRefs k) (ctlRefsPs ps)
+    (has-rv-head r (env ++ framesRefs k) g)
+ctl-rv-has (q ∷ ps) (suc i) p r env k lk ce g =
+  hasG1-right (obj r) (ctlRefs (ctl q)) (ctlRefsPs ps)
+    (ctl-rv-has ps i p r env k lk ce g)
+
+rv-hasG1 : ∀ h ps i p r env k →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env k →
+  isG1 (checked r) ≡ true →
+  hasG1 (obj r) (refsOf (sys h ps)) ≡ true
+rv-hasG1 h ps i p r env k lk ce g =
+  hasG1-left (obj r) (preOf h ps) (refsPs ps)
+    (hasG1-right (obj r) (edgeRefs h) (ctlRefsPs ps)
+      (ctl-rv-has ps i p r env k lk ce g))
+
+-- The stack `bind1` sees on a non-done `seq`. The returned cell is
+-- still the head of `ctlRefs`, so the general `rv` fact applies.
+reply-hasG1 :
+  ∀ {n} h ps i p r env (k : PTm n) cenv eth d dm {ds} →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  isG1 (checked r) ≡ true →
+  hasG1 (obj r) (refsOf (sys h ps)) ≡ true
+reply-hasG1 h ps i p r env k cenv eth d dm lk ce g =
+  rv-hasG1 h ps i p r env k lk ce g
+
+reply-g1-count :
+  ∀ {n} h ps i p r env (k : PTm n) cenv eth d dm {ds} →
+  WF (sys h ps) →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  isG1 (checked r) ≡ true →
+  count (obj r) (refsOf (sys h ps)) ≡ 1
+reply-g1-count h ps i p r env k cenv eth d dm wf lk ce g =
+  proj₂ wf (obj r) (reply-hasG1 h ps i p r env k cenv eth d dm lk ce g)
+
 -- setProc whose new control has the same reference multiset.
 keep-counts : ∀ h ps i p c t →
   WF (sys h ps) →

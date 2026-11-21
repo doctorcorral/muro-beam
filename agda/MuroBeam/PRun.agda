@@ -623,27 +623,36 @@ openCont (ncheckT _ _)   = true
 openCont (ndemonT _ _)   = true
 
 -- Resume `saved` over `seg`. A reply root names slot 0, which `seq`
--- checked at grade 1. The cell `eval` just returned is still ω.
--- Regrade it to g1 when it is not already g1 and it is the only
--- reference to its object (`bind-promotes`). `regrade-move` says
--- that head is `Kmove`. `bind-spawn-tag` is the step from this
--- `just` through one `spawn1` to the tagged parent. On an open reply
--- stack, `bind1 ≡ just` and `isG1 (checked r) ≡ false` are the
--- promoting branch. `bind-count-one` derives `(count ≡ᵇ 1) ≡ true`
--- from those two facts and the stack: the `false | false` clause is
--- `nothing`, so the count bit is 1, and that bit selects the
--- promoting arm. `bind-spawn-tag` still assumes three premises this
--- `just` does not discharge: `isProtoAt zero pa ≡ true`,
--- `isG1 (checked r) ≡ false` (the already-g1 arm, lines below,
--- returns `just` without consulting the count), and the tail
--- `splitGo (suc zero) (placeholder h) th (env ++ cenv)`.
+-- checked at grade 1. Regrade the returned cell to g1 when it is not
+-- already g1 and it is the only reference to its object
+-- (`bind-promotes`). A cell that is already g1 is installed as `eval`
+-- returned it. That arm does not regrade and does not read the count.
+-- `regrade-move` says the regraded head is `Kmove`. `bind-spawn-tag`
+-- is the step from the promoting `just` through one `spawn1` to the
+-- tagged parent. On an open reply stack, `bind1 ≡ just` and
+-- `isG1 (checked r) ≡ false` are the promoting branch.
+-- `bind-count-one` derives `(count ≡ᵇ 1) ≡ true` from those two facts
+-- and the stack: the `false | false` clause is `nothing`, so the count
+-- bit is 1, and that bit selects the promoting arm.
+-- Hypotheses `bind1 ≡ just` does not discharge, which `bind-spawn-tag`
+-- still assumes:
+-- * the continuation is `spawn (keep th) ch pa`, so the head slot is
+--   the one `keep` moves (`replyRoot` of that term is `isProtoAt zero pa`);
+-- * `isProtoAt zero pa ≡ true`;
+-- * `isG1 (checked r) ≡ false` (the already-g1 arm, lines below,
+--   installs `r` unchanged and is not this lemma);
+-- * the tail `splitGo (suc zero) (placeholder h) th (env ++ cenv)`.
 -- `checkP`'s fresh-body guard is not a premise of that lemma.
 -- An aliased non-g1 result is refused (`bind-count-refuses`): a
 -- second g1 alias would break `Grade1Unique`, and the ω alias
 -- would not be the move `markProto` tags. The already-g1 branch
--- does not read the count. `freshBody` is syntactic. It does not
--- read the heap, so an aliased fresh head can still be a checked
--- image. There is no theorem from that guard to this count.
+-- does not read the count. `reply-hasG1` in `MuroBeam.PWf` is
+-- `isG1 (checked r) ≡ true` to `hasG1` of that object on this `rv`
+-- stack, and `reply-g1-count` concludes the count is 1 under `WF`.
+-- A count other than 1 is not a well-formed state. `freshBody` is
+-- syntactic. It does not read the heap, so an aliased fresh head
+-- can still be a checked image. There is no theorem from that
+-- guard to this count.
 -- A singleton `saved` is the book bind and is not regraded.
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
@@ -731,8 +740,10 @@ bind-promotes h ps i r env k cenv eth d dm p t lk ce oc rr ng one eq
 -- and whose object is not named exactly once, is refused. This is
 -- the `false | false` branch of `bind1`. The `isG1` branch does not
 -- consult the count: a cell that is already g1 is installed as it is.
--- `alias-await-probe` in `MuroBeam.RunImage` is a closed test of this
--- lemma, not the lemma itself.
+-- `spawnAwait-alias` in `MuroBeam.RunImage` is a closed test of this
+-- lemma on the hand-built term `spawnAwait`, not a load of
+-- `alias-await.mbi`. That file is refused by `checkP` and never
+-- reaches `bind1`.
 bind-count-refuses :
   ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p →
   lookup ps i ≡ just p →
