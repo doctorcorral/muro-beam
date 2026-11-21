@@ -774,11 +774,13 @@ open Drove public
 Drive : Sys → Set
 Drive s = Σ Drove (λ d → PStep* s (final d))
 
+-- `proj₁` so a stuck `Drive` still exposes its `Drove`. A pair match
+-- would not reduce there, and `drive-fuel` has to `cong` that record.
 consE : ∀ {s} → List Event → Drive s → Drive s
-consE es (d , tr) = record d { evs = es ++ evs d } , tr
+consE es d = record (proj₁ d) { evs = es ++ evs (proj₁ d) } , proj₂ d
 
 prepend : ∀ {s t} → PStep s t → Drive t → Drive s
-prepend st (d , tr) = d , pmore st tr
+prepend st d = proj₁ d , pmore st (proj₂ d)
 
 -- Case on the wrapper here. `same` does not reduce on a variable,
 -- and inside `drive`'s `where` the two sides are not the same term.
@@ -806,46 +808,71 @@ haltOf ms v s eq =
        (alignAll t ms) v
      , pmore (p-lift step-collect) pdone
 
+-- One enabled wrapper. `step` is the fuelled continuation. It is not
+-- `drive`, so these helpers do not recurse. The telescope is written
+-- out: `∀ c ms v →` becomes a dependent meta and the fuel proof sticks.
+Cont : Set
+Cont = (c : ℕ) → List Meet → Maybe ℕ → (t : Sys) → Drive t
+
+driveUse : Cont →
+           (s : Sys) → List Meet → Maybe ℕ →
+           ∀ {i} → Hit s i → Drive s
+driveUse step s ms v {i} (hit k (ran t es) eq) =
+  consE (es ++ proj₂ (settle t (popK i k) ms))
+    (prepend (stepOf k eq)
+      (step (suc i)
+        (proj₁ (settle t (popK i k) ms))
+        (keep (keep v (notePop s (popK i k))) (noteRv t))
+        t))
+
+driveClassify : (s : Sys) → findHit s ≡ nothing → Outcome s
+driveClassify s eq with firstRefuse (procs s) zero
+... | just i  = stuck i (deadlock-real s eq)
+... | nothing = deadlock (deadlock-real s eq)
+
+driveStop : Cont →
+            ℕ → List Meet → Maybe ℕ → (s : Sys) →
+            findHit s ≡ nothing → Drive s
+driveStop step c ms v s eq with pending s ms
+... | just (ms1 , extra) = consE extra (step c ms1 v s)
+... | nothing = drv s (driveClassify s eq) [] (alignAll s ms) (keep v (noteRv s)) , pdone
+
+-- Pattern match outside `driveFallback`, so a later `with` on
+-- `findHit` does not inline an internal `with`.
+fallbackGo : Cont →
+             ℕ → List Meet → Maybe ℕ → (s : Sys) →
+             (r : Maybe (Found s)) → findHit s ≡ r → Drive s
+fallbackGo step _ ms v s (just f) _ = driveUse step s ms v (got f)
+fallbackGo step c ms v s nothing q  = driveStop step c ms v s q
+
+driveFallback : Cont →
+                ℕ → List Meet → Maybe ℕ → (s : Sys) → Drive s
+driveFallback step c ms v s = fallbackGo step c ms v s (findHit s) refl
+
+driveOpen : Cont →
+            ℕ → List Meet → Maybe ℕ → (s : Sys) → Drive s
+driveOpen step c ms v s
+  with scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s
+... | just f  = driveUse step s ms v (got f)
+... | nothing = driveFallback step c ms v s
+
+-- `b` is `allDone`. Passing it as an argument keeps the fuel recursion
+-- on `drive` alone: `driveOpen` never calls `drive`.
+driveSuc : Cont →
+           ℕ → List Meet → Maybe ℕ → (s : Sys) →
+           (b : Bool) → allDone (procs s) ≡ b → Drive s
+driveSuc step c ms v s true  eq = haltOf ms v s eq
+driveSuc step c ms v s false eq = driveOpen step c ms v s
+
 drive : ℕ → ℕ → List Meet → Maybe ℕ → (s : Sys) → Drive s
 drive zero c ms v s = drv s outOfFuel [] (alignAll s ms) v , pdone
-drive (suc fuel) c ms v s with allDone (procs s) in eq
-... | true  = haltOf ms v s eq
-... | false = go
-  where
-  n = length (procs s)
-
-  classify : findHit s ≡ nothing → Outcome s
-  classify eq with firstRefuse (procs s) zero
-  ... | just i = stuck i (deadlock-real s eq)
-  ... | nothing = deadlock (deadlock-real s eq)
-
-  use : ∀ {i} → Hit s i → Drive s
-  use {i} (hit k (ran t es) eq) = after (settle t (popK i k) ms)
-    where
-    st = stepOf k eq
-    v1 = keep (keep v (notePop s (popK i k))) (noteRv t)
-    after : List Meet × List Event → Drive s
-    after (ms1 , extra) = consE (es ++ extra) (prepend st (drive fuel (suc i) ms1 v1 t))
-
-  stop : findHit s ≡ nothing → Drive s
-  stop eq with pending s ms
-  ... | just (ms1 , extra) = consE extra (drive fuel c ms1 v s)
-  ... | nothing = drv s (classify eq) [] (alignAll s ms) (keep v (noteRv s)) , pdone
-
-  fallback : Drive s
-  fallback with findHit s in eq
-  ... | just f   = use (got f)
-  ... | nothing  = stop eq
-
-  go : Drive s
-  go with scan n (modSuc c n) n s
-  ... | just f = use (got f)
-  ... | nothing = fallback
+drive (suc fuel) c ms v s =
+  driveSuc (drive fuel) c ms v s (allDone (procs s)) refl
 
 -- `drive` returns `Drive s`: the final `Drove` paired with a `PStep*`
 -- from the start to `final`. `drive-sound` is that second component,
 -- transported along `final d ≡ t`. It does not rebuild the trace.
--- The content is the steps `drive` constructs: `use` prepends the
+-- The content is the steps `drive` constructs: `driveUse` prepends the
 -- wrapper step, `haltOf` prepends `step-collect`, and a meeting
 -- update prepends nothing.
 drive-sound : ∀ {n c ms v s t} {o : Outcome t} {es ms' v'} →
@@ -856,3 +883,354 @@ drive-sound {n} {c} {ms} {v} {s} eq =
   final-eq : ∀ {d t} {o : Outcome t} {es ms' v'} →
     d ≡ drv t o es ms' v' → final d ≡ t
   final-eq refl = refl
+
+------------------------------------------------------------------------
+-- Halting at fuel n is the same Drove at any m ≥ n. `drive zero` is
+-- out of fuel. Once `allDone` holds, the remaining fuel is not unfolded.
+-- The helpers above do not call `drive`, so this induction stays on
+-- one function.
+------------------------------------------------------------------------
+
+drive-open-false : ∀ fuel c ms v s →
+  allDone (procs s) ≡ false →
+  drive (suc fuel) c ms v s ≡ driveOpen (drive fuel) c ms v s
+drive-open-false fuel c ms v s eq =
+  subst (λ b → (q : allDone (procs s) ≡ b) →
+           driveSuc (drive fuel) c ms v s b q
+             ≡ driveOpen (drive fuel) c ms v s)
+        (sym eq) (λ _ → refl) refl
+
+true≢false : true ≡ false → ⊥
+true≢false ()
+
+-- Same transport as `drive-open-false`. `haltOf` stores the proof, so
+-- the proof after transport is `haltQ`, not the caller's `eq`.
+haltGo : (s : Sys) (eq : allDone (procs s) ≡ true) (b : Bool) →
+         allDone (procs s) ≡ b → allDone (procs s) ≡ true
+haltGo s eq true  q = q
+haltGo s eq false q = ⊥-elim (true≢false (trans (sym eq) q))
+
+haltQ : (s : Sys) (eq : allDone (procs s) ≡ true) → allDone (procs s) ≡ true
+haltQ s eq = haltGo s eq (allDone (procs s)) refl
+
+drive-halt-true : ∀ fuel c ms v s (eq : allDone (procs s) ≡ true) →
+  drive (suc fuel) c ms v s ≡ haltOf ms v s (haltQ s eq)
+drive-halt-true fuel c ms v s eq =
+  subst (λ b → (q : allDone (procs s) ≡ b) →
+           driveSuc (drive fuel) c ms v s b q ≡
+           haltOf ms v s (haltGo s eq b q))
+        (sym eq) (λ _ → refl) refl
+
+-- `driveOpen` cases on this scan. Naming the match keeps the later
+-- `subst` off that `with`.
+useOn : Cont →
+        ℕ → List Meet → Maybe ℕ → (s : Sys) → Maybe (Found s) → Drive s
+useOn step _ ms v s (just f) = driveUse step s ms v (got f)
+useOn step c ms v s nothing  = driveFallback step c ms v s
+
+open-is : ∀ step c ms v s →
+  driveOpen step c ms v s ≡
+  useOn step c ms v s
+    (scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s)
+open-is step c ms v s
+  with scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s
+... | just _  = refl
+... | nothing = refl
+
+drive-open-hit : ∀ step c ms v s f →
+  scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s ≡ just f →
+  driveOpen step c ms v s ≡ driveUse step s ms v (got f)
+drive-open-hit step c ms v s f eq =
+  let sc = scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s
+  in trans (open-is step c ms v s)
+       (subst (λ r → useOn step c ms v s sc ≡ useOn step c ms v s r) eq refl)
+
+drive-open-miss : ∀ step c ms v s →
+  scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s ≡ nothing →
+  driveOpen step c ms v s ≡ driveFallback step c ms v s
+drive-open-miss step c ms v s eq =
+  let sc = scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s
+  in trans (open-is step c ms v s)
+       (subst (λ r → useOn step c ms v s sc ≡ useOn step c ms v s r) eq refl)
+
+-- `findHit` unfolds to `scanHits`, so a `with` on it does not abstract
+-- the `refl` stored in `driveFallback`. Start from the constructor,
+-- where `fallbackGo` reduces for any proof, and transport along `sym`.
+drive-fall-hit : ∀ step c ms v s f →
+  findHit s ≡ just f →
+  driveFallback step c ms v s ≡ driveUse step s ms v (got f)
+drive-fall-hit step c ms v s f eq =
+  subst (λ r → (q : findHit s ≡ r) →
+           fallbackGo step c ms v s r q ≡ driveUse step s ms v (got f))
+        (sym eq) (λ _ → refl) refl
+
+-- On `nothing`, `fallbackGo` returns `driveStop` of the proof it was
+-- given. After transport that proof is `missQ`, not the caller's `eq`.
+missGo : ∀ {s} (eq : findHit s ≡ nothing) (r : Maybe (Found s)) →
+         findHit s ≡ r → findHit s ≡ nothing
+missGo eq nothing  q = q
+missGo eq (just _) q = ⊥-elim (nothing≢just (sym (trans (sym q) eq)))
+
+missQ : ∀ s (eq : findHit s ≡ nothing) → findHit s ≡ nothing
+missQ s eq = missGo eq (findHit s) refl
+
+drive-fall-miss : ∀ step c ms v s (eq : findHit s ≡ nothing) →
+  driveFallback step c ms v s ≡ driveStop step c ms v s (missQ s eq)
+drive-fall-miss step c ms v s eq =
+  subst (λ r → (q : findHit s ≡ r) →
+           fallbackGo step c ms v s r q ≡
+           driveStop step c ms v s (missGo eq r q))
+        (sym eq) (λ _ → refl) refl
+
+stopOn : Cont →
+         ℕ → List Meet → Maybe ℕ → (s : Sys) →
+         findHit s ≡ nothing → Maybe (List Meet × List Event) → Drive s
+stopOn step c ms v s _ (just (ms1 , extra)) = consE extra (step c ms1 v s)
+stopOn _ _ ms v s feq nothing =
+  drv s (driveClassify s feq) [] (alignAll s ms) (keep v (noteRv s)) , pdone
+
+stop-is : ∀ step c ms v s feq →
+  driveStop step c ms v s feq ≡ stopOn step c ms v s feq (pending s ms)
+stop-is step c ms v s feq with pending s ms
+... | just _  = refl
+... | nothing = refl
+
+drive-stop-go : ∀ step c ms v s feq ms1 extra →
+  pending s ms ≡ just (ms1 , extra) →
+  driveStop step c ms v s feq ≡ consE extra (step c ms1 v s)
+drive-stop-go step c ms v s feq ms1 extra eq =
+  trans (stop-is step c ms v s feq)
+    (subst (λ r → stopOn step c ms v s feq (pending s ms)
+                 ≡ stopOn step c ms v s feq r)
+           eq refl)
+
+classOn : (s : Sys) → findHit s ≡ nothing → Maybe ℕ → Outcome s
+classOn s feq (just i) = stuck i (deadlock-real s feq)
+classOn s feq nothing  = deadlock (deadlock-real s feq)
+
+class-is : ∀ s feq →
+  driveClassify s feq ≡ classOn s feq (firstRefuse (procs s) zero)
+class-is s feq with firstRefuse (procs s) zero
+... | just _  = refl
+... | nothing = refl
+
+classify-stuck : ∀ s feq i →
+  firstRefuse (procs s) zero ≡ just i →
+  driveClassify s feq ≡ stuck i (deadlock-real s feq)
+classify-stuck s feq i eq =
+  trans (class-is s feq)
+    (subst (λ r → classOn s feq (firstRefuse (procs s) zero) ≡ classOn s feq r) eq refl)
+
+classify-dead : ∀ s feq →
+  firstRefuse (procs s) zero ≡ nothing →
+  driveClassify s feq ≡ deadlock (deadlock-real s feq)
+classify-dead s feq eq =
+  trans (class-is s feq)
+    (subst (λ r → classOn s feq (firstRefuse (procs s) zero) ≡ classOn s feq r) eq refl)
+
+drive-stop-no : ∀ step c ms v s feq →
+  pending s ms ≡ nothing →
+  plain (oc (proj₁ (driveStop step c ms v s feq))) ≡ plain-halted →
+  ⊥
+drive-stop-no step c ms v s feq peq hlt =
+  noHalt (firstRefuse (procs s) zero) refl (asClass (asPlain hlt))
+  where
+  stopped : driveStop step c ms v s feq ≡ stopOn step c ms v s feq nothing
+  stopped =
+    trans (stop-is step c ms v s feq)
+      (subst (λ r → stopOn step c ms v s feq (pending s ms) ≡
+                    stopOn step c ms v s feq r)
+             peq refl)
+  asPlain : plain (oc (proj₁ (driveStop step c ms v s feq))) ≡ plain-halted →
+            plain (driveClassify s feq) ≡ plain-halted
+  asPlain eq =
+    subst (λ d → plain (oc (proj₁ d)) ≡ plain-halted) stopped eq
+  asClass : plain (driveClassify s feq) ≡ plain-halted →
+            plain (classOn s feq (firstRefuse (procs s) zero)) ≡ plain-halted
+  asClass eq =
+    subst (λ o → plain o ≡ plain-halted) (class-is s feq) eq
+  noHalt : (r : Maybe ℕ) → firstRefuse (procs s) zero ≡ r →
+           plain (classOn s feq r) ≡ plain-halted → ⊥
+  noHalt (just i) _ eq = bad eq
+    where
+    bad : plain (stuck i (deadlock-real s feq)) ≡ plain-halted → ⊥
+    bad ()
+  noHalt nothing _ eq = bad eq
+    where
+    bad : plain (deadlock (deadlock-real s feq)) ≡ plain-halted → ⊥
+    bad ()
+
+addEvs : List Event → Drove → Drove
+addEvs es d = record d { evs = es ++ evs d }
+
+-- `consE` is a record update of `proj₁`. Spelling that update as
+-- `addEvs` keeps a stuck continuation from being split into fields.
+consE-add : ∀ {s} (es : List Event) (d : Drive s) →
+  proj₁ (consE es d) ≡ addEvs es (proj₁ d)
+consE-add es d = refl
+
+prepend-proj : ∀ {s t} (st : PStep s t) (d : Drive t) →
+  proj₁ (prepend st d) ≡ proj₁ d
+prepend-proj st d = refl
+
+-- `driveUse` on a concrete `hit` is `addEvs` of the fuelled continuation.
+-- The continuation stays a `proj₁` application; a `refl` on the whole
+-- `Drove` makes Agda invert that stuck record.
+use-step : (step : Cont) (s : Sys) (ms : List Meet) (v : Maybe ℕ) (i : ℕ)
+           (k : K) (t : Sys) (es : List Event)
+           (eq : emitK s i k ≡ just (ran t es)) →
+  proj₁ (driveUse step s ms v {i} (hit k (ran t es) eq)) ≡
+  addEvs (es ++ proj₂ (settle t (popK i k) ms))
+    (proj₁ (step (suc i)
+              (proj₁ (settle t (popK i k) ms))
+              (keep (keep v (notePop s (popK i k))) (noteRv t))
+              t))
+use-step step s ms v i k t es eq =
+  let cont = step (suc i)
+               (proj₁ (settle t (popK i k) ms))
+               (keep (keep v (notePop s (popK i k))) (noteRv t))
+               t
+      extra = es ++ proj₂ (settle t (popK i k) ms)
+  in trans (consE-add extra (prepend (stepOf k eq) cont))
+           (cong (addEvs extra) (prepend-proj (stepOf k eq) cont))
+
+-- One step of `drive (suc _)`, classified once. The proof that every
+-- fuel takes that step does not call `drive-fuel`, so the induction
+-- below is the only recursion and it is on the fuel.
+data DriveNext (c : ℕ) (ms : List Meet) (v : Maybe ℕ) (s : Sys) : Set where
+  next-halt :
+    allDone (procs s) ≡ true →
+    DriveNext c ms v s
+  next-step :
+    ∀ i (k : K) (t : Sys) (es : List Event) (ms1 : List Meet) (v1 : Maybe ℕ) →
+    (∀ fuel →
+      proj₁ (drive (suc fuel) c ms v s) ≡
+      addEvs (es ++ proj₂ (settle t (popK i k) ms))
+        (proj₁ (drive fuel (suc i) ms1 v1 t))) →
+    DriveNext c ms v s
+  next-meet :
+    ∀ (ms1 : List Meet) (extra : List Event) →
+    (∀ fuel →
+      proj₁ (drive (suc fuel) c ms v s) ≡
+      addEvs extra (proj₁ (drive fuel c ms1 v s))) →
+    DriveNext c ms v s
+  next-block :
+    (∀ fuel →
+      plain (oc (proj₁ (drive (suc fuel) c ms v s))) ≡ plain-halted → ⊥) →
+    DriveNext c ms v s
+
+drive-next-hit : ∀ c ms v s f →
+  allDone (procs s) ≡ false →
+  scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s ≡ just f →
+  DriveNext c ms v s
+drive-next-hit c ms v s f ad sc with got f in gf
+... | hit k (ran t es) ag =
+  next-step (pid f) k t es
+    (proj₁ (settle t (popK (pid f) k) ms))
+    (keep (keep v (notePop s (popK (pid f) k))) (noteRv t))
+    (λ fuel →
+      trans (cong proj₁ (drive-open-false fuel c ms v s ad))
+      (trans (cong proj₁ (drive-open-hit (drive fuel) c ms v s f sc))
+      (trans (cong (λ h → proj₁ (driveUse (drive fuel) s ms v h)) gf)
+        (use-step (drive fuel) s ms v (pid f) k t es ag))))
+
+drive-next-fall : ∀ c ms v s f →
+  allDone (procs s) ≡ false →
+  scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s ≡ nothing →
+  findHit s ≡ just f →
+  DriveNext c ms v s
+drive-next-fall c ms v s f ad sc fh with got f in gf
+... | hit k (ran t es) ag =
+  next-step (pid f) k t es
+    (proj₁ (settle t (popK (pid f) k) ms))
+    (keep (keep v (notePop s (popK (pid f) k))) (noteRv t))
+    (λ fuel →
+      trans (cong proj₁ (drive-open-false fuel c ms v s ad))
+      (trans (cong proj₁ (drive-open-miss (drive fuel) c ms v s sc))
+      (trans (cong proj₁ (drive-fall-hit (drive fuel) c ms v s f fh))
+      (trans (cong (λ h → proj₁ (driveUse (drive fuel) s ms v h)) gf)
+        (use-step (drive fuel) s ms v (pid f) k t es ag)))))
+
+drive-next-stop : ∀ c ms v s →
+  allDone (procs s) ≡ false →
+  scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s ≡ nothing →
+  findHit s ≡ nothing →
+  DriveNext c ms v s
+drive-next-stop c ms v s ad sc fh with pending s ms in pe
+... | just (ms1 , extra) = next-meet ms1 extra tie
+  where
+  tie : ∀ fuel →
+    proj₁ (drive (suc fuel) c ms v s) ≡
+    addEvs extra (proj₁ (drive fuel c ms1 v s))
+  tie fuel =
+    trans (cong proj₁ (drive-open-false fuel c ms v s ad))
+    (trans (cong proj₁ (drive-open-miss (drive fuel) c ms v s sc))
+    (trans (cong proj₁ (drive-fall-miss (drive fuel) c ms v s fh))
+    (trans (cong proj₁ (drive-stop-go (drive fuel) c ms v s (missQ s fh) ms1 extra pe))
+           (consE-add extra (drive fuel c ms1 v s)))))
+... | nothing =
+  next-block (λ fuel hlt →
+    drive-stop-no (drive fuel) c ms v s (missQ s fh) pe (through fuel hlt))
+  where
+  path : ∀ fuel →
+    proj₁ (drive (suc fuel) c ms v s) ≡
+    proj₁ (driveStop (drive fuel) c ms v s (missQ s fh))
+  path fuel =
+    trans (cong proj₁ (drive-open-false fuel c ms v s ad))
+    (trans (cong proj₁ (drive-open-miss (drive fuel) c ms v s sc))
+    (trans (cong proj₁ (drive-fall-miss (drive fuel) c ms v s fh))
+      refl))
+  through : ∀ fuel →
+    plain (oc (proj₁ (drive (suc fuel) c ms v s))) ≡ plain-halted →
+    plain (oc (proj₁ (driveStop (drive fuel) c ms v s (missQ s fh)))) ≡ plain-halted
+  through fuel hlt =
+    subst (λ d → plain (oc d) ≡ plain-halted) (path fuel) hlt
+
+drive-next-miss : ∀ c ms v s →
+  allDone (procs s) ≡ false →
+  scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s ≡ nothing →
+  DriveNext c ms v s
+drive-next-miss c ms v s ad sc with findHit s in fh
+... | just f  = drive-next-fall c ms v s f ad sc fh
+... | nothing = drive-next-stop c ms v s ad sc fh
+
+drive-next-open : ∀ c ms v s → allDone (procs s) ≡ false → DriveNext c ms v s
+drive-next-open c ms v s ad
+  with scan (length (procs s)) (modSuc c (length (procs s))) (length (procs s)) s in sc
+... | just f  = drive-next-hit c ms v s f ad sc
+... | nothing = drive-next-miss c ms v s ad sc
+
+drive-next : ∀ c ms v s → DriveNext c ms v s
+drive-next c ms v s with allDone (procs s) in ad
+... | true  = next-halt ad
+... | false = drive-next-open c ms v s ad
+
+drive-fuel : ∀ n m c ms v s →
+  n ≤ m →
+  plain (oc (proj₁ (drive n c ms v s))) ≡ plain-halted →
+  proj₁ (drive m c ms v s) ≡ proj₁ (drive n c ms v s)
+drive-fuel zero m c ms v s le ()
+drive-fuel (suc n) zero c ms v s () _
+drive-fuel (suc n) (suc m) c ms v s (s≤s le) h with drive-next c ms v s
+... | next-halt ad =
+  trans (cong proj₁ (drive-halt-true m c ms v s ad))
+        (sym (cong proj₁ (drive-halt-true n c ms v s ad)))
+... | next-step i k t es ms1 v1 tie =
+  trans (tie m)
+    (trans (cong (addEvs (es ++ proj₂ (settle t (popK i k) ms)))
+             (drive-fuel n m (suc i) ms1 v1 t le (kept (tie n))))
+      (sym (tie n)))
+  where
+  kept : ∀ {d} → proj₁ (drive (suc n) c ms v s) ≡ d →
+         plain (oc d) ≡ plain-halted
+  kept eq = subst (λ d → plain (oc d) ≡ plain-halted) eq h
+... | next-meet ms1 extra tie =
+  trans (tie m)
+    (trans (cong (addEvs extra)
+             (drive-fuel n m c ms1 v s le (kept (tie n))))
+      (sym (tie n)))
+  where
+  kept : ∀ {d} → proj₁ (drive (suc n) c ms v s) ≡ d →
+         plain (oc d) ≡ plain-halted
+  kept eq = subst (λ d → plain (oc d) ≡ plain-halted) eq h
+... | next-block nohalt = ⊥-elim (nohalt n h)

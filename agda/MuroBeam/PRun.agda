@@ -15,12 +15,12 @@ open import Data.Fin.Base using (toℕ)
 open import Data.List.Base using (List; []; _∷_; _++_; length; map)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Nat.Base using (ℕ; zero; suc; _≤_; _≡ᵇ_; z≤n)
-open import Data.Product.Base using (_×_; _,_)
+open import Data.Product.Base using (_×_; _,_; ∃; proj₁; proj₂)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; trans; cong; subst)
 
-open import Muro.Grade using (Grade; g0; GTm)
+open import Muro.Grade using (Grade; g0; g1; GTm)
 
-open import MuroBeam.Grade using (selfKept; isZeroGrade; kind; Kind; Kmove; Kcopy)
+open import MuroBeam.Grade using (selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using
   ( Obj; cell; live; Val; nat; suc↑; clo; payload; kids
   ; Ref; ref; obj; checked; residual; repl
@@ -33,12 +33,13 @@ open import MuroBeam.PSyntax using
   ; PTm; done; send; recv; spawn; seq; await; ignore; nignore
   ; awaitT; ignoreT; flushT; ncheckT; ndemonT
   ; Flight; flight; flightRefs; Code; go; codeDead; codeDemo
-  ; applyMoves )
+  ; applyMoves; replyRoot; isProtoAt; protoTag; reply-slot )
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
   ; Frame; ar; fn; su; mt; bd; saved; seg
-  ; roots; inbox; state; Msg; msg; post; setProc; snoc )
+  ; roots; inbox; state; Msg; msg; post; setProc; snoc
+  ; refsOf; regrade )
   renaming (done to pstDone)
 open import MuroBeam.Collect using (Step)
 
@@ -252,6 +253,10 @@ setCtlSt (p ∷ ps) (suc i) c st = mapCons p (setCtlSt ps i c st)
 
 -- Top-level so a proof can case on the state and the inbox without
 -- rewriting those projections. `recv1` is this function after lookup.
+-- The installed reference is the sender's. This step does not
+-- regrade it to the binder grades. `spawn1` classifies
+-- `kind (checked r)`. `checkP` refuses a protocol use of a slot
+-- this binder introduced.
 recvStep : List Obj → List Proc → ℕ → Proc → Ctl → PState → List Msg → Maybe Sys
 recvStep h ps i p (pr (go (recv _ _ k) env eth d dm)) _ (msg r ∷ ms) =
   let p' = record p
@@ -585,7 +590,10 @@ ndemon1 (sys h ps) i =
 ------------------------------------------------------------------------
 -- seq runs the entry under `saved ∷ seg ds`. The ether moves onto
 -- `saved` and is not duplicated into that frame's environment.
--- bind resumes only `saved ∷ []`, so it does not resume a seq.
+-- bind resumes `saved ∷ []`, and it resumes `saved ∷ seg ∷ []` when
+-- the continuation is not `done`. A `done` continuation stays parked,
+-- which is how a pure `(seq <btm> (done))` image stops stuck.
+-- A reply root regrades a unique returned cell to g1. See `bind1`.
 -- done drops roots and the environment and keeps flights.
 ------------------------------------------------------------------------
 
@@ -601,9 +609,58 @@ seq1 (sys h ps) i =
     just (sys h ps')
   sequenced _ = nothing
 
+-- `done` is the pure-image continuation. Anything else is a process
+-- the seq was waiting to run.
+openCont : ∀ {n} → PTm n → Bool
+openCont done            = false
+openCont (send _ _ _)    = true
+openCont (recv _ _ _)    = true
+openCont (spawn _ _ _)   = true
+openCont (seq _ _ _)     = true
+openCont (await _ _)     = true
+openCont (ignore _ _)    = true
+openCont (nignore _ _)   = true
+openCont (awaitT _ _)    = true
+openCont (ignoreT _ _)   = true
+openCont (flushT _ _)    = true
+openCont (ncheckT _ _)   = true
+openCont (ndemonT _ _)   = true
+
+-- Resume `saved` over `seg`. A reply root names slot 0, which `seq`
+-- checked at grade 1. Regrade the returned cell to g1 when it is not
+-- already g1 and it is the only reference to its object
+-- (`bind-promotes`). A cell that is already g1 is installed as `eval`
+-- returned it. That arm does not regrade and does not read the count.
+-- `regrade-move` says the regraded head is `Kmove`. `bind-spawn-tag`
+-- is the step from the promoting `just` through one `spawn1` to the
+-- tagged parent. On an open reply stack, `bind1 ≡ just` and
+-- `isG1 (checked r) ≡ false` are the promoting branch.
+-- `bind-count-one` derives `(count ≡ᵇ 1) ≡ true` from those two facts
+-- and the stack: the `false | false` clause is `nothing`, so the count
+-- bit is 1, and that bit selects the promoting arm.
+-- Hypotheses `bind1 ≡ just` does not discharge, which `bind-spawn-tag`
+-- still assumes:
+-- * the continuation is `spawn (keep th) ch pa`, so the head slot is
+--   the one `keep` moves (`replyRoot` of that term is `isProtoAt zero pa`);
+-- * `isProtoAt zero pa ≡ true`;
+-- * `isG1 (checked r) ≡ false` (the already-g1 arm, lines below,
+--   installs `r` unchanged and is not this lemma);
+-- * the tail `splitGo (suc zero) (placeholder h) th (env ++ cenv)`.
+-- `checkP`'s fresh-body guard is not a premise of that lemma.
+-- An aliased non-g1 result is refused (`bind-count-refuses`): a
+-- second g1 alias would break `Grade1Unique`, and the ω alias
+-- would not be the move `markProto` tags. The already-g1 branch
+-- does not read the count. `reply-hasG1` in `MuroBeam.PWf` is
+-- `isG1 (checked r) ≡ true` to `hasG1` of that object on this `rv`
+-- stack, and `reply-g1-count` concludes the count is 1 under `WF`.
+-- A count other than 1 is not a well-formed state. `freshBody` is
+-- syntactic. It does not read the heap, so an aliased fresh head
+-- can still be a checked image. There is no theorem from that
+-- guard to this count.
+-- A singleton `saved` is the book bind and is not regraded.
+-- One lookup. The process it returns is the one `bound` reads.
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
-  lookup ps i >>= λ _ →
   lookup ps i >>= λ p →
   bound (ctl p)
   where
@@ -611,7 +668,341 @@ bind1 (sys h ps) i =
   bound (rv r env (saved (go k cenv eth d dm) ∷ [])) =
     setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
     just (sys h ps')
+  bound (rv r env (saved (go k cenv eth d dm) ∷ seg _ ∷ [])) with openCont k
+  ... | false = nothing
+  ... | true with replyRoot k
+  ... | false =
+    setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
+  ... | true with isG1 (checked r) | count (obj r) (refsOf (sys h ps)) ≡ᵇ 1
+  ... | true  | _     =
+    setProc ps i (pr (go k (r ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
+  ... | false | false = nothing
+  ... | false | true  =
+    setProc ps i (pr (go k (regrade r g1 ∷ (env ++ cenv)) eth d dm)) >>= λ ps' →
+    just (sys h ps')
   bound _ = nothing
+
+-- `setProc` writes the control and leaves the rest of the process.
+setProc-lookup :
+  ∀ ps i c p ps' →
+  lookup ps i ≡ just p →
+  setProc ps i c ≡ just ps' →
+  lookup ps' i ≡ just (record p { ctl = c })
+setProc-lookup [] i c p ps' () eq
+setProc-lookup (p ∷ ps) zero c .p .(record p { ctl = c } ∷ ps) refl refl = refl
+setProc-lookup (x ∷ ps) (suc i) c p ps' lk eq
+  with setProc ps i c in es
+... | nothing = no eq
+  where
+  no : nothing ≡ just ps' →
+       lookup ps' (suc i) ≡ just (record p { ctl = c })
+  no ()
+... | just ps0 = yes eq
+  where
+  yes : just (x ∷ ps0) ≡ just ps' →
+        lookup ps' (suc i) ≡ just (record p { ctl = c })
+  yes refl = setProc-lookup ps i c p ps0 lk es
+
+-- The regraded head is the moved grade. `kind g1` is `Kmove`.
+regrade-move : ∀ r → kind (checked (regrade r g1)) ≡ just Kmove
+regrade-move r = refl
+
+-- A reply root whose returned cell is not g1, and is named once,
+-- is installed regraded. The other `bind1` branches are the
+-- `false ≡ true` cases of these premises.
+bind-promotes :
+  ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p t →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  openCont k ≡ true →
+  replyRoot k ≡ true →
+  isG1 (checked r) ≡ false →
+  (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true →
+  bind1 (sys h ps) i ≡ just t →
+  lookup (procs t) i ≡
+    just (record p { ctl = pr (go k (regrade r g1 ∷ (env ++ cenv)) eth d dm) })
+bind-promotes h ps i r env k cenv eth d dm p t lk ce oc rr ng one eq
+  rewrite lk | ce | oc | rr | ng | one = finish eq
+  where
+  c = pr (go k (regrade r g1 ∷ (env ++ cenv)) eth d dm)
+  finish : (setProc ps i c >>= λ ps' → just (sys h ps')) ≡ just t →
+           lookup (procs t) i ≡ just (record p { ctl = c })
+  finish eq2 with setProc ps i c in sp
+  ... | nothing = no eq2
+    where
+    no : nothing ≡ just t → lookup (procs t) i ≡ just (record p { ctl = c })
+    no ()
+  ... | just ps' = yes eq2
+    where
+    yes : just (sys h ps') ≡ just t →
+          lookup (procs t) i ≡ just (record p { ctl = c })
+    yes refl = setProc-lookup ps i c p ps' lk sp
+
+-- A reply root on `saved ∷ seg ∷ []` whose returned cell is not g1,
+-- and whose object is not named exactly once, is refused. This is
+-- the `false | false` branch of `bind1`. The `isG1` branch does not
+-- consult the count: a cell that is already g1 is installed as it is.
+-- `spawnAwait-alias` in `MuroBeam.RunImage` is a closed test of this
+-- lemma on the hand-built term `spawnAwait`, not a load of
+-- `alias-await.mbi`. That file is refused by `checkP` and never
+-- reaches `bind1`.
+bind-count-refuses :
+  ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  openCont k ≡ true →
+  replyRoot k ≡ true →
+  isG1 (checked r) ≡ false →
+  (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ false →
+  bind1 (sys h ps) i ≡ nothing
+bind-count-refuses h ps i r env k cenv eth d dm p lk ce oc rr ng many
+  rewrite lk | ce | oc | rr | ng | many = refl
+
+-- On an open reply stack, `bind1 ≡ just` and `isG1 ≡ false` are the
+-- promoting branch. `bind-count-refuses` is the `false | false`
+-- clause (`nothing`), so the count bit is 1, and that bit selects
+-- the promoting arm. `bind-spawn-tag` uses this and does not take
+-- the count as a premise. The already-g1 arm returns `just` without
+-- reading the count, so `isG1 ≡ false` is still a premise here.
+bind-count-one :
+  ∀ {n} h ps i r env (k : PTm n) cenv eth d dm {ds} p t →
+  lookup ps i ≡ just p →
+  ctl p ≡ rv r env (saved (go k cenv eth d dm) ∷ seg ds ∷ []) →
+  openCont k ≡ true →
+  replyRoot k ≡ true →
+  isG1 (checked r) ≡ false →
+  bind1 (sys h ps) i ≡ just t →
+  (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true
+bind-count-one h ps i r env k cenv eth d dm p t lk ce oc rr ng bj =
+  force (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) refl
+  where
+  force : (b : Bool) →
+          (count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ b →
+          b ≡ true
+  force true _ = refl
+  force false cb =
+    contra
+      (trans
+        (sym (bind-count-refuses h ps i r env k cenv eth d dm p
+               lk ce oc rr ng cb))
+        bj)
+    where
+    contra : nothing ≡ just t → false ≡ true
+    contra ()
+
+-- `keep` of a `Kmove` cell records `(index, object)` and continues.
+split-keep-move : ∀ {m n} i ph (th : Thin m n) r rs ce pe mv →
+  kind (checked r) ≡ just Kmove →
+  splitGo (suc i) ph th rs ≡ just (ce , pe , mv) →
+  splitGo i ph (keep th) (r ∷ rs) ≡
+    just (r ∷ ce , ph ∷ pe , (i , obj r) ∷ mv)
+split-keep-move i ph th r rs ce pe mv kq sq rewrite kq = peel sq
+  where
+  peel : splitGo (suc i) ph th rs ≡ just (ce , pe , mv) →
+         (splitGo (suc i) ph th rs >>= λ (ce' , pe' , mv') →
+            just (r ∷ ce' , ph ∷ pe' , (i , obj r) ∷ mv'))
+           ≡ just (r ∷ ce , ph ∷ pe , (i , obj r) ∷ mv)
+  peel eq rewrite eq = refl
+
+-- The head of a kept move list is slot 0 when the split started there.
+split-head : ∀ {m n} ph (th : Thin m n) r rs ce pe mv →
+  kind (checked r) ≡ just Kmove →
+  splitGo zero ph (keep th) (r ∷ rs) ≡ just (ce , pe , mv) →
+  ∃ λ ce' → ∃ λ pe' → ∃ λ mv' →
+    ce ≡ r ∷ ce' × pe ≡ ph ∷ pe' ×
+    mv ≡ (zero , obj r) ∷ mv' ×
+    splitGo (suc zero) ph th rs ≡ just (ce' , pe' , mv')
+split-head ph th r rs ce pe mv kq eq rewrite kq = peel eq
+  where
+  peel : (splitGo (suc zero) ph th rs >>= λ (ce' , pe' , mv') →
+            just (r ∷ ce' , ph ∷ pe' , (zero , obj r) ∷ mv'))
+           ≡ just (ce , pe , mv) →
+         ∃ λ ce' → ∃ λ pe' → ∃ λ mv' →
+           ce ≡ r ∷ ce' × pe ≡ ph ∷ pe' ×
+           mv ≡ (zero , obj r) ∷ mv' ×
+           splitGo (suc zero) ph th rs ≡ just (ce' , pe' , mv')
+  peel eq2 with splitGo (suc zero) ph th rs
+  ... | nothing = no eq2
+    where
+    no : ∀ {A : Set} → nothing ≡ just (ce , pe , mv) → A
+    no ()
+  ... | just (ce' , pe' , mv') = yes eq2
+    where
+    yes : just (r ∷ ce' , ph ∷ pe' , (zero , obj r) ∷ mv') ≡ just (ce , pe , mv) →
+          ∃ λ ce0 → ∃ λ pe0 → ∃ λ mv0 →
+            ce ≡ r ∷ ce0 × pe ≡ ph ∷ pe0 ×
+            mv ≡ (zero , obj r) ∷ mv0 ×
+            just (ce' , pe' , mv') ≡ just (ce0 , pe0 , mv0)
+    yes refl = ce' , pe' , mv' , refl , refl , refl , refl
+
+-- A kept `Kmove` at index 0 tags the protocol root. Later moves do not
+-- untag it (`reply-slot`, via `split-head`). The parent of
+-- `spawn (keep th)` is a `PTm (suc n)`: `keep th` has codomain `suc n`.
+spawn-reply-tag :
+  ∀ {m n} (ph : Ref) (th : Thin m n) (pa : PTm (suc n)) (r : Ref)
+    (rs ce pe : List Ref) (mv : List (ℕ × ℕ)) →
+  kind (checked r) ≡ just Kmove →
+  splitGo {suc m} {suc n} zero ph (keep th) (r ∷ rs) ≡ just (ce , pe , mv) →
+  isProtoAt zero pa ≡ true →
+  applyMoves mv pa ≡ protoTag (obj r) pa
+spawn-reply-tag ph th pa r rs ce pe mv kq eq proto =
+  tagged (split-head ph th r rs ce pe mv kq eq)
+  where
+  tagged :
+    (∃ λ ce' → ∃ λ pe' → ∃ λ mv' →
+      ce ≡ r ∷ ce' × pe ≡ ph ∷ pe' ×
+      mv ≡ (zero , obj r) ∷ mv' ×
+      splitGo (suc zero) ph th rs ≡ just (ce' , pe' , mv')) →
+    applyMoves mv pa ≡ protoTag (obj r) pa
+  tagged (_ , _ , mv' , _ , _ , mvq , _) =
+    subst (λ mv0 → applyMoves mv0 pa ≡ protoTag (obj r) pa) (sym mvq)
+      (reply-slot pa (obj r) mv' proto)
+
+-- `setProc` succeeds wherever `lookup` does. The written control is
+-- whatever the caller passed.
+setProc-just : ∀ ps i p c → lookup ps i ≡ just p → ∃ λ ps' → setProc ps i c ≡ just ps'
+setProc-just [] i p c ()
+setProc-just (p0 ∷ ps) zero .p0 c refl = (record p0 { ctl = c } ∷ ps) , refl
+setProc-just (p0 ∷ ps) (suc i) p c lk =
+  let ps' , eq = setProc-just ps i p c lk
+  in (p0 ∷ ps') , cong (mapCons p0) eq
+
+-- Appending a child does not move an index that was already present.
+lookup-++-just : ∀ {A : Set} (xs ys : List A) i x →
+  lookup xs i ≡ just x → lookup (xs ++ ys) i ≡ just x
+lookup-++-just [] ys i x ()
+lookup-++-just (x0 ∷ xs) ys zero .x0 refl = refl
+lookup-++-just (x0 ∷ xs) ys (suc i) x eq = lookup-++-just xs ys i x eq
+
+-- `spawn1` after the process, the split, and the tag are known.
+-- Each rewrite is a variable. This clause does not mention `bind1`,
+-- so it does not unfold the `with` inside `bind-promotes`.
+spawn-at :
+  ∀ {m n} h ps i p (th : Thin m n) (ch : PTm m) (pa : PTm n)
+    env eth d dm ce pe mv τ ps1 →
+  lookup ps i ≡ just p →
+  ctl p ≡ pr (go (spawn th ch pa) env eth d dm) →
+  splitGo zero (placeholder h) th env ≡ just (ce , pe , mv) →
+  applyMoves mv pa ≡ protoTag τ pa →
+  setProc ps i (pr (go (protoTag τ pa) pe eth d dm)) ≡ just ps1 →
+  spawn1 (sys h ps) i ≡
+    just (sys (snoc h (nat zero))
+          (ps1 ++ proc (length ps) ready [] [] (pr (go ch ce [] [] [])) ∷ []))
+spawn-at h ps i p th ch pa env eth d dm ce pe mv τ ps1 lk cq sq tq spe
+  rewrite lk | cq | sq | tq | spe = refl
+
+-- A promoting `bind1` whose continuation is `spawn (keep th) ch pa`,
+-- followed by one `spawn1`, tags that parent.
+--
+-- Composes `bind-count-one`, `bind-promotes`, `regrade-move`,
+-- `split-keep-move`, and `spawn-reply-tag` (`split-head` and
+-- `reply-slot`).
+--
+-- `bind-count-one` derives `(count ≡ᵇ 1) ≡ true` from `bind1 ≡ just`,
+-- `isG1 ≡ false`, and this reply stack. The `false | false` clause is
+-- `nothing`.
+--
+-- Premises `bind1 ≡ just` does not discharge:
+-- * the continuation is this `spawn (keep th)`, so the head slot is
+--   the one `keep` moves (`replyRoot` of that term is `isProtoAt zero pa`);
+-- * `isProtoAt zero pa ≡ true`;
+-- * `isG1 (checked r) ≡ false` (the already-`g1` branch installs `r`
+--   unchanged and is not this lemma);
+-- * `splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv)`.
+--   A later `keep` of a `g0` cell, or a thinning that does not match
+--   the tail, is still `nothing`. `placeholder h` is the cell `spawn1`
+--   allocates. `bind1` does not change the heap, so that cell is the
+--   one `spawn1` computes from `t`.
+-- * `freshBody` is not a premise. There is no theorem from that guard
+--   to this tag. That a fresh allocation is counted once is the
+--   allocator's story, not this lemma.
+--
+-- `openCont` of a `spawn` is `true`, so that premise of `bind-promotes`
+-- holds by computation. The object's index is `obj r` after `regrade`.
+-- The conclusion names both processes. `p1` is pid `i` after `bind1`:
+-- its control is the spawn whose head is `regrade r g1`. `u` is the
+-- system after `spawn1`, and pid `i` there is `p1` with that control
+-- replaced by `protoTag (obj r) pa`. `u` also snocs the placeholder
+-- and appends the child; those are what `spawn1` builds and are not
+-- a separate equation.
+--
+-- The proof splits `bind1` once, on the promoting branch `bind-promotes`
+-- names, and passes that lemma's lookup to `setProc-just`. `spawn-at`
+-- rewrites the lookup, the control, `full`, `tagq`, and the second
+-- `setProc` as variables. The `with` inside `bind-promotes` and
+-- `spawn-reply-tag` is not unfolded again.
+bind-spawn-tag :
+  ∀ {n m} h ps i r env (th : Thin m n) (ch : PTm (suc m)) (pa : PTm (suc n))
+    cenv eth d dm {ds} p t ce pe mv →
+  lookup ps i ≡ just p →
+  ctl p ≡
+    rv r env
+      (saved (go (spawn (keep th) ch pa) cenv eth d dm) ∷ seg ds ∷ []) →
+  isProtoAt zero pa ≡ true →
+  isG1 (checked r) ≡ false →
+  bind1 (sys h ps) i ≡ just t →
+  splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv) →
+  ∃ λ p1 → ∃ λ u →
+    lookup (procs t) i ≡ just p1 ×
+    ctl p1 ≡
+      pr (go (spawn (keep th) ch pa)
+             (regrade r g1 ∷ (env ++ cenv)) eth d dm) ×
+    spawn1 t i ≡ just u ×
+    lookup (procs u) i ≡
+      just (record p1 { ctl =
+              pr (go (protoTag (obj r) pa)
+                     (placeholder h ∷ pe) eth d dm) })
+bind-spawn-tag h ps i r env th ch pa cenv eth d dm {ds} p t ce pe mv
+  lk ctlq proto ng bq tail =
+  fromBind bq
+  where
+  k = spawn (keep th) ch pa
+  rg = regrade r g1
+  rest = env ++ cenv
+  env' = rg ∷ rest
+  c0 = pr (go k env' eth d dm)
+  p1 = record p { ctl = c0 }
+  ph = placeholder h
+  km = regrade-move r
+  ce0 = rg ∷ ce
+  pe0 = ph ∷ pe
+  mv0 = (zero , obj rg) ∷ mv
+  full = split-keep-move zero ph th rg rest ce pe mv km tail
+  tagq = spawn-reply-tag ph th pa rg rest ce0 pe0 mv0 km full proto
+  pcode = pr (go (protoTag (obj r) pa) pe0 eth d dm)
+  uniq = bind-count-one h ps i r env k cenv eth d dm p t lk ctlq refl proto ng bq
+  lkPost = bind-promotes h ps i r env k cenv eth d dm p t lk ctlq refl proto ng uniq bq
+  parent = record p1 { ctl = pcode }
+
+  Out = ∃ λ p1' → ∃ λ u →
+          lookup (procs t) i ≡ just p1' ×
+          ctl p1' ≡ c0 ×
+          spawn1 t i ≡ just u ×
+          lookup (procs u) i ≡ just (record p1' { ctl = pcode })
+
+  fromBind : bind1 (sys h ps) i ≡ just t → Out
+  fromBind eq rewrite lk | ctlq | proto | ng | uniq = finish eq
+    where
+    finish : (setProc ps i c0 >>= λ ps' → just (sys h ps')) ≡ just t → Out
+    finish eq2 with setProc ps i c0
+    ... | nothing = no eq2
+      where
+      no : nothing ≡ just t → Out
+      no ()
+    ... | just ps' = yes eq2
+      where
+      yes : just (sys h ps') ≡ just t → Out
+      yes refl =
+        let ps1 , spe = setProc-just ps' i p1 pcode lkPost
+            child = proc (length ps') ready [] [] (pr (go ch ce0 [] [] []))
+            u = sys (snoc h (nat zero)) (ps1 ++ child ∷ [])
+        in p1 , u , lkPost , refl ,
+           spawn-at h ps' i p1 (keep th) ch pa env' eth d dm
+             ce0 pe0 mv0 (obj r) ps1 lkPost refl full tagq spe ,
+           lookup-++-just ps1 (child ∷ []) i parent
+             (setProc-lookup ps' i pcode p1 ps1 lkPost spe)
 
 -- Top-level so a proof can pass the process it found. `done1` is
 -- this function after lookup. The control match is the whole story:

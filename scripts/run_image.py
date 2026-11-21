@@ -62,8 +62,9 @@ HAND = {
 # MIX_BUILD_PATH=/private/tmp/beam-b2-build. Muro.Load.file then
 # Muro.Session.eval_run("once", [1], book) and eval_run("applied", [], book)
 # both returned 1. The book has two run defs, so emit_mbi will not
-# write it; the image below is the same term by hand. drive keeps that
-# nat and stops stuck, because bind1 does not resume saved over seg.
+# write it; the image below is the same term by hand. The continuation
+# is done, so bind1 leaves the value on saved over seg. drive keeps
+# that nat and stops stuck.
 ONCE_APP = (
     "(muro-beam-image 1 (boundary 1) (entry (seq "
     "(gapp (glam (1 0) (gvar 0)) (gsu gze)) (done))))\n"
@@ -94,6 +95,111 @@ FORWARD = (
 )
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
+
+# Process entries. Not emitter goldens. `drove` is load then drive
+# at imgFuel (1000). The string is showDrove, the same line the binary
+# prints without the newline the Haskell main adds. Bare protocol
+# forms are refusals and are checked below, on drive and on run.
+REPLY = (
+    "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+    "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+    "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+)
+PROC = {
+    "spawn-done": "halted [tr-spawn 0 1, tr-collect(0)] h1l0p2 v-",
+    "bare-done": "halted [tr-collect()] h0l0p1 v-",
+    "send-recv": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-step 0, "
+        "tr-spawn 0 1, tr-send 1 0 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, "
+        "tr-recv 0 ref(2,pt(inf),pt(inf),omega-kept), "
+        "tr-collect(0 1 2 3)] h4l0p2 v2"
+    ),
+    "spawn-ignore": REPLY,
+    "spawn-await": REPLY,
+    "def-spawn": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, "
+        "tr-collect(0 1)] h2l0p2 v0"
+    ),
+    "spawn-nignore": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(1 2)] h3l1p2 v0"
+    ),
+    # Fresh gsu. drive promotes. The alias probe plants a second ref.
+    "alias-bind": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1"
+    ),
+    # Direct fresh gref of gze. Three eval steps, then the same move.
+    "gref-await": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0"
+    ),
+    # Direct glam at scope 0. No g1 is in scope, so guardGlam allows it.
+    # The payload is a closure, which drive does not keep as a nat.
+    "glam-reply": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v-"
+    ),
+    # Direct gpi. The body is (gsu gze). evalTm ignores it and
+    # allocates nat zero, so the line is that allocation, not the
+    # successor the body would be.
+    "gpi-reply": REPLY,
+    # gtyp names a variable. The child sends a closure, not a nat.
+    # drive keeps the first delivered nat, and readNat of a closure
+    # is nothing, so v0 is the cell evalTm allocated for (gtyp 0).
+    # A child that sent (gsu gze) would keep v1, the received value.
+    "gtyp-reply": (
+        "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept), tr-step 0, tr-spawn 0 2, "
+        "tr-send 2 0 ref(2,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4 5)] h6l0p3 v0"
+    ),
+}
+REFUSE = [
+    ("await-seq", "protocol is not a spawn reply"),
+    ("ignore-seq", "protocol is not a spawn reply"),
+    ("nignore-seq", "protocol is not a spawn reply"),
+    ("skip-await", "protocol slot is not moved"),
+    ("copy-await", "protocol slot is not moved"),
+    ("buried-await", "protocol is not a spawn reply"),
+    ("alias-await", "reply result is not fresh"),
+    ("gmatch-await", "reply result is not fresh"),
+    ("gvar-await", "reply result is not fresh"),
+    ("gref-chain", "reply result is not fresh"),
+    ("glam-g1", "glam reply under g1"),
+    ("nested-seq", "bad gref"),
+    ("comp-await", "protocol slot is not one computational use"),
+    ("comp-ignore", "protocol slot is not one computational use"),
+    ("comp-nignore", "protocol slot is not one computational use"),
+    ("type-await", "protocol slot has a type use"),
+    ("type-ignore", "protocol slot has a type use"),
+    ("type-nignore", "protocol slot has a type use"),
+    # g1 recv annotation, ω payload. checkP refuses the protocol slot.
+    # recvMoveAwait-no is that equation. The file is not a run.
+    ("recv-move", "protocol slot came from recv"),
+]
+# Tagged heads are not surface syntax, so echo is not the source.
+# drive and run both print the parse reason. spawnTagAwait-no is
+# the checkP equation for a tagged spawn parent
+# (fail "tagged spawn parent"). tagAwait-no is a different equation:
+# a tag that is not a spawn parent is fail "tagged protocol".
+# buriedTagAwait-no is the equation for a tag under seq as that
+# parent, the same "tagged protocol" string, not the parent equation.
+# sendTagAwait-no, recvTagAwait-no, and awaitUnderRecv-no pin a tag
+# under send, recv, and await. None of them is a load of these files.
+PARSE_REFUSE = [
+    ("tagged-spawn", "not surface"),
+    ("buried-awaitT", "not surface"),
+    ("buried-ignoreT", "not surface"),
+    ("buried-flushT", "not surface"),
+    ("buried-ncheckT", "not surface"),
+    ("buried-ndemonT", "not surface"),
+]
 
 
 def fail(msg):
@@ -128,6 +234,8 @@ def build():
     run_sym = symbol("d_runImage")
     echo_sym = symbol("d_echoImage")
     drive_sym = symbol("d_driveImage")
+    drove_sym = symbol("d_droveImage")
+    alias_sym = symbol("d_aliasImage")
     with open(MAIN, "w", encoding="utf-8") as fh:
         fh.write(
             "\n".join(
@@ -137,7 +245,8 @@ def build():
                     "import qualified Data.Text as T",
                     "import qualified Data.Text.IO as TIO",
                     "import MAlonzo.Code.MuroBeam.RunImage ("
-                    + run_sym + ", " + echo_sym + ", " + drive_sym + ")",
+                    + run_sym + ", " + echo_sym + ", " + drive_sym + ", " + drove_sym
+                    + ", " + alias_sym + ")",
                     "main :: IO ()",
                     "main = do",
                     "  args <- getArgs",
@@ -151,7 +260,13 @@ def build():
                     '    ["drive", path] -> do',
                     "      src <- TIO.readFile path",
                     "      TIO.putStr (" + drive_sym + " src)",
-                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH"',
+                    '    ["drove", path] -> do',
+                    "      src <- TIO.readFile path",
+                    "      TIO.putStr (" + drove_sym + " src)",
+                    '    ["alias", path] -> do',
+                    "      src <- TIO.readFile path",
+                    "      TIO.putStr (" + alias_sym + " src)",
+                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH | alias PATH"',
                     "",
                 ]
             )
@@ -180,6 +295,10 @@ def call(mode, path, fuel="200"):
         cmd = [BIN, "echo", path]
     elif mode == "drive":
         cmd = [BIN, "drive", path]
+    elif mode == "drove":
+        cmd = [BIN, "drove", path]
+    elif mode == "alias":
+        cmd = [BIN, "alias", path]
     else:
         cmd = [BIN, "run", path, fuel]
     proc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE)
@@ -261,6 +380,50 @@ def main():
             if echoed != text:
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(text))
             check(name, call("run", path), want)
+        for name, want in PROC.items():
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            check(name, call("drove", path), want)
+        # checkP refusals. driveImage and runImage both print the reason.
+        for name, reason in REFUSE:
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            text = "refuse: " + reason
+            check(name + "-drive", call("drive", path), text)
+            check(name + "-run", call("run", path), text)
+        for name, reason in PARSE_REFUSE:
+            path = os.path.join(IMG, name + ".mbi")
+            text = "refuse: " + reason
+            check(name + "-drive", call("drive", path), text)
+            check(name + "-run", call("run", path), text)
+        # Fresh body, so load and drive succeed. The probe plants a
+        # second reference on the returned cell. bind1 refuses it.
+        check(
+            "alias-bind-plant",
+            call("alias", os.path.join(IMG, "alias-bind.mbi")),
+            "refuse: aliased reply result",
+        )
+        # runSys is seq1 then runFor. It does not call bind1.
+        # send-recv prints the seq nat; the spawn stays parked.
+        # spawn-done's seq1 returns nothing. spawn-await prints the
+        # seq payload. A bind after that eval would resume the spawn
+        # and the harness would print stuck.
+        check("run-send-recv", call("run", os.path.join(IMG, "send-recv.mbi")), "nat 2")
+        check("run-spawn-done", call("run", os.path.join(IMG, "spawn-done.mbi")), "stuck")
+        check("run-spawn-await", call("run", os.path.join(IMG, "spawn-await.mbi")), "nat 0")
+        # imgFuel is 1000, the same default the binary uses. plus
+        # stops stuck and keeps 5. Fuel 32 is still out of fuel here.
+        check("plus-drive", call("drive", os.path.join(IMG, "plus.mbi")), "stuck 0 v5")
         path = write_tmp(ONCE_APP)
         check("once-app", call("run", path), "nat 1")
         # Elixir eval_run of this def returns 1. drive keeps that nat.
@@ -299,6 +462,69 @@ def main():
             ("junk", "not-an-image\n", "refuse: junk"),
             ("junk-tail", WRAP.format(body="gze") + "x", "refuse: junk"),
             ("leading-zero", WRAP.format(body="(glam (1 0) (gvar 01))"), "refuse: junk"),
+            ("not-surface",
+             "(muro-beam-image 1 (boundary 1) (entry (awaitT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-ignoreT",
+             "(muro-beam-image 1 (boundary 1) (entry (ignoreT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-flushT",
+             "(muro-beam-image 1 (boundary 1) (entry (flushT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-ncheckT",
+             "(muro-beam-image 1 (boundary 1) (entry (ncheckT 0 (done))))\n",
+             "refuse: not surface"),
+            ("not-surface-ndemonT",
+             "(muro-beam-image 1 (boundary 1) (entry (ndemonT 0 (done))))\n",
+             "refuse: not surface"),
+            ("spawn-ignoreT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ignoreT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("spawn-flushT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (flushT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("spawn-ncheckT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ncheckT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("spawn-ndemonT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ndemonT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("defs-need-seq",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
+             "refuse: defs need a seq entry"),
+            ("defs-need-seq-spawn",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (spawn t[] (done) (done))))\n",
+             "refuse: defs need a seq entry"),
+            # A scope-0 send has no de Bruijn index, so parse reports
+            # `out of scope` before `noDefs`. The send here is under
+            # `recv`, which is in scope, and the entry is not `seq`.
+            ("defs-need-seq-send",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (send 0 0 (done)))))\n",
+             "refuse: defs need a seq entry"),
+            ("defs-need-seq-recv",
+             "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (done))))\n",
+             "refuse: defs need a seq entry"),
+            ("spawn-short",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done))))\n",
+             "refuse: junk"),
+            ("send-scope",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (send 0 0 (done)) (done))))\n",
+             "refuse: out of scope"),
+            ("thin-scope",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn (keep t[]) (done) (done))))\n",
+             "refuse: out of scope"),
+            ("await-scope",
+             "(muro-beam-image 1 (boundary 1) (entry (await 0 (done))))\n",
+             "refuse: out of scope"),
+            ("g0-send",
+             "(muro-beam-image 1 (boundary 1) (entry (seq gze (recv (0 0) (send 0 0 (done))))))\n",
+             "refuse: erased variable used computationally"),
+            ("done-extra",
+             "(muro-beam-image 1 (boundary 1) (entry (done x)))\n",
+             "refuse: junk"),
+            ("proc-trunc",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (done))))",
+             "refuse: truncated"),
         ]
         # bad-version replacement is fragile if "image 1 " matches twice.
         # The string has one "image 1 ".

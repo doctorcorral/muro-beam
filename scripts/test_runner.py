@@ -40,7 +40,8 @@ EVENT = re.compile(
     r"tr-(alloc|spend|send|recv|spawn|step|collect|down)( |\(|$)"
 )
 
-# once (suc 0). drive keeps v1 and stops stuck.
+# once (suc 0). The continuation is done, so the value stays on
+# saved over seg. drive keeps v1 and stops stuck.
 ONCE_APP = (
     "(muro-beam-image 1 (boundary 1) (entry (seq "
     "(gapp (glam (1 0) (gvar 0)) (gsu gze)) (done))))\n"
@@ -89,6 +90,103 @@ REFUSE = [
     ("unclosed", "(muro-beam-image 1 (boundary 1) (entry (seq gze (done)))", "truncated"),
     ("newline-open", "(muro-beam-image 1 (boundary 1) (entry (seq gze (done)))\n", "junk"),
     ("junk", "not-an-image\n", "junk"),
+    # A tagged form that is not a spawn parent. Parse refuses the
+    # word. tagAwait-no is checkP of the hand-built term,
+    # fail "tagged protocol". It is not this string.
+    ("not-surface",
+     "(muro-beam-image 1 (boundary 1) (entry (awaitT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-flushT",
+     "(muro-beam-image 1 (boundary 1) (entry (flushT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-ignoreT",
+     "(muro-beam-image 1 (boundary 1) (entry (ignoreT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-ncheckT",
+     "(muro-beam-image 1 (boundary 1) (entry (ncheckT 0 (done))))\n",
+     "not surface"),
+    ("not-surface-ndemonT",
+     "(muro-beam-image 1 (boundary 1) (entry (ndemonT 0 (done))))\n",
+     "not surface"),
+    # A tagged spawn parent. Parse refuses the word before checkP.
+    # spawnTagAwait-no is the hand-built checkP pin, not this file.
+    ("tagged-spawn", None, "not surface"),
+    # A tag buried under seq as the spawn parent. Parse refuses the
+    # word. buriedTagAwait-no is checkP of the hand-built term,
+    # fail "tagged protocol". The generic arm does not merge it.
+    ("buried-awaitT", None, "not surface"),
+    ("buried-ignoreT", None, "not surface"),
+    ("buried-flushT", None, "not surface"),
+    ("buried-ncheckT", None, "not surface"),
+    ("buried-ndemonT", None, "not surface"),
+    ("spawn-ignoreT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ignoreT 0 (done)))))\n",
+     "not surface"),
+    ("spawn-flushT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (flushT 0 (done)))))\n",
+     "not surface"),
+    ("spawn-ncheckT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ncheckT 0 (done)))))\n",
+     "not surface"),
+    ("spawn-ndemonT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ndemonT 0 (done)))))\n",
+     "not surface"),
+    ("await-scope",
+     "(muro-beam-image 1 (boundary 1) (entry (await 0 (done))))\n",
+     "out of scope"),
+    ("done-extra",
+     "(muro-beam-image 1 (boundary 1) (entry (done x)))\n",
+     "junk"),
+    ("await-seq", None, "protocol is not a spawn reply"),
+    ("ignore-seq", None, "protocol is not a spawn reply"),
+    ("nignore-seq", None, "protocol is not a spawn reply"),
+    ("skip-await", None, "protocol slot is not moved"),
+    ("copy-await", None, "protocol slot is not moved"),
+    ("buried-await", None, "protocol is not a spawn reply"),
+    ("alias-await", None, "reply result is not fresh"),
+    ("gmatch-await", None, "reply result is not fresh"),
+    ("gvar-await", None, "reply result is not fresh"),
+    ("gref-chain", None, "reply result is not fresh"),
+    ("glam-g1", None, "glam reply under g1"),
+    ("nested-seq", None, "bad gref"),
+    ("comp-await", None, "protocol slot is not one computational use"),
+    ("comp-ignore", None, "protocol slot is not one computational use"),
+    ("comp-nignore", None, "protocol slot is not one computational use"),
+    ("type-await", None, "protocol slot has a type use"),
+    ("type-ignore", None, "protocol slot has a type use"),
+    ("type-nignore", None, "protocol slot has a type use"),
+    # g1 recv binder, ω payload from seq of gsu. checkP refuses it.
+    # recvMoveAwait-no is the hand-built equation, not this file's load.
+    ("recv-move", None, "protocol slot came from recv"),
+    ("defs-need-seq",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
+     "defs need a seq entry"),
+    ("defs-need-seq-spawn",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (spawn t[] (done) (done))))\n",
+     "defs need a seq entry"),
+    # A scope-0 send is `out of scope` at parse. This send is under
+    # `recv`, so the entry parses and `noDefs` refuses it.
+    ("defs-need-seq-send",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (send 0 0 (done)))))\n",
+     "defs need a seq entry"),
+    ("defs-need-seq-recv",
+     "(muro-beam-image 2 (boundary 1) (defs gze) (entry (recv (w 0) (done))))\n",
+     "defs need a seq entry"),
+    ("spawn-short",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done))))\n",
+     "junk"),
+    ("send-scope",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (send 0 0 (done)) (done))))\n",
+     "out of scope"),
+    ("thin-scope",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn (keep t[]) (done) (done))))\n",
+     "out of scope"),
+    ("g0-send",
+     "(muro-beam-image 1 (boundary 1) (entry (seq gze (recv (0 0) (send 0 0 (done))))))\n",
+     "erased variable used computationally"),
+    ("proc-trunc",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (done))))",
+     "truncated"),
     ("junk-tail", WRAP.format(body="gze") + "x", "junk"),
     ("leading-zero", WRAP.format(body="(glam (1 0) (gvar 01))"), "junk"),
     (
@@ -136,12 +234,9 @@ def write_tmp_bytes(data):
     return fh.name
 
 
-# Every checked-in .mbi, and every success fixture here, is a pure
-# (seq <btm> (done)) entry. drive stops stuck 0: seq1 pushes saved
-# over seg, and bind1 does not resume that stack. mark also maps
-# halted and deadlock to exit 0, but those outcomes need a process
-# form the loader does not read, so they are not reached through a
-# .mbi in this suite.
+# Pure (seq <btm> (done)) entries stop stuck 0. The continuation is
+# done, so bind1 leaves saved over seg in place. Process entries are
+# checked by check_proc against the full showDrove line.
 def check_line(name, out, value):
     m = LINE.match(out)
     if m is None:
@@ -159,6 +254,73 @@ def check_line(name, out, value):
     print("ok " + name + " " + m.group(1) + " " + value)
 
 
+# Full showDrove line, including the newline the Haskell main adds.
+# The event list and the heap/process fingerprint are the whole line,
+# the same text MuroBeam.Show prints for conformance.
+REPLY = (
+    "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+    "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+    "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0\n"
+)
+PROC = {
+    "spawn-done": "halted [tr-spawn 0 1, tr-collect(0)] h1l0p2 v-\n",
+    "bare-done": "halted [tr-collect()] h0l0p1 v-\n",
+    "send-recv": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-step 0, "
+        "tr-spawn 0 1, tr-send 1 0 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, "
+        "tr-recv 0 ref(2,pt(inf),pt(inf),omega-kept), "
+        "tr-collect(0 1 2 3)] h4l0p2 v2\n"
+    ),
+    "spawn-ignore": REPLY,
+    "spawn-await": REPLY,
+    "def-spawn": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, "
+        "tr-collect(0 1)] h2l0p2 v0\n"
+    ),
+    "spawn-nignore": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(1 2)] h3l1p2 v0\n"
+    ),
+    "alias-bind": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1\n"
+    ),
+    "gref-await": (
+        "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v0\n"
+    ),
+    # Direct glam at scope 0. glam-g1.mbi is the same body under a g1 recv.
+    # A closure is not a nat, so the kept value is v-.
+    "glam-reply": (
+        "halted [tr-step 0, tr-spawn 0 1, tr-send 1 0 "
+        "ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3)] h4l0p2 v-\n"
+    ),
+    # Direct gpi. The body is (gsu gze). evalTm ignores it and
+    # allocates nat zero, so the line is that allocation, not the body.
+    "gpi-reply": REPLY,
+    # (gtyp 0) needs a variable whose type grade allows one use.
+    # The child sends a closure. v0 is the gtyp allocation: a
+    # received nat would be the kept value instead.
+    "gtyp-reply": (
+        "halted [tr-spawn 0 1, tr-step 1, tr-send 1 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 "
+        "ref(1,pt(inf),pt(inf),omega-kept), tr-step 0, tr-spawn 0 2, "
+        "tr-send 2 0 ref(2,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) "
+        "Kmove, tr-collect(0 1 2 3 4 5)] h6l0p3 v0\n"
+    ),
+}
+
+
+def check_proc(name, out, want):
+    if out != want:
+        fail(name + ": got " + repr(out) + " want " + repr(want))
+    print("ok " + name)
+
+
 def main():
     if not os.path.isfile(BIN):
         fail("missing " + BIN + " (run make muro-beam)")
@@ -172,11 +334,41 @@ def main():
     if code != 0 or not out.endswith(" v2\n"):
         fail("default fuel: " + repr((code, out, err)))
     print("ok default-fuel")
+    # imgFuel is 1000, the same default this binary uses when --fuel
+    # is omitted. plus stops stuck 0 and keeps v5 at that fuel.
+    # The event list is long; the lock is the outcome and the nat.
+    code, out, err = run([os.path.join(IMG, "plus.mbi")])
+    if code != 0 or err != "":
+        fail("plus-default: " + repr((code, out, err)))
+    m = LINE.match(out)
+    if m is None or m.group(1) != "stuck 0" or m.group(3) != "5":
+        fail("plus-default line " + repr(out))
+    print("ok plus-default")
     path = write_tmp(ONCE_APP)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":
         fail("once-app: " + repr((code, out, err)))
     check_line("once-app", out, "v1")
+    for name, want in PROC.items():
+        path = os.path.join(IMG, name + ".mbi")
+        code, out, err = run([path, "--fuel", "1000"])
+        if code != 0 or err != "":
+            fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
+        check_proc(name, out, want)
+    # Same file as the halting pin above. --alias-bind loads it, plants
+    # a second reference, and bind1 refuses. Exit 0: the probe ran.
+    path = os.path.join(IMG, "alias-bind.mbi")
+    code, out, err = run(["--alias-bind", path])
+    if code != 0 or err != "" or out != "refuse: aliased reply result\n":
+        fail("alias-bind-plant: " + repr((code, out, err)))
+    print("ok alias-bind-plant")
+    # A load refusal under --alias-bind is exit 2, stderr like a normal
+    # load. The file is a non-fresh reply body.
+    path = os.path.join(IMG, "alias-await.mbi")
+    code, out, err = run(["--alias-bind", path])
+    if code != 2 or out != "" or err != "muro-beam: reply result is not fresh\n":
+        fail("alias-bind-load: " + repr((code, out, err)))
+    print("ok alias-bind-load")
     path = write_tmp(V2_EMPTY)
     code, out, err = run([path, "--fuel", "1000"])
     if code != 0 or err != "":
@@ -198,8 +390,8 @@ def main():
         fail("fuel1: " + repr((code, out, err)))
     print("ok fuel1")
     for name, text, reason in REFUSE:
-        if name == "pi":
-            path = os.path.join(IMG, "pi.mbi")
+        if text is None:
+            path = os.path.join(IMG, name + ".mbi")
         else:
             path = write_tmp(text)
         code, out, err = run([path])
@@ -215,7 +407,7 @@ def main():
         fail("usage: " + repr((code, out, err)))
     print("ok usage")
     code, out, err = run(["--help"])
-    if code != 0 or "exit 0" not in out or err != "":
+    if code != 0 or "exit 0" not in out or "aliased reply result" not in out or err != "":
         fail("help: " + repr((code, out, err)))
     print("ok help")
     code, out, err = run([os.path.join(IMG, "suc.mbi"), "--fuel", "no"])
