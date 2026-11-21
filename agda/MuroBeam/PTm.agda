@@ -642,6 +642,23 @@ gtypReply =
 gtypReply-ok : checkP [] gtypReply ≡ ok []
 gtypReply-ok = refl
 
+-- `seq (gvar 0) done` under `await 0`. Index 0 is the reply binder.
+-- `await` already contributes one computational use (`charge run`).
+-- `gvar` records a second. `isOneCount` refuses that count before
+-- `slot` returns the child use. The same guard covers `ignore` and
+-- `nignore`. The file is `examples/images/comp-await.mbi`.
+compAwait : PTm 0
+compAwait =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (await fzero
+        (seq nil (gvar fzero) (done {2}))))
+
+compAwait-no :
+  checkP [] compAwait ≡ fail "protocol slot is not one computational use"
+compAwait-no = refl
+
 -- `seq (gtyp 0) done` under `await 0`. Index 0 is the reply binder,
 -- whose type grade is `g0`. `gtyp` records one type use. `slot` must
 -- refuse that use. Dropping the parent use would let `under` accept

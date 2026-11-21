@@ -45,9 +45,9 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `skip-await.mbi`, `copy-await.mbi`, `buried-await.mbi`,
 `alias-await.mbi`, `gmatch-await.mbi`, `gvar-await.mbi`,
 `gref-chain.mbi`, `alias-bind.mbi`, `gref-await.mbi`, `glam-g1.mbi`,
-`glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`, and
-`nested-seq.mbi` are not emitter goldens. They are surface process
-entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
+`glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`,
+`nested-seq.mbi`, and `comp-await.mbi` are not emitter goldens.
+They are surface process entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
 halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
 halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
 `v0`. The harness and the binary check those files. `await-halted`
@@ -80,8 +80,10 @@ halts (`h6l0p3 v0`). A scope-0 `gtyp` is out of scope.
 `nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
 definition list is attached only to the root `seq`, so that body
 is `bad gref`. `nestedSeq-no` is the `checkP` pin of that hand-built
-term. `type-await.mbi` is `seq (gtyp 0) done` under `await 0`.
-`checkP` refuses it with `protocol slot has a type use`.
+term. `comp-await.mbi` is `seq (gvar 0) done` under `await 0`.
+`checkP` refuses it with `protocol slot is not one computational use`.
+`compAwait-no` is that equation. `type-await.mbi` is `seq (gtyp 0) done`
+under `await 0`. `checkP` refuses it with `protocol slot has a type use`.
 `typeAwait-no` is that equation. The `*-line` pins in `SchedThm`
 are hand-built terms. This directory's files are what
 `scripts/test_runner.py` runs. There is no Agda proof that `load`

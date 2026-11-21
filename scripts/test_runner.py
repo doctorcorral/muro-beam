@@ -123,6 +123,7 @@ REFUSE = [
     ("gref-chain", None, "reply result is not fresh"),
     ("glam-g1", None, "glam reply under g1"),
     ("nested-seq", None, "bad gref"),
+    ("comp-await", None, "protocol slot is not one computational use"),
     ("type-await", None, "protocol slot has a type use"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",

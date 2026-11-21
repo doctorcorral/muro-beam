@@ -173,6 +173,7 @@ REFUSE = [
     ("gref-chain", "reply result is not fresh"),
     ("glam-g1", "glam reply under g1"),
     ("nested-seq", "bad gref"),
+    ("comp-await", "protocol slot is not one computational use"),
     ("type-await", "protocol slot has a type use"),
 ]
 

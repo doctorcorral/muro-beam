@@ -62,9 +62,11 @@ that slot moves. Anywhere else the reason is
 `protocol is not a spawn reply`. A skipped or copied slot is
 `protocol slot is not moved`. The parent use of a kept moved slot has
 to be exactly one computational use and zero type uses. A further
-computational use is `protocol slot is not one computational use`.
-A type use in the continuation, `seq (gtyp 0) done` under `await 0`,
-is `protocol slot has a type use`. `type-await.mbi` is that file.
+computational use, `seq (gvar 0) done` under `await 0`, is
+`protocol slot is not one computational use`. `comp-await.mbi` is
+that file. `compAwait-no` is the `refl`. A type use in the
+continuation, `seq (gtyp 0) done` under `await 0`, is
+`protocol slot has a type use`. `type-await.mbi` is that file.
 `typeAwait-no` is the `refl`. `ignore` and `nignore` use the same guard.
 
 `awaitT`, `ignoreT`, `flushT`, `ncheckT`, and `ndemonT` are not
@@ -247,10 +249,10 @@ fresh` after `decideB` and before the continuation. `alias-await.mbi`
 is that refusal: the body is an application that can return a pointer
 the closure still holds. `gmatch-await.mbi` is a `gmatch` body.
 `gvar-await.mbi` is a `gvar` under `recv`. `gref-chain.mbi` is a
-`gref` whose definition is itself a `gref`. The proofs are
-`aliasAwait-no`, `gmatchAwait-no`, `gvarAwait-no`, and `grefChain-no`
-on those hand-built terms. `seq-reply-fresh` says an accepted reply
-`seq` has `freshBody ≡ true`.
+`gref` whose definition is itself a `gref`. The pins are
+`aliasAwait-no`, `gmatchAwait-no`, `gvarAwait-no`, and `grefChain-no`,
+the `checkP` equations on those hand-built terms. `seq-reply-fresh`
+says an accepted reply `seq` has `freshBody ≡ true`.
 
 `bind1` refuses an aliased non-g1 cell: that branch is `nothing`.
 `bind-count-refuses` is that fact for every open reply stack whose
@@ -261,7 +263,7 @@ cell is the `rv` head on `saved ∷ seg ∷ []`. `reply-g1-count` applies
 `Grade1Unique`, so under `WF` the count is 1. A count other than 1
 is not a well-formed state. The branch still does not read the count. A second
 `g1` alias would break `Grade1Unique`, and installing the ω reference
-would leave `await` and `ignore` untagged. `bind-promotes` says that
+would leave `await`, `ignore`, and `nignore` untagged. `bind-promotes` says that
 when the returned cell is not `g1` and `count` of its object is 1, the
 installed head is `regrade r g1`. `regrade-move` says that head is
 `Kmove`. `split-head` says a kept move at index 0 is the head of the
