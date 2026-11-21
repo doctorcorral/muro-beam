@@ -63,11 +63,14 @@ that slot moves. Anywhere else the reason is
 `protocol slot is not moved`. The parent use of a kept moved slot has
 to be exactly one computational use and zero type uses. A further
 computational use, `seq (gvar 0) done` under `await 0`, is
-`protocol slot is not one computational use`. `comp-await.mbi` is
-that file. `compAwait-no` is the `refl`. A type use in the
+`protocol slot is not one computational use`. `comp-await.mbi`,
+`comp-ignore.mbi`, and `comp-nignore.mbi` are that file for `await`,
+`ignore`, and `nignore`. `compAwait-no`, `compIgnore-no`, and
+`compNignore-no` are the `refl`s. A type use in the
 continuation, `seq (gtyp 0) done` under `await 0`, is
-`protocol slot has a type use`. `type-await.mbi` is that file.
-`typeAwait-no` is the `refl`. `ignore` and `nignore` use the same guard.
+`protocol slot has a type use`. `type-await.mbi`, `type-ignore.mbi`,
+and `type-nignore.mbi` are that file for the three consumers.
+`typeAwait-no`, `typeIgnore-no`, and `typeNignore-no` are the `refl`s.
 
 `awaitT`, `ignoreT`, `flushT`, `ncheckT`, and `ndemonT` are not
 surface syntax. `markProto` writes `awaitT`, `ignoreT`, and `ncheckT`
@@ -75,7 +78,16 @@ once a moved reply has an object index. `flushT` is what `arm1`
 writes from `ignoreT`. `ndemonT` is what `npeek1` writes from
 `ncheckT` when the mailbox does not hold the tag. A trace steps
 through those forms. The parser refuses all five heads with
-`not surface`.
+`not surface`. A spawn whose parent is already one of them is
+refused by `checkP` with `tagged spawn parent`, because `isProtoAt`
+is false on a tag and the generic spawn arm would skip the move,
+one-computational-use, and zero-type checks. `spawnTagAwait-no`,
+`spawnTagIgnore-no`, `spawnTagFlush-no`, `spawnTagNcheck-no`, and
+`spawnTagNdemon-no` are those equations on hand-built terms.
+`tagged-spawn.mbi` is an `awaitT` parent. Parse refuses it with
+`not surface` before `checkP`. The pin is not a load of the file.
+A hand-built tagged form that is not under `spawn` is still accepted
+when its continuation checks: `replyTok` holds.
 
 `(defs …)` is the definition list of a root `seq`, including a `seq`
 whose continuation is not `done`. A nested `seq` does not inherit
@@ -174,7 +186,9 @@ and the kept nat. The event spelling and the decimals are
 so `make conformance` pins the CLI line as well. A numeral past eight
 digits is `overflow`.
 
-Exit 0 is `halted`, `deadlock`, or `stuck`. Exit 2 is a parse or load
+Exit 0 is `halted`, `deadlock`, or `stuck`. `muro-beam --alias-bind`
+on a loaded image also exits 0 and prints `refuse: aliased reply result`.
+A load refusal under that flag is exit 2. Exit 2 is a parse or load
 refusal, and stderr is `muro-beam:` plus the reason (`bad version`,
 `bad gref`, `junk`, `truncated`, `outside the boundary`, and the
 others `load` returns). Exit 3 is out of fuel: stderr says so, and
@@ -236,7 +250,9 @@ does run. `spawn-nignore.mbi` is that image. Its steps are the naive
 peek and demonitor, so the reply is not flushed and one cell stays
 live. The `showDrove` line keeps that cell: `tr-collect(1 2)`,
 fingerprint `h3l1p2`, value `v0`. `nignore-halted`, `nignore-val`,
-and `nignore-line` are regression pins for that run at `driveFuel`.
+and `nignore-line` are regression pins of the hand-built term
+`spawnNignore` at `driveFuel`. They are not a load of
+`spawn-nignore.mbi`. `nignore-img` equates the line at `imgFuel`.
 A bare `nignore`
 under `seq` is the refusal above.
 
@@ -298,9 +314,12 @@ allocator's story. It is not a theorem from `checkP` to the tag, and
 `bind-spawn-tag` does not claim that a loaded fresh body promotes. `spawnAwait-alias` is a closed test of
 `bind-count-refuses` on the hand-built term `spawnAwait`: the plant
 adds a second reference and `bind1` is `nothing`. It is not a load of
-`alias-await.mbi`. That file is the non-fresh refusal `aliasAwait-no`,
-so `bind1` never runs on it. The string is
-`refuse: aliased reply result`. `alias-bind.mbi` is a file with
+`alias-await.mbi`. `aliasAwait-no` is `checkP` of the hand-built
+term `aliasAwait`, `fail "reply result is not fresh"`. The file is
+the same reason at the loader. There is no proof that `load` of the
+file is that term, and `bind1` does not run on a refused file. The
+plant string `refuse: aliased reply result` is `spawnAwait-alias`
+and `alias-bind-plant`, not `aliasAwait-no`. `alias-bind.mbi` is a file with
 that spawn shape and body `gsu gze`. `drive` of the file still
 promotes and halts. `alias-bind-plant` is `aliasImage` of that
 file's text, the same plant. `grefAwait-ok` is the hand-built direct fresh `gref`.
@@ -369,7 +388,12 @@ continuation `spawn (keep th)`, `isProtoAt zero pa`,
 `bare-done-line`, `send-recv-line`, `def-spawn-line`, `gref-await-line`,
 and `alias-bind-line` are the same kind of `refl` for the hand-built
 terms `spawnClosed`, `doneClosed`, `sendRecv`, `defSpawn`, `grefAwait`,
-and `aliasBind`, at `driveFuel`. `nestedSeq-no` is `checkP` of the
+and `aliasBind`, at `driveFuel`. `spawn-done-img`, `bare-done-img`,
+`send-recv-img`, `def-spawn-img`, `gref-await-img`, and
+`alias-bind-img` bridge those six lines to `imgFuel` by `drive-fuel`
+and `cong showDrove`. They are not a load of the files. Equality of
+the binary's line with the file bytes is what Python tests.
+`nestedSeq-no` is `checkP` of the
 nested `(gref 0)`, `fail "bad gref"`. Agda builds those terms by hand.
 Nothing in Agda reads the `.mbi` bytes or proves that `load` of a file
 is that term. `scripts/test_runner.py` is what runs the file and

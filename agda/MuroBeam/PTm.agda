@@ -120,7 +120,10 @@ seqGrade k with replyRoot k
 ... | false = gω
 
 -- A protocol name has to be a kept slot. A skipped slot never reaches
--- `slot`, so the guard there cannot see it.
+-- `slot`, so the guard there cannot see it. A tagged parent is not
+-- this catch-all's job: `isProtoAt` is false on a tag, so the catch-all
+-- would be true and the move check would not run. `checkP` refuses
+-- that spawn before `checkSpawn`.
 protoKept : ∀ {m n} → Thin m n → PTm n → Bool
 protoKept th (await x _)   = keptAt (toℕ x) th
 protoKept th (ignore x _)  = keptAt (toℕ x) th
@@ -283,6 +286,19 @@ checkP Γ (spawn th ch (nignore x k)) =
   checkP Γ' ch >>= λ cu →
   checkP Γ k >>= λ uk →
   checkSpawn th Γ cu (addU (oneS x (charge run)) uk) (nignore x k)
+-- A tagged parent is what `markProto`, `arm1`, and `npeek1` write
+-- after a move. `isProtoAt` does not see it, and `protoKept`'s
+-- catch-all is true, so the generic arm would skip the move,
+-- one-computational-use, and zero-type checks. Refuse it here.
+-- Surface syntax has no tagged constructor, so `load` never builds
+-- these five. `spawnTagAwait-no` and the four sibling pins are the
+-- hand-built equations. `tagged-spawn.mbi` is the parse refusal
+-- `not surface` for an `awaitT` parent. It is not this equation.
+checkP _ (spawn _ _ (awaitT _ _))  = fail "tagged spawn parent"
+checkP _ (spawn _ _ (ignoreT _ _)) = fail "tagged spawn parent"
+checkP _ (spawn _ _ (flushT _ _))  = fail "tagged spawn parent"
+checkP _ (spawn _ _ (ncheckT _ _)) = fail "tagged spawn parent"
+checkP _ (spawn _ _ (ndemonT _ _)) = fail "tagged spawn parent"
 checkP Γ (spawn th ch pa) =
   thinCtx th Γ >>= λ Γ' →
   checkP Γ' ch >>= λ cu →
@@ -303,11 +319,14 @@ checkP _ (nignore _ _) = fail "protocol is not a spawn reply"
 -- Surface syntax has no tagged constructor (`SPtm`, `toP`), so `load`
 -- never builds these five. `replyTok` is `sat g1 (finᶜ 1)`, which
 -- holds, so a hand-built `awaitT`, `ignoreT`, `flushT`, `ncheckT`, or
--- `ndemonT` is accepted by `checkP` whenever its continuation is.
--- That is not a file. Parse refuses the words with `not surface`.
--- `markProto` writes `awaitT`, `ignoreT`, and `ncheckT` at runtime.
--- `arm1` writes `flushT`. `npeek1` writes `ndemonT` when the mailbox
--- does not hold the tag. Those runtime terms are not re-checked.
+-- `ndemonT` that is not a spawn parent is accepted by `checkP`
+-- whenever its continuation is. A spawn whose parent is one of them
+-- is the refusal above (`tagged spawn parent`): the slot guards do
+-- not see a tag. That refusal is not a file. Parse refuses the words
+-- with `not surface`. `markProto` writes `awaitT`, `ignoreT`, and
+-- `ncheckT` at runtime. `arm1` writes `flushT`. `npeek1` writes
+-- `ndemonT` when the mailbox does not hold the tag. Those runtime
+-- terms are not re-checked.
 checkP Γ (awaitT _ k)  = replyTok >> checkP Γ k
 checkP Γ (ignoreT _ k) = replyTok >> checkP Γ k
 checkP Γ (flushT _ k)  = replyTok >> checkP Γ k
@@ -645,8 +664,9 @@ gtypReply-ok = refl
 -- `seq (gvar 0) done` under `await 0`. Index 0 is the reply binder.
 -- `await` already contributes one computational use (`charge run`).
 -- `gvar` records a second. `isOneCount` refuses that count before
--- `slot` returns the child use. The same guard covers `ignore` and
--- `nignore`. The file is `examples/images/comp-await.mbi`.
+-- `slot` returns the child use. `compIgnore` and `compNignore` are
+-- the same shape with `ignore` and `nignore`. The files are
+-- `comp-await.mbi`, `comp-ignore.mbi`, and `comp-nignore.mbi`.
 compAwait : PTm 0
 compAwait =
   seq nil bze
@@ -659,11 +679,36 @@ compAwait-no :
   checkP [] compAwait ≡ fail "protocol slot is not one computational use"
 compAwait-no = refl
 
+compIgnore : PTm 0
+compIgnore =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (ignore fzero
+        (seq nil (gvar fzero) (done {2}))))
+
+compIgnore-no :
+  checkP [] compIgnore ≡ fail "protocol slot is not one computational use"
+compIgnore-no = refl
+
+compNignore : PTm 0
+compNignore =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (nignore fzero
+        (seq nil (gvar fzero) (done {2}))))
+
+compNignore-no :
+  checkP [] compNignore ≡ fail "protocol slot is not one computational use"
+compNignore-no = refl
+
 -- `seq (gtyp 0) done` under `await 0`. Index 0 is the reply binder,
 -- whose type grade is `g0`. `gtyp` records one type use. `slot` must
 -- refuse that use. Dropping the parent use would let `under` accept
--- the binder. The same guard covers `ignore` and `nignore`.
--- The file is `examples/images/type-await.mbi`.
+-- the binder. `typeIgnore` and `typeNignore` are the same shape with
+-- `ignore` and `nignore`. The files are `type-await.mbi`,
+-- `type-ignore.mbi`, and `type-nignore.mbi`.
 typeAwait : PTm 0
 typeAwait =
   seq nil bze
@@ -674,6 +719,67 @@ typeAwait =
 
 typeAwait-no : checkP [] typeAwait ≡ fail "protocol slot has a type use"
 typeAwait-no = refl
+
+typeIgnore : PTm 0
+typeIgnore =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (ignore fzero
+        (seq nil (gtyp fzero) (done {2}))))
+
+typeIgnore-no : checkP [] typeIgnore ≡ fail "protocol slot has a type use"
+typeIgnore-no = refl
+
+typeNignore : PTm 0
+typeNignore =
+  seq nil bze
+    (spawn (keep t[])
+      (send zero fzero (done {1}))
+      (nignore fzero
+        (seq nil (gtyp fzero) (done {2}))))
+
+typeNignore-no : checkP [] typeNignore ≡ fail "protocol slot has a type use"
+typeNignore-no = refl
+
+-- A spawn whose parent is already tagged. The slot guards do not
+-- match these heads. `load` does not build them: parse refuses the
+-- word. `tagged-spawn.mbi` is an `awaitT` parent and is `not surface`.
+-- These five equations are hand-built terms, not a load of that file.
+spawnTagAwait : PTm 0
+spawnTagAwait = spawn t[] (done {0}) (awaitT zero (done {0}))
+
+spawnTagAwait-no :
+  checkP [] spawnTagAwait ≡ fail "tagged spawn parent"
+spawnTagAwait-no = refl
+
+spawnTagIgnore : PTm 0
+spawnTagIgnore = spawn t[] (done {0}) (ignoreT zero (done {0}))
+
+spawnTagIgnore-no :
+  checkP [] spawnTagIgnore ≡ fail "tagged spawn parent"
+spawnTagIgnore-no = refl
+
+spawnTagFlush : PTm 0
+spawnTagFlush = spawn t[] (done {0}) (flushT zero (done {0}))
+
+spawnTagFlush-no :
+  checkP [] spawnTagFlush ≡ fail "tagged spawn parent"
+spawnTagFlush-no = refl
+
+spawnTagNcheck : PTm 0
+spawnTagNcheck = spawn t[] (done {0}) (ncheckT zero (done {0}))
+
+spawnTagNcheck-no :
+  checkP [] spawnTagNcheck ≡ fail "tagged spawn parent"
+spawnTagNcheck-no = refl
+
+spawnTagNdemon : PTm 0
+spawnTagNdemon = spawn t[] (done {0}) (ndemonT zero (done {0}))
+
+spawnTagNdemon-no :
+  checkP [] spawnTagNdemon ≡ fail "tagged spawn parent"
+spawnTagNdemon-no = refl
 
 -- A nested `seq` does not inherit the root definition list.
 -- `(gref 0)` in the inner body is out of that empty bound.

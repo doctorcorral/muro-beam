@@ -174,7 +174,17 @@ REFUSE = [
     ("glam-g1", "glam reply under g1"),
     ("nested-seq", "bad gref"),
     ("comp-await", "protocol slot is not one computational use"),
+    ("comp-ignore", "protocol slot is not one computational use"),
+    ("comp-nignore", "protocol slot is not one computational use"),
     ("type-await", "protocol slot has a type use"),
+    ("type-ignore", "protocol slot has a type use"),
+    ("type-nignore", "protocol slot has a type use"),
+]
+# Tagged heads are not surface syntax, so echo is not the source.
+# drive and run both print the parse reason. spawnTagAwait-no is
+# the checkP equation on a hand-built term, not this file.
+PARSE_REFUSE = [
+    ("tagged-spawn", "not surface"),
 ]
 
 
@@ -377,6 +387,11 @@ def main():
             text = "refuse: " + reason
             check(name + "-drive", call("drive", path), text)
             check(name + "-run", call("run", path), text)
+        for name, reason in PARSE_REFUSE:
+            path = os.path.join(IMG, name + ".mbi")
+            text = "refuse: " + reason
+            check(name + "-drive", call("drive", path), text)
+            check(name + "-run", call("run", path), text)
         # Fresh body, so load and drive succeed. The probe plants a
         # second reference on the returned cell. bind1 refuses it.
         check(
@@ -447,6 +462,18 @@ def main():
              "refuse: not surface"),
             ("not-surface-ndemonT",
              "(muro-beam-image 1 (boundary 1) (entry (ndemonT 0 (done))))\n",
+             "refuse: not surface"),
+            ("spawn-ignoreT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ignoreT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("spawn-flushT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (flushT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("spawn-ncheckT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ncheckT 0 (done)))))\n",
+             "refuse: not surface"),
+            ("spawn-ndemonT",
+             "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ndemonT 0 (done)))))\n",
              "refuse: not surface"),
             ("defs-need-seq",
              "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",

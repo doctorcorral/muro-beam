@@ -196,6 +196,12 @@ rv-hasG1 h ps i p r env k lk ce g =
 
 -- The stack `bind1` sees on a non-done `seq`. The returned cell is
 -- still the head of `ctlRefs`, so the general `rv` fact applies.
+-- `bind-wf` does not call these two. The already-`g1` arm installs
+-- `r` unchanged and does not read the count, so that proof inherits
+-- `WF` from the multiset it already had. They stay because that arm's
+-- count is not a premise of `bind1`: under `WF` the count is 1, and
+-- a caller that wants the number uses `reply-g1-count`. `reply-hasG1`
+-- is the `hasG1` step that lemma gives to `Grade1Unique`.
 reply-hasG1 :
   ∀ {n} h ps i p r env (k : PTm n) cenv eth d dm {ds} →
   lookup ps i ≡ just p →

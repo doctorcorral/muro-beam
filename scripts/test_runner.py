@@ -105,6 +105,21 @@ REFUSE = [
     ("not-surface-ndemonT",
      "(muro-beam-image 1 (boundary 1) (entry (ndemonT 0 (done))))\n",
      "not surface"),
+    # A tagged spawn parent. Parse refuses the word before checkP.
+    # spawnTagAwait-no is the hand-built checkP pin, not this file.
+    ("tagged-spawn", None, "not surface"),
+    ("spawn-ignoreT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ignoreT 0 (done)))))\n",
+     "not surface"),
+    ("spawn-flushT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (flushT 0 (done)))))\n",
+     "not surface"),
+    ("spawn-ncheckT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ncheckT 0 (done)))))\n",
+     "not surface"),
+    ("spawn-ndemonT",
+     "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ndemonT 0 (done)))))\n",
+     "not surface"),
     ("await-scope",
      "(muro-beam-image 1 (boundary 1) (entry (await 0 (done))))\n",
      "out of scope"),
@@ -124,7 +139,11 @@ REFUSE = [
     ("glam-g1", None, "glam reply under g1"),
     ("nested-seq", None, "bad gref"),
     ("comp-await", None, "protocol slot is not one computational use"),
+    ("comp-ignore", None, "protocol slot is not one computational use"),
+    ("comp-nignore", None, "protocol slot is not one computational use"),
     ("type-await", None, "protocol slot has a type use"),
+    ("type-ignore", None, "protocol slot has a type use"),
+    ("type-nignore", None, "protocol slot has a type use"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),
@@ -374,7 +393,7 @@ def main():
         fail("usage: " + repr((code, out, err)))
     print("ok usage")
     code, out, err = run(["--help"])
-    if code != 0 or "exit 0" not in out or err != "":
+    if code != 0 or "exit 0" not in out or "aliased reply result" not in out or err != "":
         fail("help: " + repr((code, out, err)))
     print("ok help")
     code, out, err = run([os.path.join(IMG, "suc.mbi"), "--fuel", "no"])

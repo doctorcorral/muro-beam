@@ -84,6 +84,8 @@ def write_main(sym, alias):
             "  , \"\"",
             "  , \"A run prints one line: outcome, events, fingerprint, kept nat.\"",
             "  , \"exit 0  halted, deadlock, or stuck\"",
+            "  , \"         --alias-bind on a loaded image also exits 0\"",
+            "  , \"         and prints refuse: aliased reply result\"",
             "  , \"exit 1  usage, a file that cannot be read, or a bad fuel\"",
             "  , \"exit 2  parse or load refusal\"",
             "  , \"exit 3  out of fuel (stdout still has the partial line)\"",

@@ -373,11 +373,12 @@ gtyp-img = cong showDrove gtyp-fuel
 
 -- `showDrove` lines for the hand-built terms that match the process
 -- entries `scripts/test_runner.py` runs from `.mbi` files. Each pin is
--- `refl` at `driveFuel`. None of them is `load` of the file bytes.
--- Python is what reads the file and compares the binary's line,
--- including the newline the Haskell main adds. The strings here are
--- that line without the newline. There is no Agda theorem that the
--- hand-built term is the program in the file.
+-- `refl` at `driveFuel`. `spawn-done-img` through `alias-bind-img`
+-- are the `imgFuel` bridges for those six lines. None of them is
+-- `load` of the file bytes. Python is what reads the file and compares
+-- the binary's line, including the newline the Haskell main adds.
+-- The strings here are that line without the newline. There is no
+-- Agda theorem that the hand-built term is the program in the file.
 -- Pure images in that file's `VALUES` (`plus`, `half`, `suc`, and the
 -- rest) stay Python-only. Their traces are not these closed pins.
 spawnDoneP : CheckedP
@@ -427,6 +428,73 @@ alias-bind-line :
   showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP aliasBindP)))
     ≡ "halted [tr-step 0, tr-step 0, tr-step 0, tr-spawn 0 1, tr-send 1 0 ref(1,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3 4)] h5l0p2 v1"
 alias-bind-line = refl
+
+-- Each program above halts inside `driveFuel`. `imgBridge` is
+-- `drive-fuel` and `cong showDrove`, the same step as `await-img`.
+-- The `*-img` equations are the line at `imgFuel`. They are not a
+-- load of the `.mbi` files. Python compares the binary's line.
+imgBridge : (p : CheckedP) →
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP p))))
+    ≡ plain-halted →
+  showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP p)))
+    ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP p)))
+imgBridge p h =
+  cong showDrove
+    (drive-fuel driveFuel imgFuel zero nil nothing (lowerP p) fuel-≤ h)
+
+spawn-done-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP spawnDoneP))))
+    ≡ plain-halted
+spawn-done-halted = refl
+
+spawn-done-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP spawnDoneP)))
+               ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP spawnDoneP)))
+spawn-done-img = imgBridge spawnDoneP spawn-done-halted
+
+bare-done-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP bareDoneP))))
+    ≡ plain-halted
+bare-done-halted = refl
+
+bare-done-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP bareDoneP)))
+              ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP bareDoneP)))
+bare-done-img = imgBridge bareDoneP bare-done-halted
+
+send-recv-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP sendRecvP))))
+    ≡ plain-halted
+send-recv-halted = refl
+
+send-recv-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP sendRecvP)))
+              ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP sendRecvP)))
+send-recv-img = imgBridge sendRecvP send-recv-halted
+
+def-spawn-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP defSpawnP))))
+    ≡ plain-halted
+def-spawn-halted = refl
+
+def-spawn-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP defSpawnP)))
+              ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP defSpawnP)))
+def-spawn-img = imgBridge defSpawnP def-spawn-halted
+
+gref-await-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP grefAwaitP))))
+    ≡ plain-halted
+gref-await-halted = refl
+
+gref-await-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP grefAwaitP)))
+               ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP grefAwaitP)))
+gref-await-img = imgBridge grefAwaitP gref-await-halted
+
+alias-bind-halted :
+  plain (oc (proj₁ (drive driveFuel zero nil nothing (lowerP aliasBindP))))
+    ≡ plain-halted
+alias-bind-halted = refl
+
+alias-bind-img : showDrove (proj₁ (drive imgFuel zero nil nothing (lowerP aliasBindP)))
+               ≡ showDrove (proj₁ (drive driveFuel zero nil nothing (lowerP aliasBindP)))
+alias-bind-img = imgBridge aliasBindP alias-bind-halted
 
 deadTm : PTm zero
 deadTm = recv g1 g0 (done {suc zero})

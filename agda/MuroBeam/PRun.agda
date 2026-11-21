@@ -654,9 +654,9 @@ openCont (ndemonT _ _)   = true
 -- can still be a checked image. There is no theorem from that
 -- guard to this count.
 -- A singleton `saved` is the book bind and is not regraded.
+-- One lookup. The process it returns is the one `bound` reads.
 bind1 : Sys → ℕ → Maybe Sys
 bind1 (sys h ps) i =
-  lookup ps i >>= λ _ →
   lookup ps i >>= λ p →
   bound (ctl p)
   where

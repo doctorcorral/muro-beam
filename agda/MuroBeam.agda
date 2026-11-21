@@ -44,7 +44,8 @@ open import MuroBeam.PRun public hiding (hasTag; Split; ⊥; ⊥-elim)
 open import MuroBeam.PTm public
 open import MuroBeam.Stray public
 open import MuroBeam.PWf public using
-  ( lowerP-safe; spawn-preserves-grade1; pstep-wf; psteps )
+  ( lowerP-safe; spawn-preserves-grade1; pstep-wf; psteps
+  ; reply-hasG1; reply-g1-count )
 open import MuroBeam.PExample public hiding (take)
 -- The trace comparison. Not opened: the names stay off the v1c API.
 -- Cex holds the one closed counterexample. Example re-exports `cex`.
