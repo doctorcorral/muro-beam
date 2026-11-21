@@ -328,8 +328,11 @@ checkGo ρ Γ (recv c t k) =
 -- `protocol slot has a type use`. `slot` refuses both before it
 -- returns the child use. A protocol slot marked by `recv` is
 -- `protocol slot came from recv` even when the annotation moves.
--- A marked slot whose parent is not a protocol form is
--- `kept slot came from recv`.
+-- A keep that is not a protocol consumer is
+-- `kept slot came from recv`. That includes a keep of a recv
+-- binder beside a protocol consumer of another slot: `isProtoAt`
+-- of the kept index is false, so the parent being `await`,
+-- `ignore`, or `nignore` does not make this keep the consumer.
 checkGo ρ Γ (spawn th ch (await x k)) =
   thinCtx th Γ >>= λ Γ' →
   checkGo (thinMask th ρ) Γ' ch >>= λ cu →
@@ -1038,8 +1041,10 @@ nignoreContTag-no = refl
 -- that reference. There is no theorem that the annotation is the
 -- payload's kind. `checkP` refuses the protocol use.
 -- `recv-move.mbi` is this program. `recv-move-ignore.mbi` and
--- `recv-move-nignore.mbi` are the same guard. `recv-move-shift.mbi`
+-- `recv-move-nignore.mbi` are the same term shape and the same
+-- guard, including this `Kcopy` sender. `recv-move-shift.mbi`
 -- awaits the `recv` binder at index 1, under a later `seq`.
+-- That image has no such sender. The stick is not a claim about it.
 recvMoveAwait : PTm 0
 recvMoveAwait =
   spawn t[]
@@ -1125,6 +1130,29 @@ recvKeepCopy =
 recvKeepCopy-no :
   checkP [] recvKeepCopy ≡ fail "kept slot came from recv"
 recvKeepCopy-no = refl
+
+-- The parent is a protocol consumer of another slot. Index 0 is
+-- the `seq` binder. Its grade is `g1` because the continuation
+-- keeps slot 0 and awaits it, so `replyRoot` is true. Index 1 is
+-- the `recv` binder. The thinning keeps both. `isProtoAt` of the
+-- recv index is false, so that keep is not a protocol consumer.
+-- `slot` fails before `kind` is read. The parent being `await`
+-- does not make the recv keep the consumer. There is no `Kcopy`
+-- sender in this term, and the equation is not a theorem that
+-- the payload's kind matches the annotation.
+-- `recv-keep-beside.mbi` is this program. It is not a load of
+-- the file: the pin is the hand-built term.
+recvKeepBeside : PTm 0
+recvKeepBeside =
+  recv g1 g0
+    (seq nil bze
+      (spawn (keep (keep t[]))
+        (send zero fzero (done {2}))
+        (await fzero (done {2}))))
+
+recvKeepBeside-no :
+  checkP [] recvKeepBeside ≡ fail "kept slot came from recv"
+recvKeepBeside-no = refl
 
 -- A nested `seq` does not inherit the root definition list.
 -- `(gref 0)` in the inner body is out of that empty bound.

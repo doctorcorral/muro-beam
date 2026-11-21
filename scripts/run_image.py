@@ -182,17 +182,24 @@ REFUSE = [
     # g1 recv annotation, ω payload. checkP refuses the protocol slot.
     # recvMoveAwait-no is that equation. The file is not a run.
     ("recv-move", "protocol slot came from recv"),
-    # Same guard for ignore, nignore, and a shifted await.
+    # Same term shape and guard for ignore and nignore.
+    # recv-move-shift is a different term (await at index 1, no
+    # Kcopy sender) and the same guard.
     # recvMoveIgnore-no, recvMoveNignore-no, recvMoveShift-no.
     ("recv-move-ignore", "protocol slot came from recv"),
     ("recv-move-nignore", "protocol slot came from recv"),
     ("recv-move-shift", "protocol slot came from recv"),
-    # Parent is done, so this is not a protocol slot. The keep would
-    # follow kind of the annotation. recvKeep-no is the g1 annotation
-    # (kind g1 is Kmove) over a Kcopy payload. recvKeepCopy-no is an
-    # ω annotation. Neither is a theorem about the payload grade.
+    # Parent is done, so this keep is not a protocol consumer. The
+    # keep would follow kind of the annotation. recvKeep-no is the
+    # g1 annotation (kind g1 is Kmove) over a Kcopy payload.
+    # recvKeepCopy-no is an ω annotation. Neither is a theorem
+    # about the payload grade.
     ("recv-keep", "kept slot came from recv"),
     ("recv-keep-copy", "kept slot came from recv"),
+    # Keep of the recv binder beside an await of the seq slot.
+    # isProtoAt of the recv index is false. recvKeepBeside-no is
+    # the hand-built equation, not a load of this file.
+    ("recv-keep-beside", "kept slot came from recv"),
 ]
 # Tagged heads are not surface syntax, so echo is not the source.
 # drive and run both print the parse reason. spawnTagAwait-no is

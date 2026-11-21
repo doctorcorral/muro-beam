@@ -158,14 +158,18 @@ REFUSE = [
     # g1 recv binder, ω payload from seq of gsu. checkP refuses it.
     # recvMoveAwait-no is the hand-built equation, not this file's load.
     ("recv-move", None, "protocol slot came from recv"),
+    # ignore and nignore share recv-move's term shape. shift is a
+    # different term and the same guard.
     # recvMoveIgnore-no, recvMoveNignore-no, recvMoveShift-no.
     ("recv-move-ignore", None, "protocol slot came from recv"),
     ("recv-move-nignore", None, "protocol slot came from recv"),
     ("recv-move-shift", None, "protocol slot came from recv"),
-    # Non-protocol keep. recvKeep-no and recvKeepCopy-no are the
-    # hand-built equations, not a load of these files.
+    # Keep that is not a protocol consumer. recvKeep-no and
+    # recvKeepCopy-no are the hand-built equations, not a load of
+    # these files. recv-keep-beside awaits another slot.
     ("recv-keep", None, "kept slot came from recv"),
     ("recv-keep-copy", None, "kept slot came from recv"),
+    ("recv-keep-beside", None, "kept slot came from recv"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),

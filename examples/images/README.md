@@ -50,7 +50,7 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `comp-nignore.mbi`, `type-await.mbi`, `type-ignore.mbi`,
 `type-nignore.mbi`, `recv-move.mbi`, `recv-move-ignore.mbi`,
 `recv-move-nignore.mbi`, `recv-move-shift.mbi`, `recv-keep.mbi`,
-and `recv-keep-copy.mbi` are not emitter goldens.
+`recv-keep-copy.mbi`, and `recv-keep-beside.mbi` are not emitter goldens.
 They are surface process entries written for this loader.
 `tagged-spawn.mbi`, `buried-awaitT.mbi`, `buried-ignoreT.mbi`,
 `buried-flushT.mbi`, `buried-ncheckT.mbi`, and `buried-ndemonT.mbi`
@@ -71,17 +71,21 @@ refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
 binder holding the ω cell `(gsu gze)` that the child sends.
 `checkP` refuses it with `protocol slot came from recv`.
 `recvMoveAwait-no` is that equation. It is not a run of the file.
-`recv-move-ignore.mbi`, `recv-move-nignore.mbi`, and
-`recv-move-shift.mbi` are the same refusal for `ignore`, `nignore`,
-and an `await` of that binder at index 1. `recvMoveIgnore-no`,
-`recvMoveNignore-no`, and `recvMoveShift-no` are those equations.
+`recv-move-ignore.mbi` and `recv-move-nignore.mbi` are that same
+term shape and the same refusal for `ignore` and `nignore`.
+`recvMoveIgnore-no` and `recvMoveNignore-no` are those equations.
+`recv-move-shift.mbi` is a different term: an `await` of that binder
+at index 1, under a later `seq`, with no `Kcopy` sender.
+`recvMoveShift-no` is the same guard on that shape.
 `recv-keep.mbi` is that `g1` annotation with parent `done`. The keep
-is not a protocol slot, so `checkP` refuses it with `kept slot came
+is not a protocol consumer, so `checkP` refuses it with `kept slot came
 from recv`. `recvKeep-no` is that equation. `recv-keep-copy.mbi` is
 an ω annotation with parent `done`, and `recvKeepCopy-no` is that
-equation. `kind g1` is `Kmove`. The refusal is not a theorem that
+equation. `recv-keep-beside.mbi` keeps the recv binder beside an
+`await` of another slot, and `recvKeepBeside-no` is that equation.
+`kind g1` is `Kmove`. The refusal is not a theorem that
 the payload's kind matches the annotation. The stick on a bare
-`await` is this file's `Kcopy` payload, not a receive whose payload
+`await` is `recv-move.mbi`'s `Kcopy` payload, not a receive whose payload
 is `Kmove`. `alias-await.mbi` is refused with
 `reply result is not fresh`. `gmatch-await.mbi` is a `gmatch`
 body, `gvar-await.mbi` is a `gvar` under `recv`, and
