@@ -86,8 +86,18 @@ one-computational-use, and zero-type checks. `spawnTagAwait-no`,
 `spawnTagNdemon-no` are those equations on hand-built terms.
 `tagged-spawn.mbi` is an `awaitT` parent. Parse refuses it with
 `not surface` before `checkP`. The pin is not a load of the file.
-A hand-built tagged form that is not under `spawn` is still accepted
-when its continuation checks: `replyTok` holds.
+A hand-built tagged form that is not the direct spawn parent is
+refused with `tagged protocol`. `tagAwait-no`, `tagIgnore-no`,
+`tagFlush-no`, `tagNcheck-no`, and `tagNdemon-no` are those
+equations. A tag buried under `seq` as the spawn parent is the same
+refusal: `containsTag` runs before the generic arm merges, so the
+move, one-computational-use, and zero-type guards are not skipped.
+`buriedTagAwait-no` and the four sibling pins are that equation.
+`buried-awaitT.mbi` and its four siblings are the parse refusal
+`not surface`. They are not a load of the pins. The old `replyTok`
+clause accepted these forms. Promotion does not need that
+acceptance: `markProto`, `arm1`, and `npeek1` write the tags after
+`checkP`, and nothing runs `checkP` on them again.
 
 `(defs …)` is the definition list of a root `seq`, including a `seq`
 whose continuation is not `done`. A nested `seq` does not inherit
@@ -161,13 +171,14 @@ and, from muro 0.21.22, a defs section. It does not write `spawn`,
 the old lines and the surface process term above. The round trip
 `parse-show` covers both. The surface type has no tagged constructor,
 so the round trip does not mention `awaitT` and the other four.
-`checkP` still accepts a hand-built tagged form: `replyTok` is
-`sat g1 (finᶜ 1)`, which holds, and the continuation is checked
-with `checkP`. Parse refuses those words with `not surface`, so
-`load` never builds them. `markProto` writes `awaitT`, `ignoreT`,
-and `ncheckT`. `arm1` writes `flushT`. `npeek1` writes `ndemonT`
-when the mailbox does not hold the tag. Those runtime terms are
-not re-checked.
+`checkP` refuses a hand-built tagged form that is not the direct
+spawn parent (`tagged protocol`). It refuses a tagged spawn parent
+with `tagged spawn parent`. Parse refuses those words with
+`not surface`, so `load` never builds them. `markProto` writes
+`awaitT`, `ignoreT`, and `ncheckT`. `arm1` writes `flushT`.
+`npeek1` writes `ndemonT` when the mailbox does not hold the tag.
+Those runtime terms are not re-checked. There is no theorem from
+`checkP` or `load` to that promotion.
 
 A complete sexp with no trailing newline, or a file that ends inside
 an open sexp, is `truncated`. A newline while a sexp is still open is
@@ -233,12 +244,15 @@ printed lines of those hand-built terms, the same kind of pin. That
 schedule runs the reply. It is not a proof of `no-stray-reply`: that
 theorem still needs `ReplyDone` at the start.
 
-A protocol form that is not that spawn parent root is refused at
-`checkP` with `protocol is not a spawn reply`. `await-seq.mbi`,
-`ignore-seq.mbi`, and `nignore-seq.mbi` are that refusal. A bare
-`seq` of `await`, `ignore`, or `nignore` never spawns. A protocol
-buried under another constructor, including `seq` under `spawn`, is
-the same refusal. `buried-await.mbi` is that shape.
+An untagged protocol form that is not that spawn parent root is
+refused at `checkP` with `protocol is not a spawn reply`.
+`await-seq.mbi`, `ignore-seq.mbi`, and `nignore-seq.mbi` are that
+refusal. A bare `seq` of `await`, `ignore`, or `nignore` never
+spawns. An untagged protocol buried under another constructor,
+including `seq` under `spawn`, is the same refusal.
+`buried-await.mbi` is that shape. A tagged form in that position is
+`tagged protocol`, not this string. `buried-awaitT.mbi` does not
+reach `checkP`: parse refuses it with `not surface`.
 `markProto` still rewrites only the root, so the checker refuses the
 shape it would leave untouched. A spawn that skips the protocol slot,
 or that keeps it at a copied grade, is refused with `protocol slot is
@@ -376,12 +390,13 @@ fuel n returns the same `Drove` at every m ≥ n. `await-fuel`,
 hand-built reply terms `spawnAwait`, `spawnIgnore`, and `spawnNignore`
 at `imgFuel`. `await-line`, `ignore-line`, and `nignore-line`
 are the `showDrove` content pins at `driveFuel`. `await-img`,
-`ignore-img`, and `nignore-img` are the fuel-bridge equalities:
-the line at `imgFuel` equals the line at `driveFuel`. `glam-line`,
-`gpi-line`, and `gtyp-line` are the same kind of pin for
-`glamReply`, `gpiReply`, and `gtypReply`. `glam` and `gpi` halt at
-`driveFuel`. `gtypReply` is out of fuel at 16 and halts at
-`gtypFuel` (20); `gtyp-img` bridges that line to `imgFuel`. These
+`ignore-img`, `nignore-img`, `glam-img`, and `gpi-img` are the
+fuel-bridge equalities: the line at `imgFuel` equals the line at
+`driveFuel`. `glam-line`, `gpi-line`, and `gtyp-line` are the
+content pins for `glamReply`, `gpiReply`, and `gtypReply`. `glam`
+and `gpi` halt at `driveFuel`. `gtypReply` is out of fuel at 16 and
+halts at `gtypFuel` (20); `gtyp-img` bridges that line to `imgFuel`.
+These
 pins are not a load of the files, and they do not discharge the
 continuation `spawn (keep th)`, `isProtoAt zero pa`,
 `isG1 (checked r) ≡ false`, or the tail `splitGo`. `spawn-done-line`,

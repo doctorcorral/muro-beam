@@ -90,6 +90,9 @@ REFUSE = [
     ("unclosed", "(muro-beam-image 1 (boundary 1) (entry (seq gze (done)))", "truncated"),
     ("newline-open", "(muro-beam-image 1 (boundary 1) (entry (seq gze (done)))\n", "junk"),
     ("junk", "not-an-image\n", "junk"),
+    # A tagged form that is not a spawn parent. Parse refuses the
+    # word. tagAwait-no is checkP of the hand-built term,
+    # fail "tagged protocol". It is not this string.
     ("not-surface",
      "(muro-beam-image 1 (boundary 1) (entry (awaitT 0 (done))))\n",
      "not surface"),
@@ -108,6 +111,14 @@ REFUSE = [
     # A tagged spawn parent. Parse refuses the word before checkP.
     # spawnTagAwait-no is the hand-built checkP pin, not this file.
     ("tagged-spawn", None, "not surface"),
+    # A tag buried under seq as the spawn parent. Parse refuses the
+    # word. buriedTagAwait-no is checkP of the hand-built term,
+    # fail "tagged protocol". The generic arm does not merge it.
+    ("buried-awaitT", None, "not surface"),
+    ("buried-ignoreT", None, "not surface"),
+    ("buried-flushT", None, "not surface"),
+    ("buried-ncheckT", None, "not surface"),
+    ("buried-ndemonT", None, "not surface"),
     ("spawn-ignoreT",
      "(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (ignoreT 0 (done)))))\n",
      "not surface"),

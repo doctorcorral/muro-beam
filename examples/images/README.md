@@ -48,7 +48,9 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`,
 `nested-seq.mbi`, `comp-await.mbi`, `comp-ignore.mbi`,
 `comp-nignore.mbi`, `type-await.mbi`, `type-ignore.mbi`,
-`type-nignore.mbi`, and `tagged-spawn.mbi` are not emitter goldens.
+`type-nignore.mbi`, `tagged-spawn.mbi`, `buried-awaitT.mbi`,
+`buried-ignoreT.mbi`, `buried-flushT.mbi`, `buried-ncheckT.mbi`,
+and `buried-ndemonT.mbi` are not emitter goldens.
 They are surface process entries written for this loader. `spawn-done.mbi` and `bare-done.mbi`
 halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
 halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
@@ -94,7 +96,17 @@ body under `ignore` and `nignore`. `typeIgnore-no` and
 `typeNignore-no` are those equations. `tagged-spawn.mbi` is a spawn
 whose parent is `awaitT`. Parse refuses it with `not surface`.
 `spawnTagAwait-no` is `checkP` of the hand-built term, `fail "tagged
-spawn parent"`. It is not a load of the file. The `*-line` pins in `SchedThm`
+spawn parent"`. It is not a load of the file. `buried-awaitT.mbi`
+is `seq` of `awaitT` as that parent, and the four siblings are
+`ignoreT`, `flushT`, `ncheckT`, and `ndemonT`. Parse refuses each
+with `not surface`. `buriedTagAwait-no` and the four sibling pins
+are `checkP` of the hand-built terms, `fail "tagged protocol"`.
+`tagAwait-no` and its four siblings are the same refusal for a tag
+that is not under `spawn`. Those equations are not a load of the
+files. The old `replyTok` clause accepted the non-parent tags.
+Promotion does not re-run `checkP`, so that acceptance is not
+required. There is no theorem from `checkP` or `load` to promotion
+and tagging. The `*-line` pins in `SchedThm`
 are hand-built terms. This directory's files are what
 `scripts/test_runner.py` runs. There is no Agda proof that `load`
 of a file is the hand-built term. `spawnAwait-alias` plants on

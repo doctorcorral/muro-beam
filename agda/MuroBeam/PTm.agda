@@ -8,7 +8,7 @@
 
 module MuroBeam.PTm where
 
-open import Data.Bool.Base using (Bool; true; false; not; _∧_)
+open import Data.Bool.Base using (Bool; true; false; not; _∧_; _∨_)
 open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; length) renaming ([] to nil; _∷_ to _∷ₗ_)
 open import Data.Maybe.Base using (just; nothing)
@@ -91,9 +91,6 @@ comps : ∀ {n} → GCtx n → Cxt n
 comps []             = []
 comps (gp c _ ∷ Γ)   = c ∷ comps Γ
 
-replyTok : Result ⊤
-replyTok = guard "reply" (sat g1 (finᶜ 1))
-
 ------------------------------------------------------------------------
 -- Thin the context the child sees. keep keeps the grade. skip drops it.
 ------------------------------------------------------------------------
@@ -123,7 +120,11 @@ seqGrade k with replyRoot k
 -- `slot`, so the guard there cannot see it. A tagged parent is not
 -- this catch-all's job: `isProtoAt` is false on a tag, so the catch-all
 -- would be true and the move check would not run. `checkP` refuses
--- that spawn before `checkSpawn`.
+-- that spawn before `checkSpawn`. A tag buried under the parent is
+-- the same hole on the generic arm. `containsTag` refuses it before
+-- `checkSpawn` as well. The tag is an object index, not a slot, so
+-- the move, one-computational-use, and zero-type guards cannot run
+-- on it.
 protoKept : ∀ {m n} → Thin m n → PTm n → Bool
 protoKept th (await x _)   = keptAt (toℕ x) th
 protoKept th (ignore x _)  = keptAt (toℕ x) th
@@ -254,6 +255,24 @@ guardGlam Γ e k with replyRoot k
 ... | false = ok tt
 ... | true  = guard "glam reply under g1" (not (isGlam e ∧ sharpCxt (comps Γ)))
 
+-- A tagged constructor anywhere in the term. `awaitT` carries an
+-- object index, not a de Bruijn slot, and so do `ignoreT`, `flushT`,
+-- `ncheckT`, and `ndemonT`. `isProtoAt` is false on each of them.
+containsTag : ∀ {n} → PTm n → Bool
+containsTag done             = false
+containsTag (send _ _ k)    = containsTag k
+containsTag (recv _ _ k)    = containsTag k
+containsTag (spawn _ ch pa) = containsTag ch ∨ containsTag pa
+containsTag (seq _ _ k)     = containsTag k
+containsTag (await _ k)     = containsTag k
+containsTag (ignore _ k)    = containsTag k
+containsTag (nignore _ k)   = containsTag k
+containsTag (awaitT _ _)    = true
+containsTag (ignoreT _ _)   = true
+containsTag (flushT _ _)    = true
+containsTag (ncheckT _ _)   = true
+containsTag (ndemonT _ _)   = true
+
 checkP : ∀ {n} → GCtx n → PTm n → Result (Uses n)
 checkP {n} Γ done = ok (zeros {n})
 checkP Γ (send _ x k) =
@@ -264,8 +283,10 @@ checkP Γ (recv c t k) =
   checkP (gp c t ∷ Γ) k >>= λ uk →
   under run c t uk
 -- The protocol form is legal only as this spawn parent. Its
--- continuation is checked with `checkP`, so a protocol buried under
--- the continuation is refused. The parent's one computational use is
+-- continuation is checked with `checkP`, so an untagged protocol
+-- buried under the continuation is refused (`protocol is not a spawn
+-- reply`). A tag in that continuation is `tagged protocol`. The
+-- parent's one computational use is
 -- the shape check inside `slot` and is not added again. A further
 -- computational use is `protocol slot is not one computational use`.
 -- A type use of that slot in the continuation is
@@ -299,7 +320,13 @@ checkP _ (spawn _ _ (ignoreT _ _)) = fail "tagged spawn parent"
 checkP _ (spawn _ _ (flushT _ _))  = fail "tagged spawn parent"
 checkP _ (spawn _ _ (ncheckT _ _)) = fail "tagged spawn parent"
 checkP _ (spawn _ _ (ndemonT _ _)) = fail "tagged spawn parent"
+-- A tag under this parent is not a protocol root. `isProtoAt` is
+-- false on `seq` and on every tagged constructor, so `slot` would
+-- skip the move, one-computational-use, and zero-type guards.
+-- Refuse before that merge. The tag clauses below are the same
+-- refusal when the tagged form itself is what `checkP` is called on.
 checkP Γ (spawn th ch pa) =
+  guard "tagged protocol" (not (containsTag pa)) >>
   thinCtx th Γ >>= λ Γ' →
   checkP Γ' ch >>= λ cu →
   checkP Γ pa >>= λ pu →
@@ -317,21 +344,21 @@ checkP _ (await _ _)   = fail "protocol is not a spawn reply"
 checkP _ (ignore _ _)  = fail "protocol is not a spawn reply"
 checkP _ (nignore _ _) = fail "protocol is not a spawn reply"
 -- Surface syntax has no tagged constructor (`SPtm`, `toP`), so `load`
--- never builds these five. `replyTok` is `sat g1 (finᶜ 1)`, which
--- holds, so a hand-built `awaitT`, `ignoreT`, `flushT`, `ncheckT`, or
--- `ndemonT` that is not a spawn parent is accepted by `checkP`
--- whenever its continuation is. A spawn whose parent is one of them
--- is the refusal above (`tagged spawn parent`): the slot guards do
--- not see a tag. That refusal is not a file. Parse refuses the words
--- with `not surface`. `markProto` writes `awaitT`, `ignoreT`, and
--- `ncheckT` at runtime. `arm1` writes `flushT`. `npeek1` writes
--- `ndemonT` when the mailbox does not hold the tag. Those runtime
--- terms are not re-checked.
-checkP Γ (awaitT _ k)  = replyTok >> checkP Γ k
-checkP Γ (ignoreT _ k) = replyTok >> checkP Γ k
-checkP Γ (flushT _ k)  = replyTok >> checkP Γ k
-checkP Γ (ncheckT _ k) = replyTok >> checkP Γ k
-checkP Γ (ndemonT _ k) = replyTok >> checkP Γ k
+-- never builds these five. A hand-built tag that is not the direct
+-- spawn parent used to be accepted: the old clause was `replyTok`,
+-- `sat g1 (finᶜ 1)`, which holds, and then the continuation.
+-- Promotion does not need that acceptance. `markProto` writes
+-- `awaitT`, `ignoreT`, and `ncheckT` after the move. `arm1` writes
+-- `flushT`. `npeek1` writes `ndemonT` when the mailbox does not hold
+-- the tag. Those runtime terms are not passed to `checkP` again.
+-- There is no theorem from `checkP` or `load` to that promotion.
+-- Parse refuses the words with `not surface`. `tagAwait-no` and the
+-- four siblings are the hand-built equations, not a load of a file.
+checkP _ (awaitT _ _)  = fail "tagged protocol"
+checkP _ (ignoreT _ _) = fail "tagged protocol"
+checkP _ (flushT _ _)  = fail "tagged protocol"
+checkP _ (ncheckT _ _) = fail "tagged protocol"
+checkP _ (ndemonT _ _) = fail "tagged protocol"
 
 ------------------------------------------------------------------------
 -- Lowering. One process, empty heap, the checked program in `pr`.
@@ -780,6 +807,90 @@ spawnTagNdemon = spawn t[] (done {0}) (ndemonT zero (done {0}))
 spawnTagNdemon-no :
   checkP [] spawnTagNdemon ≡ fail "tagged spawn parent"
 spawnTagNdemon-no = refl
+
+-- A tagged form that is not a spawn parent. The old clause accepted
+-- it (`replyTok`). Promotion does not re-run `checkP`, so the
+-- acceptance is not required. Parse refuses the word with
+-- `not surface`. These five equations are hand-built terms.
+tagAwait : PTm 0
+tagAwait = awaitT zero (done {0})
+
+tagAwait-no : checkP [] tagAwait ≡ fail "tagged protocol"
+tagAwait-no = refl
+
+tagIgnore : PTm 0
+tagIgnore = ignoreT zero (done {0})
+
+tagIgnore-no : checkP [] tagIgnore ≡ fail "tagged protocol"
+tagIgnore-no = refl
+
+tagFlush : PTm 0
+tagFlush = flushT zero (done {0})
+
+tagFlush-no : checkP [] tagFlush ≡ fail "tagged protocol"
+tagFlush-no = refl
+
+tagNcheck : PTm 0
+tagNcheck = ncheckT zero (done {0})
+
+tagNcheck-no : checkP [] tagNcheck ≡ fail "tagged protocol"
+tagNcheck-no = refl
+
+tagNdemon : PTm 0
+tagNdemon = ndemonT zero (done {0})
+
+tagNdemon-no : checkP [] tagNdemon ≡ fail "tagged protocol"
+tagNdemon-no = refl
+
+-- `seq` of a tag, as the spawn parent. This is not a protocol root,
+-- so it used to take the generic arm and skip the slot guards.
+-- `containsTag` refuses it first. The files `buried-awaitT.mbi` and
+-- its four siblings are the parse refusal `not surface`. These
+-- equations are not a load of those files.
+buriedTagAwait : PTm 0
+buriedTagAwait =
+  spawn t[] (done {0})
+    (seq nil bze (awaitT zero (done {1})))
+
+buriedTagAwait-no :
+  checkP [] buriedTagAwait ≡ fail "tagged protocol"
+buriedTagAwait-no = refl
+
+buriedTagIgnore : PTm 0
+buriedTagIgnore =
+  spawn t[] (done {0})
+    (seq nil bze (ignoreT zero (done {1})))
+
+buriedTagIgnore-no :
+  checkP [] buriedTagIgnore ≡ fail "tagged protocol"
+buriedTagIgnore-no = refl
+
+buriedTagFlush : PTm 0
+buriedTagFlush =
+  spawn t[] (done {0})
+    (seq nil bze (flushT zero (done {1})))
+
+buriedTagFlush-no :
+  checkP [] buriedTagFlush ≡ fail "tagged protocol"
+buriedTagFlush-no = refl
+
+buriedTagNcheck : PTm 0
+buriedTagNcheck =
+  spawn t[] (done {0})
+    (seq nil bze (ncheckT zero (done {1})))
+
+buriedTagNcheck-no :
+  checkP [] buriedTagNcheck ≡ fail "tagged protocol"
+buriedTagNcheck-no = refl
+
+buriedTagNdemon : PTm 0
+buriedTagNdemon =
+  spawn t[] (done {0})
+    (seq nil bze (ndemonT zero (done {1})))
+
+buriedTagNdemon-no :
+  checkP [] buriedTagNdemon ≡ fail "tagged protocol"
+buriedTagNdemon-no = refl
 
 -- A nested `seq` does not inherit the root definition list.
 -- `(gref 0)` in the inner body is out of that empty bound.

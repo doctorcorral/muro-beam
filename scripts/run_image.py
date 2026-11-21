@@ -182,9 +182,17 @@ REFUSE = [
 ]
 # Tagged heads are not surface syntax, so echo is not the source.
 # drive and run both print the parse reason. spawnTagAwait-no is
-# the checkP equation on a hand-built term, not this file.
+# the checkP equation for a tagged parent. tagAwait-no is the same
+# equation for a tag that is not a spawn parent. buriedTagAwait-no
+# is the equation for a tag under seq as that parent. None of them
+# is a load of these files.
 PARSE_REFUSE = [
     ("tagged-spawn", "not surface"),
+    ("buried-awaitT", "not surface"),
+    ("buried-ignoreT", "not surface"),
+    ("buried-flushT", "not surface"),
+    ("buried-ncheckT", "not surface"),
+    ("buried-ndemonT", "not surface"),
 ]
 
 
