@@ -79,7 +79,14 @@ that sent `gsu gze` would keep `v1`. `drive` promotes the cell and
 halts (`h6l0p3 v0`). A scope-0 `gtyp` is out of scope.
 `nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
 definition list is attached only to the root `seq`, so that body
-is `bad gref`. `alias-bind.mbi` is a fresh `gsu`
+is `bad gref`. `nestedSeq-no` is the `checkP` pin of that hand-built
+term. `type-await.mbi` is `seq (gtyp 0) done` under `await 0`.
+`checkP` refuses it with `protocol slot has a type use`.
+`typeAwait-no` is that equation. The `*-line` pins in `SchedThm`
+are hand-built terms. This directory's files are what
+`scripts/test_runner.py` runs. There is no Agda proof that `load`
+of a file is the hand-built term. `spawnAwait-alias` plants on
+`spawnAwait`, not on `alias-await.mbi`. `alias-bind.mbi` is a fresh `gsu`
 reply. A normal run promotes that cell and halts with `v1`.
 `--alias-bind` loads the same file, plants a second reference to
 the returned cell, and `bind1` refuses (`aliased reply result`,

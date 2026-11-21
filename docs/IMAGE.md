@@ -60,7 +60,12 @@ one-index shape. `checkP` accepts that shape only as the parent root
 of a `spawn` whose thinning keeps the named slot and whose grade on
 that slot moves. Anywhere else the reason is
 `protocol is not a spawn reply`. A skipped or copied slot is
-`protocol slot is not moved`.
+`protocol slot is not moved`. The parent use of a kept moved slot has
+to be exactly one computational use and zero type uses. A further
+computational use is `protocol slot is not one computational use`.
+A type use in the continuation, `seq (gtyp 0) done` under `await 0`,
+is `protocol slot has a type use`. `type-await.mbi` is that file.
+`typeAwait-no` is the `refl`. `ignore` and `nignore` use the same guard.
 
 `awaitT`, `ignoreT`, `flushT`, `ncheckT`, and `ndemonT` are not
 surface syntax. `markProto` writes `awaitT`, `ignoreT`, and `ncheckT`
@@ -250,10 +255,11 @@ on those hand-built terms. `seq-reply-fresh` says an accepted reply
 `bind1` refuses an aliased non-g1 cell: that branch is `nothing`.
 `bind-count-refuses` is that fact for every open reply stack whose
 returned cell is not `g1` (`isG1 ≡ false`) and whose `count` is not 1.
-A cell that is already `g1` does not consult the count. Under `WF`,
-`hasG1 i (refsOf s) ≡ true` and `count i (refsOf s) ≢ 1` contradict
-`Grade1Unique`, so an already-`g1` cell whose count is not 1 is not a
-well-formed state. The branch still does not read the count. A second
+A cell that is already `g1` does not consult the count. `reply-hasG1`
+is `isG1 (checked r) ≡ true` to `hasG1 (obj r) (refsOf s)` when that
+cell is the `rv` head on `saved ∷ seg ∷ []`. `reply-g1-count` applies
+`Grade1Unique`, so under `WF` the count is 1. A count other than 1
+is not a well-formed state. The branch still does not read the count. A second
 `g1` alias would break `Grade1Unique`, and installing the ω reference
 would leave `await` and `ignore` untagged. `bind-promotes` says that
 when the returned cell is not `g1` and `count` of its object is 1, the
@@ -269,8 +275,9 @@ and `spawn-reply-tag`: a promoting `bind1` whose continuation is
 `(count (obj r) (refsOf (sys h ps)) ≡ᵇ 1) ≡ true` from
 `bind1 ≡ just`, `isG1 (checked r) ≡ false`, and that reply stack:
 the `false | false` clause is `nothing`, so the count bit is 1, and
-that bit selects the promoting arm. The premises `bind1 ≡ just`
-does not discharge are `isProtoAt zero pa ≡ true`,
+that bit selects the promoting arm. The hypotheses `bind1 ≡ just`
+does not discharge are the continuation `spawn (keep th) ch pa`
+(so the head slot is the one `keep` moves), `isProtoAt zero pa ≡ true`,
 `isG1 (checked r) ≡ false`, and
 `splitGo (suc zero) (placeholder h) th (env ++ cenv) ≡ just (ce , pe , mv)`.
 `isG1 ≡ false` stays a premise because the already-`g1` arm of
@@ -286,9 +293,11 @@ A fresh head allocates at `length` of the heap. Under `Bound` that
 index was not named, and the returning step adds one reference.
 That is why the count is 1 on the images the harness runs. It is the
 allocator's story. It is not a theorem from `checkP` to the tag, and
-`bind-spawn-tag` does not claim that a loaded fresh body promotes. `alias-await-probe` is a closed test of
+`bind-spawn-tag` does not claim that a loaded fresh body promotes. `spawnAwait-alias` is a closed test of
 `bind-count-refuses` on the hand-built term `spawnAwait`: the plant
-adds a second reference and `bind1` is `nothing`. The string is
+adds a second reference and `bind1` is `nothing`. It is not a load of
+`alias-await.mbi`. That file is the non-fresh refusal `aliasAwait-no`,
+so `bind1` never runs on it. The string is
 `refuse: aliased reply result`. `alias-bind.mbi` is a file with
 that spawn shape and body `gsu gze`. `drive` of the file still
 promotes and halts. `alias-bind-plant` is `aliasImage` of that
@@ -320,7 +329,8 @@ it. An ω binder can still hold a runtime `g1` reference;
 `guardGlam` does not see that. A nested `seq` does not inherit the
 image's definition list (`toP` builds `seq []`). `nested-seq.mbi`
 is a root `seq` of `gze` whose continuation is `seq (gref 0)`, with
-one definition `gze`. The nested body is `bad gref`. The files `spawn-await.mbi` and
+one definition `gze`. The nested body is `bad gref`. `nestedSeq-no` is that `checkP` equation
+on the hand-built term. It is not a load of the file. The files `spawn-await.mbi` and
 `spawn-ignore.mbi` are the fresh `gze` images the harness runs.
 The halt pins are `await-halted` and `ignore-halted` on the
 hand-built terms `spawnAwait` and `spawnIgnore`. `glam-halted`,
@@ -341,8 +351,9 @@ and keeps `v5` on both the harness and the binary. `driveFuel` in
 `glam` and `gpi` reply pins finish inside it. `gtypReply` does not:
 it is out of fuel at 16 and halted at `gtypFuel` (20). `drive-fuel` says a run that has already halted at
 fuel n returns the same `Drove` at every m ≥ n. `await-fuel`,
-`ignore-fuel`, and `nignore-fuel` are that fact for the three reply
-images at `imgFuel`. `await-line`, `ignore-line`, and `nignore-line`
+`ignore-fuel`, and `nignore-fuel` are that fact for the three
+hand-built reply terms `spawnAwait`, `spawnIgnore`, and `spawnNignore`
+at `imgFuel`. `await-line`, `ignore-line`, and `nignore-line`
 are the `showDrove` content pins at `driveFuel`. `await-img`,
 `ignore-img`, and `nignore-img` are the fuel-bridge equalities:
 the line at `imgFuel` equals the line at `driveFuel`. `glam-line`,
@@ -350,10 +361,20 @@ the line at `imgFuel` equals the line at `driveFuel`. `glam-line`,
 `glamReply`, `gpiReply`, and `gtypReply`. `glam` and `gpi` halt at
 `driveFuel`. `gtypReply` is out of fuel at 16 and halts at
 `gtypFuel` (20); `gtyp-img` bridges that line to `imgFuel`. These
-pins are not a load of the files, and they do not discharge
-`isProtoAt zero pa`, `isG1 (checked r) ≡ false`, or the tail
-`splitGo`. The harness `drove` pins the content lines, and the
-binary's line is the same text plus a newline.
+pins are not a load of the files, and they do not discharge the
+continuation `spawn (keep th)`, `isProtoAt zero pa`,
+`isG1 (checked r) ≡ false`, or the tail `splitGo`. `spawn-done-line`,
+`bare-done-line`, `send-recv-line`, `def-spawn-line`, `gref-await-line`,
+and `alias-bind-line` are the same kind of `refl` for the hand-built
+terms `spawnClosed`, `doneClosed`, `sendRecv`, `defSpawn`, `grefAwait`,
+and `aliasBind`, at `driveFuel`. `nestedSeq-no` is `checkP` of the
+nested `(gref 0)`, `fail "bad gref"`. Agda builds those terms by hand.
+Nothing in Agda reads the `.mbi` bytes or proves that `load` of a file
+is that term. `scripts/test_runner.py` is what runs the file and
+compares the binary's line, including the newline the Haskell main
+adds. The pure images in that file's `VALUES` table (`plus`, `half`,
+`suc`, and the rest) stay Python-only. The harness `drove` pins the
+content lines, and the binary's line is the same text plus a newline.
 
 What this shows is `load` of the `String` the Haskell main passed
 in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so

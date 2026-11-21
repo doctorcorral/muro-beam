@@ -151,8 +151,9 @@ droveImage src with load src
 -- An aliased non-g1 reply is refused. `checkP` already rejects a
 -- non-fresh body, and a fresh head's returning step allocates at
 -- `length` of the heap. There is no theorem from `freshBody` to the
--- tag. This probe loads a reply image, runs the body until `eval1`
--- stops on `saved ∷ seg`, and plants a second reference to that cell.
+-- tag. This probe runs the hand-built term `spawnAwait`, not the file
+-- `alias-await.mbi`. It steps until `eval1` stops on `saved ∷ seg`,
+-- and plants a second reference to that cell.
 -- `bind1` then returns `nothing` instead of resuming the ω alias.
 -- Eight eval steps cover `gze` and `gsu gze`. `runFor` stops when
 -- `eval1` returns `nothing`, so the rest of the fuel is not a loop.
