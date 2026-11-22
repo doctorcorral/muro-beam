@@ -1,0 +1,1 @@
+(muro-beam-image 2 (boundary 1) (defs gze) (entry (seq (gref 0) (spawn (keep t[]) (send 0 0 (done)) (await 0 (done))))))

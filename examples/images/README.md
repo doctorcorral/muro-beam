@@ -39,6 +39,123 @@ The same `plus` and `half` calls on muro `3f1cae2`
 returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `{:run, "half", [0]}`, and `{:run, "half", [5]}`.
 
+`spawn-done.mbi`, `bare-done.mbi`, `send-recv.mbi`, `await-seq.mbi`,
+`ignore-seq.mbi`, `nignore-seq.mbi`, `spawn-ignore.mbi`,
+`spawn-await.mbi`, `spawn-nignore.mbi`, `def-spawn.mbi`,
+`skip-await.mbi`, `copy-await.mbi`, `buried-await.mbi`,
+`alias-await.mbi`, `gmatch-await.mbi`, `gvar-await.mbi`,
+`gref-chain.mbi`, `alias-bind.mbi`, `gref-await.mbi`, `glam-g1.mbi`,
+`glam-reply.mbi`, `gpi-reply.mbi`, `gtyp-reply.mbi`,
+`nested-seq.mbi`, `comp-await.mbi`, `comp-ignore.mbi`,
+`comp-nignore.mbi`, `type-await.mbi`, `type-ignore.mbi`,
+`type-nignore.mbi`, `recv-move.mbi`, `recv-move-ignore.mbi`,
+`recv-move-nignore.mbi`, `recv-move-shift.mbi`, `recv-keep.mbi`,
+`recv-keep-copy.mbi`, `recv-keep-beside.mbi`,
+`recv-keep-beside-ignore.mbi`, and `recv-keep-beside-nignore.mbi`
+are not emitter goldens.
+They are surface process entries written for this loader.
+`tagged-spawn.mbi`, `buried-awaitT.mbi`, `buried-ignoreT.mbi`,
+`buried-flushT.mbi`, `buried-ncheckT.mbi`, and `buried-ndemonT.mbi`
+are not surface entries. Parse refuses each with `not surface`.
+
+`spawn-done.mbi` and `bare-done.mbi`
+halt. `send-recv.mbi` binds at ω and halts with `v2`. `def-spawn.mbi`
+halts with `v0`. `spawn-await.mbi` and `spawn-ignore.mbi` halt with
+`v0`. The harness and the binary check those files. `await-halted`
+and `ignore-halted` are `refl` pins of the hand-built terms
+`spawnAwait` and `spawnIgnore`, not of a load of the files. `spawn-nignore.mbi` is the same spawn with `nignore`. It
+halts with `v0` and fingerprint `h3l1p2`: the reply is not flushed,
+so collect leaves the cell at index 0. `await-seq.mbi`,
+`ignore-seq.mbi`, and `nignore-seq.mbi` are refused at load
+(`protocol is not a spawn reply`). `buried-await.mbi` is the same
+refusal. `skip-await.mbi` and `copy-await.mbi` are refused with
+`protocol slot is not moved`. `recv-move.mbi` is a `g1` `recv`
+binder holding the ω cell `(gsu gze)` that the child sends.
+`checkP` refuses it with `protocol slot came from recv`.
+`recvMoveAwait-no` is that equation. It is not a run of the file.
+`recv-move-ignore.mbi` and `recv-move-nignore.mbi` are that same
+term shape and the same refusal for `ignore` and `nignore`.
+`recvMoveIgnore-no` and `recvMoveNignore-no` are those equations.
+`recv-move-shift.mbi` is a different term: an `await` of that binder
+at index 1, under a later `seq`, with no `Kcopy` sender.
+`recvMoveShift-no` is the same guard on that shape.
+`recv-keep.mbi` is that `g1` annotation with parent `done`. The keep
+is not a protocol consumer, so `checkP` refuses it with `kept slot came
+from recv`. `recvKeep-no` is that equation. `recv-keep-copy.mbi` is
+an ω annotation with parent `done`, and `recvKeepCopy-no` is that
+equation. `recv-keep-beside.mbi` keeps the recv binder beside an
+`await` of another slot, and `recvKeepBeside-no` is that equation.
+`recv-keep-beside-ignore.mbi` and `recv-keep-beside-nignore.mbi`
+are that keep beside `ignore` and `nignore`.
+`recvKeepBesideIgnore-no` and `recvKeepBesideNignore-no` are those
+equations. The five pins are hand-built `refl`s. They are not a
+load of the files, and they are not a grade theorem. `sendGate`
+is unchanged.
+`kind g1` is `Kmove`. The refusal is not a theorem that
+the payload's kind matches the annotation. The stick on a bare
+`await` is `recv-move.mbi`'s `Kcopy` payload, not a receive whose payload
+is `Kmove`. `alias-await.mbi` is refused with
+`reply result is not fresh`. `gmatch-await.mbi` is a `gmatch`
+body, `gvar-await.mbi` is a `gvar` under `recv`, and
+`gref-chain.mbi` is a `gref` whose definition is itself a `gref`.
+Those three are the same refusal. `gref-await.mbi` is a loadable
+direct fresh `gref` of `gze` whose continuation awaits the moved
+slot. `glam-g1.mbi` is a `recv` at grade 1 whose `seq` body is a
+`glam`. `checkP` refuses it with `glam reply under g1`.
+`glam-reply.mbi` is that `(glam (w 0) gze)` at scope 0. No `g1` is
+in scope, so load accepts it. `drive` halts and keeps `v-`: the
+payload is a closure. `gpi-reply.mbi` is a direct `(gpi (w 0) (gsu gze))`
+reply. `evalTm` ignores the successor body and allocates nat zero,
+so the line is `v0`, not that successor. `gtyp-reply.mbi` is a
+direct `(gtyp 0)`. The child sends a closure, `(glam (w 0) (gsu gze))`,
+the parent receives it at `(w w)`, and the reply body names that
+variable. `drive` keeps the first delivered nat. A closure is not a
+nat, so `v0` is the cell `evalTm` allocated for `gtyp`. A child
+that sent `gsu gze` would keep `v1`. The runner's `load` accepts
+the file, and the runner's `drive` promotes the cell and halts
+(`h6l0p3 v0`). That is an operational result of the harness and
+the binary. It is not an Agda equation `load` of the file. A
+scope-0 `gtyp` is out of scope.
+`nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
+definition list is attached only to the root `seq`, so that body
+is `bad gref`. `nestedSeq-no` is the `checkP` pin of that hand-built
+term. `comp-await.mbi` is `seq (gvar 0) done` under `await 0`.
+`checkP` refuses it with `protocol slot is not one computational use`.
+`compAwait-no` is that equation. `comp-ignore.mbi` and
+`comp-nignore.mbi` are the same body under `ignore` and `nignore`.
+`compIgnore-no` and `compNignore-no` are those equations.
+`type-await.mbi` is `seq (gtyp 0) done` under `await 0`. `checkP`
+refuses it with `protocol slot has a type use`. `typeAwait-no` is
+that equation. `type-ignore.mbi` and `type-nignore.mbi` are the same
+body under `ignore` and `nignore`. `typeIgnore-no` and
+`typeNignore-no` are those equations. `tagged-spawn.mbi` is a spawn
+whose parent is `awaitT`. Parse refuses it with `not surface`.
+`spawnTagAwait-no` is `checkP` of the hand-built term, `fail "tagged
+spawn parent"`. It is not a load of the file. `buried-awaitT.mbi`
+is `seq` of `awaitT` as that parent, and the four siblings are
+`ignoreT`, `flushT`, `ncheckT`, and `ndemonT`. Parse refuses each
+with `not surface`. `buriedTagAwait-no` and the four sibling pins
+are `checkP` of the hand-built terms, `fail "tagged protocol"`.
+`tagAwait-no` and its four siblings are the same refusal for a tag
+that is not under `spawn`. Those equations are not a load of the
+files. The old `replyTok` clause accepted the non-parent tags.
+Promotion does not re-run `checkP`, so that acceptance is not
+required. There is no theorem from `checkP` or `load` to promotion
+and tagging. The `*-line` pins in `SchedThm`
+are hand-built terms. This directory's files are what
+`scripts/test_runner.py` runs. There is no Agda proof that `load`
+of a file is the hand-built term. `spawnAwait-alias` plants on
+`spawnAwait`, not on `alias-await.mbi`. `alias-bind.mbi` is a fresh `gsu`
+reply. The runner's `load` accepts the file, and the runner's
+`drive` promotes that cell and halts with `v1`. That is an
+operational result of the harness and the binary. It is not an
+Agda equation `load` of the file.
+`--alias-bind` loads the same file, plants a second reference to
+the returned cell, and `bind1` refuses (`aliased reply result`,
+exit 0). A load refusal under `--alias-bind` exits 2 and writes
+`muro-beam:` plus the reason on stderr.
+Do not treat any of these as bytes `muro emit --backend mbi` writes.
+
 `plus` and `half` are `run` definitions. `eval_def` asks `calls_out?`
 of the whole body, including both match arms, and returns
 `{:error, "run definition calls itself"}` before it steps.

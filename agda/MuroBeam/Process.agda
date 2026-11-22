@@ -56,8 +56,10 @@ data Frame : Set where
   saved : Code → Frame
   -- The code segment. Definitions are closed terms, not references,
   -- so the frame adds nothing to `refsOf`. `seq` pushes it under
-  -- `saved`. `bind` resumes only `saved ∷ []`, so a segment stays
-  -- parked for the run.
+  -- `saved`. `bind` resumes `saved ∷ []`, and it resumes
+  -- `saved ∷ seg ∷ []` when the continuation is not `done`.
+  -- A `done` continuation leaves the segment parked. An aliased
+  -- non-g1 reply on that stack is refused.
   seg : List (BTm 0) → Frame
 
 frameRefs : Frame → List Ref

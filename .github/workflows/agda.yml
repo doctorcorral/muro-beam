@@ -102,12 +102,12 @@ jobs:
   # Cache keys:
   # - haskell-actions/setup caches the GHC 9.8.4 and Cabal 3.12.1.0
   #   ghcup install on its own key (runner OS, tool version).
-  # - actions/cache key conform-v4-agda280-ghc984-<sources> restores
+  # - actions/cache key conform-v5-agda280-ghc984-<sources> restores
   #   vendor/agda-stdlib (v2.3) and the generated MAlonzo tree. A hit
   #   skips agda --ghc and only relinks the driver. A miss clones the
   #   stdlib and compiles Conform. The key covers the Agda sources, the
-  #   Makefile, and the comparison scripts. v4 freezes the death
-  #   verdict in observe and adds settle-after-exit, so a v3 tree is
+  #   Makefile, and the comparison scripts. v5 resumes a non-done seq
+  #   continuation over seg. A pure done stays parked, so a v4 tree is
   #   not reused. Book changes that do not touch those files still
   #   re-run the printer; they do not force a second MAlonzo compile.
   conformance:
@@ -125,7 +125,7 @@ jobs:
           path: |
             MAlonzo
             vendor/agda-stdlib
-          key: conform-v4-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/conform.py', 'scripts/book_show.exs', 'book/show.muro') }}
+          key: conform-v5-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/conform.py', 'scripts/book_show.exs', 'book/show.muro') }}
 
       - name: Install Agda 2.8.0
         run: |
@@ -178,9 +178,9 @@ jobs:
           fi
 
   # Load and run the checked-in images, then the muro-beam binary.
-  # Separate cache from conformance: the conform-v4 key stays put.
-  # runner-v1 is the drive CLI. A hit relinks. It does not reuse an
-  # images-v1 tree. The key also hashes the image fixtures and the
+  # Separate cache from conformance: the conform-v5 key stays put.
+  # runner-v2 is the process entry. A hit relinks. It does not reuse a
+  # runner-v1 tree. The key also hashes the image fixtures and the
   # runner/emit scripts, so a changed fixture or test is a miss.
   images:
     name: image runner
@@ -197,7 +197,7 @@ jobs:
           path: |
             MAlonzo
             vendor/agda-stdlib
-          key: runner-v1-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/run_image.py', 'scripts/build_runner.py', 'scripts/test_runner.py', 'scripts/emit_check.py', 'examples/images/**') }}
+          key: runner-v2-agda280-ghc984-${{ hashFiles('agda/**/*.agda', 'vendor/muro/agda/**/*.agda', 'Makefile', 'scripts/run_image.py', 'scripts/build_runner.py', 'scripts/test_runner.py', 'scripts/emit_check.py', 'examples/images/**') }}
 
       - name: Install Agda 2.8.0
         run: |

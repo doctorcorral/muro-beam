@@ -1,0 +1,1 @@
+(muro-beam-image 1 (boundary 1) (entry (spawn t[] (done) (awaitT 0 (done)))))

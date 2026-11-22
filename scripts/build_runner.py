@@ -30,17 +30,17 @@ def fail(msg):
     sys.exit(1)
 
 
-def symbol():
+def symbol(prefix):
     if not os.path.isfile(HS):
         fail("missing " + HS + " (run agda --ghc first)")
     names = []
     with open(HS, encoding="utf-8") as fh:
         for line in fh:
-            m = re.match(r"^(d_cliRun_\d+)\s+::", line)
+            m = re.match(r"^(" + prefix + r"_\d+)\s+::", line)
             if m:
                 names.append(m.group(1))
     if len(names) != 1:
-        fail("expected one d_cliRun binding, found " + repr(names))
+        fail("expected one " + prefix + " binding, found " + repr(names))
     return names[0]
 
 
@@ -53,7 +53,7 @@ def rte_dir():
     return rte
 
 
-def write_main(sym):
+def write_main(sym, alias):
     fuel = str(DEFAULT_FUEL)
     text = "\n".join(
         [
@@ -68,18 +68,24 @@ def write_main(sym):
             "import System.Exit (exitSuccess, exitWith, ExitCode(ExitFailure))",
             "import System.IO (IOMode(ReadMode), hFileSize, hPutStrLn, stderr, withBinaryFile)",
             "import System.IO.Error (ioeGetErrorString)",
-            "import MAlonzo.Code.MuroBeam.RunImage (" + sym + ")",
+            "import MAlonzo.Code.MuroBeam.RunImage (" + sym + ", " + alias + ")",
             "",
             "usage :: String",
             "usage = unlines",
             "  [ \"usage: muro-beam IMAGE [--fuel N]\"",
+            "  , \"       muro-beam --alias-bind IMAGE\"",
             "  , \"       muro-beam --help\"",
             "  , \"\"",
             "  , \"Load a .mbi image and run it on the round-robin driver.\"",
+            "  , \"--alias-bind loads IMAGE, plants a second reference on the\"",
+            "  , \"returned reply cell, and prints the bind refusal.\"",
+            "  , \"A load refusal under --alias-bind is exit 2, same as a normal load.\"",
             "  , \"N is a natural. The default is " + fuel + ".\"",
             "  , \"\"",
             "  , \"A run prints one line: outcome, events, fingerprint, kept nat.\"",
             "  , \"exit 0  halted, deadlock, or stuck\"",
+            "  , \"         --alias-bind on a loaded image also exits 0\"",
+            "  , \"         and prints refuse: aliased reply result\"",
             "  , \"exit 1  usage, a file that cannot be read, or a bad fuel\"",
             "  , \"exit 2  parse or load refusal\"",
             "  , \"exit 3  out of fuel (stdout still has the partial line)\"",
@@ -154,9 +160,15 @@ def write_main(sym):
             "",
             "main :: IO ()",
             "main = do",
-            "  (path, fuel) <- getArgs >>= parseArgs",
-            "  src <- readImage path",
-            "  dispatch (" + sym + " src fuel)",
+            "  args <- getArgs",
+            "  case args of",
+            "    [\"--alias-bind\", path] -> do",
+            "      src <- readImage path",
+            "      dispatch (" + alias + " src)",
+            "    _ -> do",
+            "      (path, fuel) <- parseArgs args",
+            "      src <- readImage path",
+            "      dispatch (" + sym + " src fuel)",
             "",
         ]
     )
@@ -168,9 +180,11 @@ def write_main(sym):
 def main():
     if shutil.which("ghc") is None:
         fail("ghc is not on PATH")
-    sym = symbol()
+    sym = symbol("d_cliRun")
+    alias = symbol("d_aliasCli")
     print("cliRun symbol " + sym, file=sys.stderr)
-    write_main(sym)
+    print("aliasCli symbol " + alias, file=sys.stderr)
+    write_main(sym, alias)
     rte = rte_dir()
     subprocess.run(
         [
