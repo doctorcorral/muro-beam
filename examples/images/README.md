@@ -111,8 +111,11 @@ direct `(gtyp 0)`. The child sends a closure, `(glam (w 0) (gsu gze))`,
 the parent receives it at `(w w)`, and the reply body names that
 variable. `drive` keeps the first delivered nat. A closure is not a
 nat, so `v0` is the cell `evalTm` allocated for `gtyp`. A child
-that sent `gsu gze` would keep `v1`. `drive` promotes the cell and
-halts (`h6l0p3 v0`). A scope-0 `gtyp` is out of scope.
+that sent `gsu gze` would keep `v1`. The runner's `load` accepts
+the file, and the runner's `drive` promotes the cell and halts
+(`h6l0p3 v0`). That is an operational result of the harness and
+the binary. It is not an Agda equation `load` of the file. A
+scope-0 `gtyp` is out of scope.
 `nested-seq.mbi` puts `(gref 0)` in a nested `seq`. The image's
 definition list is attached only to the root `seq`, so that body
 is `bad gref`. `nestedSeq-no` is the `checkP` pin of that hand-built
@@ -143,7 +146,10 @@ are hand-built terms. This directory's files are what
 `scripts/test_runner.py` runs. There is no Agda proof that `load`
 of a file is the hand-built term. `spawnAwait-alias` plants on
 `spawnAwait`, not on `alias-await.mbi`. `alias-bind.mbi` is a fresh `gsu`
-reply. A normal run promotes that cell and halts with `v1`.
+reply. The runner's `load` accepts the file, and the runner's
+`drive` promotes that cell and halts with `v1`. That is an
+operational result of the harness and the binary. It is not an
+Agda equation `load` of the file.
 `--alias-bind` loads the same file, plants a second reference to
 the returned cell, and `bind1` refuses (`aliased reply result`,
 exit 0). A load refusal under `--alias-bind` exits 2 and writes

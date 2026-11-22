@@ -427,8 +427,10 @@ that sends a closure, `(glam (w 0) (gsu gze))`; the parent receives
 it at `(w w)` and the reply body is `(gtyp 0)`. `drive` keeps the
 first delivered nat. `readNat` of a closure is nothing, so `v0` is
 the cell `evalTm` allocated for `gtyp`, not the received value. A
-child that sent `gsu gze` would keep `v1`. The run promotes that
-cell and halts (`h6l0p3 v0`).
+child that sent `gsu gze` would keep `v1`. The runner's `load`
+accepts the file, and the runner's `drive` promotes that cell and
+halts (`h6l0p3 v0`). That is an operational result of the harness
+and the binary. It is not an Agda equation `load` of the file.
 A `gref` of a `glam` runs under `[]`, so `guardGlam` does not refuse
 it. An ω binder can still hold a runtime `g1` reference;
 `guardGlam` does not see that. A nested `seq` does not inherit the
