@@ -63,7 +63,9 @@ recv-origin binder is refused even at `g1`. When that keep is the
 protocol consumer the reason is `protocol slot came from recv`. A
 keep that is not a protocol consumer is `kept slot came from recv`,
 including a keep beside a protocol consumer of another slot.
-Anywhere else the reason is `protocol is not a spawn reply`. A skipped or copied slot is
+A bare protocol form, or an untagged protocol form that is not the
+spawn parent root, is `protocol is not a spawn reply`. That reason
+is those forms. A skipped or copied slot is
 `protocol slot is not moved`. The parent use of a kept moved slot has
 to be exactly one computational use and zero type uses. A further
 computational use, `seq (gvar 0) done` under `await 0`, is
@@ -246,18 +248,22 @@ that returned cell from ω to `g1` when the cell is not already `g1`
 and it is the only reference to its object. The following spawn
 records a move, and `markProto` rewrites that parent root to the
 tagged form the reply steps match. `spawn-await.mbi` and
-`spawn-ignore.mbi` halt. The child sends
-`ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))`
-with kind `Kmove`, the schedule collects `(0 1 2 3)`, the fingerprint
-is `h4l0p2`, and the kept nat is the seq payload `v0`.
+`spawn-ignore.mbi` halt on the harness and on the binary.
 `await-halted`, `await-val`, `ignore-halted`, and `ignore-val` are
 regression pins: closed `refl`s for the hand-built terms `spawnAwait`
 and `spawnIgnore` at `driveFuel` (16). They are not a load of
 `spawn-await.mbi` or `spawn-ignore.mbi`. The files are what the
-harness and the binary run. `await-line` and `ignore-line` are the
-printed lines of those hand-built terms, the same kind of pin. That
-schedule runs the reply. It is not a proof of `no-stray-reply`: that
-theorem still needs `ReplyDone` at the start.
+harness and the binary run. The exact `showDrove` schedule those
+runs print, and that `await-line` and `ignore-line` pin on the
+hand-built terms, is the child sending
+`ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0))))`
+with kind `Kmove`, collect `(0 1 2 3)`, fingerprint `h4l0p2`, and
+kept nat `v0`. That schedule is the runner's line and the hand-built
+pin. It is not an Agda theorem that `load` of either file is that
+term. `await-line` and `ignore-line` are the printed lines of those
+hand-built terms, the same kind of pin. That schedule runs the
+reply. It is not a proof of `no-stray-reply`: that theorem still
+needs `ReplyDone` at the start.
 
 An untagged protocol form that is not that spawn parent root is
 refused at `checkP` with `protocol is not a spawn reply`.
@@ -299,14 +305,20 @@ sender. `recvMoveShift-no` is the same guard on that shape. The
 not a protocol consumer is refused before `kind` is read, with
 `kept slot came from recv`. That includes a keep of a recv binder
 beside a protocol consumer of another slot: `isProtoAt` of the kept
-index is false even though the parent is `await`. `recv-keep.mbi`
+index is false even though the parent is `await`, `ignore`, or
+`nignore` of another slot. `recv-keep.mbi`
 is the same `g1` annotation and the same `Kcopy` sender, with parent
 `done`. `recvKeep-no` is that equation. `recv-keep-copy.mbi` is an ω
 annotation (`Kcopy`) with parent `done`. `recvKeepCopy-no` is that
-equation. `recv-keep-beside.mbi` is the beside keep, and
-`recvKeepBeside-no` is that equation. All three are the checker.
-None is a theorem that the payload's kind differs from the
-annotation. `sendGate` still
+equation. `recv-keep-beside.mbi` keeps the recv binder beside an
+`await` of the `seq` slot, and `recvKeepBeside-no` is that equation.
+`recv-keep-beside-ignore.mbi` and `recv-keep-beside-nignore.mbi`
+are that keep beside `ignore` and `nignore`.
+`recvKeepBesideIgnore-no` and `recvKeepBesideNignore-no` are those
+equations. All five are hand-built `refl` pins of the checker.
+They are not a load of the files. None is a theorem that the
+payload's kind differs from the annotation. `sendGate` is
+unchanged. It still
 classifies a send by the annotation. That is not a theorem that
 `emit1` uses `kind (checked r)`. There is still no theorem from
 `checkP` or `load` to promotion and tagging.
@@ -386,19 +398,25 @@ the same reason at the loader. There is no proof that `load` of the
 file is that term, and `bind1` does not run on a refused file. The
 plant string `refuse: aliased reply result` is `spawnAwait-alias`
 and `alias-bind-plant`, not `aliasAwait-no`. `alias-bind.mbi` is a file with
-that spawn shape and body `gsu gze`. `drive` of the file still
-promotes and halts. `alias-bind-plant` is `aliasImage` of that
+that spawn shape and body `gsu gze`. The runner's `drive` of the
+file promotes and halts. That is an operational result of the
+harness and the binary. It is not an Agda equation `load` of the
+file. `alias-bind-plant` is `aliasImage` of that
 file's text, the same plant. `grefAwait-ok` is the hand-built direct fresh `gref`.
-`examples/images/gref-await.mbi` is that program as a file: `load`
-accepts it, and `drive` promotes the cell the definition allocates.
+`examples/images/gref-await.mbi` is that program as a file. The
+runner's `load` accepts it, and the runner's `drive` promotes the
+cell the definition allocates. That is the same kind of operational
+result. It is not an Agda equation `load` of the file.
 `glam` is a fresh head, and `evalTm` takes it only when
 `not (anyG1 env)`. `guardGlam` refuses a direct `glam` reply body
 when the context already has a `g1` (`glam reply under g1`).
 `glamG1-no` is that equation. `glam-g1.mbi` is the file: a `recv` at
 grade 1 whose `seq` body is `glam`. `inB?` refuses the same body.
 `glam-reply.mbi` is that same `(glam (w 0) gze)` at scope 0, where
-no `g1` is in scope, so `guardGlam` allows it. `load` accepts it.
-`drive` promotes the closure and halts. The payload is not a nat, so
+no `g1` is in scope, so `guardGlam` allows it. The runner's `load`
+accepts the file, and the runner's `drive` promotes the closure and
+halts. That is an operational result of the harness and the binary.
+It is not an Agda equation `load` of the file. The payload is not a nat, so
 the line keeps `v-`. `gpi-reply.mbi` is a direct `(gpi (w 0) (gsu gze))`
 reply. `evalTm` of `gpi` ignores the body and allocates nat zero, so
 the `showDrove` line is that allocation (`v0`), not the successor

@@ -333,6 +333,10 @@ checkGo ρ Γ (recv c t k) =
 -- binder beside a protocol consumer of another slot: `isProtoAt`
 -- of the kept index is false, so the parent being `await`,
 -- `ignore`, or `nignore` does not make this keep the consumer.
+-- `recvKeepBeside-no`, `recvKeepBesideIgnore-no`, and
+-- `recvKeepBesideNignore-no` are the hand-built `refl`s.
+-- They are not a load of the files, and they are not a grade
+-- theorem. `sendGate` is unchanged.
 checkGo ρ Γ (spawn th ch (await x k)) =
   thinCtx th Γ >>= λ Γ' →
   checkGo (thinMask th ρ) Γ' ch >>= λ cu →
@@ -1154,6 +1158,39 @@ recvKeepBeside-no :
   checkP [] recvKeepBeside ≡ fail "kept slot came from recv"
 recvKeepBeside-no = refl
 
+-- Same keep, parent `ignore` of the `seq` slot. `isProtoAt` of the
+-- recv index is false, so that keep is not the consumer. The pin
+-- is a hand-built `refl`. It is not a load of
+-- `recv-keep-beside-ignore.mbi`, and it is not a grade theorem.
+-- `sendGate` is unchanged.
+recvKeepBesideIgnore : PTm 0
+recvKeepBesideIgnore =
+  recv g1 g0
+    (seq nil bze
+      (spawn (keep (keep t[]))
+        (send zero fzero (done {2}))
+        (ignore fzero (done {2}))))
+
+recvKeepBesideIgnore-no :
+  checkP [] recvKeepBesideIgnore ≡ fail "kept slot came from recv"
+recvKeepBesideIgnore-no = refl
+
+-- Same keep, parent `nignore` of the `seq` slot. Same guard.
+-- The pin is a hand-built `refl`. It is not a load of
+-- `recv-keep-beside-nignore.mbi`, and it is not a grade theorem.
+-- `sendGate` is unchanged.
+recvKeepBesideNignore : PTm 0
+recvKeepBesideNignore =
+  recv g1 g0
+    (seq nil bze
+      (spawn (keep (keep t[]))
+        (send zero fzero (done {2}))
+        (nignore fzero (done {2}))))
+
+recvKeepBesideNignore-no :
+  checkP [] recvKeepBesideNignore ≡ fail "kept slot came from recv"
+recvKeepBesideNignore-no = refl
+
 -- A nested `seq` does not inherit the root definition list.
 -- `(gref 0)` in the inner body is out of that empty bound.
 -- The file is `examples/images/nested-seq.mbi`.
@@ -1165,8 +1202,10 @@ nestedSeq =
 nestedSeq-no : checkP [] nestedSeq ≡ fail "bad gref"
 nestedSeq-no = refl
 
--- Fresh `gsu`. `load` accepts it and `drive` promotes the successor.
--- The file is `examples/images/alias-bind.mbi`. The plant that
+-- Fresh `gsu`. The runner's load of `examples/images/alias-bind.mbi`
+-- accepts the file, and the runner's drive promotes the successor.
+-- That is an operational result. It is not an Agda equation
+-- `load` of the file. The plant that
 -- refuses an alias of this shape is `alias-bind-plant`, on the
 -- file's text, not this `checkP` pin.
 aliasBind : PTm 0

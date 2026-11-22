@@ -200,6 +200,12 @@ REFUSE = [
     # isProtoAt of the recv index is false. recvKeepBeside-no is
     # the hand-built equation, not a load of this file.
     ("recv-keep-beside", "kept slot came from recv"),
+    # Same keep beside ignore and nignore of the seq slot.
+    # recvKeepBesideIgnore-no and recvKeepBesideNignore-no are
+    # hand-built refl pins, not a load of the files, and not a
+    # grade theorem. sendGate is unchanged.
+    ("recv-keep-beside-ignore", "kept slot came from recv"),
+    ("recv-keep-beside-nignore", "kept slot came from recv"),
 ]
 # Tagged heads are not surface syntax, so echo is not the source.
 # drive and run both print the parse reason. spawnTagAwait-no is

@@ -50,7 +50,9 @@ returned `{:run, "plus", [0, 3]}`, `{:run, "plus", [2, 0]}`,
 `comp-nignore.mbi`, `type-await.mbi`, `type-ignore.mbi`,
 `type-nignore.mbi`, `recv-move.mbi`, `recv-move-ignore.mbi`,
 `recv-move-nignore.mbi`, `recv-move-shift.mbi`, `recv-keep.mbi`,
-`recv-keep-copy.mbi`, and `recv-keep-beside.mbi` are not emitter goldens.
+`recv-keep-copy.mbi`, `recv-keep-beside.mbi`,
+`recv-keep-beside-ignore.mbi`, and `recv-keep-beside-nignore.mbi`
+are not emitter goldens.
 They are surface process entries written for this loader.
 `tagged-spawn.mbi`, `buried-awaitT.mbi`, `buried-ignoreT.mbi`,
 `buried-flushT.mbi`, `buried-ncheckT.mbi`, and `buried-ndemonT.mbi`
@@ -83,6 +85,12 @@ from recv`. `recvKeep-no` is that equation. `recv-keep-copy.mbi` is
 an ω annotation with parent `done`, and `recvKeepCopy-no` is that
 equation. `recv-keep-beside.mbi` keeps the recv binder beside an
 `await` of another slot, and `recvKeepBeside-no` is that equation.
+`recv-keep-beside-ignore.mbi` and `recv-keep-beside-nignore.mbi`
+are that keep beside `ignore` and `nignore`.
+`recvKeepBesideIgnore-no` and `recvKeepBesideNignore-no` are those
+equations. The five pins are hand-built `refl`s. They are not a
+load of the files, and they are not a grade theorem. `sendGate`
+is unchanged.
 `kind g1` is `Kmove`. The refusal is not a theorem that
 the payload's kind matches the annotation. The stick on a bare
 `await` is `recv-move.mbi`'s `Kcopy` payload, not a receive whose payload

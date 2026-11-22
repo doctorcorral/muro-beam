@@ -167,9 +167,14 @@ REFUSE = [
     # Keep that is not a protocol consumer. recvKeep-no and
     # recvKeepCopy-no are the hand-built equations, not a load of
     # these files. recv-keep-beside awaits another slot.
+    # recv-keep-beside-ignore and recv-keep-beside-nignore are
+    # that keep beside ignore and nignore. The pins are hand-built
+    # refls, not a load of the files, and not a grade theorem.
     ("recv-keep", None, "kept slot came from recv"),
     ("recv-keep-copy", None, "kept slot came from recv"),
     ("recv-keep-beside", None, "kept slot came from recv"),
+    ("recv-keep-beside-ignore", None, "kept slot came from recv"),
+    ("recv-keep-beside-nignore", None, "kept slot came from recv"),
     ("defs-need-seq",
      "(muro-beam-image 2 (boundary 1) (defs gze) (entry (done)))\n",
      "defs need a seq entry"),
