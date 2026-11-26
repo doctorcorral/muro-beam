@@ -1,0 +1,1 @@
+(muro-beam-image 1 (boundary 1) (entry (seq (gapp (glam (1 0) (gcase (gvar 0) (garm 0 1 (gvar 0)))) (gcon 0 gze)) (done))))

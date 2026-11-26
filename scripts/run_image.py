@@ -60,8 +60,42 @@ HAND = {
     # `--backend mbi` still refuses data (`mbi:data`).
     "con0": "con 0",
     "con1": "con 1",
+    "con2": "con 0",
     "case0": "nat 0",
     "case1": "nat 0",
+    # Two fields: the last is gvar 0, the first is gvar 1.
+    "case2-last": "nat 1",
+    "case2-first": "nat 0",
+    # Two arms on the same tag and arity. The first wins.
+    "case-first": "nat 1",
+    # An ω scrutinee binds its field and runs.
+    "case-w": "nat 0",
+}
+
+# B1d data images that load and stop stuck under runImage.
+# case-miss: no arm has the tag. case-arity: the first arm has the tag
+# and the wrong arity, and pickArms does not fall through to the
+# second. gmatch-con: gmatch does not match a con. case-g1: the g1
+# scrutinee is moved before the cs frame reads predComp, so the field
+# binds at g0 and the arm's use of it is stuck (the gmatch rule).
+DATA_STUCK = ["case-miss", "case-arity", "gmatch-con", "case-g1"]
+
+# driveImage of every B1d data image: outcome and the nat drive kept.
+# Drove.val is nat-only, so a con result keeps v-.
+DATA_DRIVE = {
+    "con0": "stuck 0 v-",
+    "con1": "stuck 0 v-",
+    "con2": "stuck 0 v-",
+    "case0": "stuck 0 v0",
+    "case1": "stuck 0 v0",
+    "case2-last": "stuck 0 v1",
+    "case2-first": "stuck 0 v0",
+    "case-first": "stuck 0 v1",
+    "case-w": "stuck 0 v0",
+    "case-miss": "stuck 0 v-",
+    "case-arity": "stuck 0 v-",
+    "gmatch-con": "stuck 0 v-",
+    "case-g1": "stuck 0 v-",
 }
 
 # once (suc 0). Elixir, muro 3f1cae2 (0.21.11), compiled with
@@ -451,7 +485,17 @@ def main():
         # and the harness would print stuck.
         check("run-send-recv", call("run", os.path.join(IMG, "send-recv.mbi")), "nat 2")
         check("run-spawn-done", call("run", os.path.join(IMG, "spawn-done.mbi")), "stuck")
-        check("run-case-miss", call("run", os.path.join(IMG, "case-miss.mbi")), "stuck")
+        for name in DATA_STUCK:
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            check("run-" + name, call("run", path), "stuck")
+        for name, want in DATA_DRIVE.items():
+            check(name + "-drive", call("drive", os.path.join(IMG, name + ".mbi")), want)
         check("run-spawn-await", call("run", os.path.join(IMG, "spawn-await.mbi")), "nat 0")
         # imgFuel is 1000, the same default the binary uses. plus
         # stops stuck and keeps 5. Fuel 32 is still out of fuel here.

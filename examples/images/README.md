@@ -181,3 +181,29 @@ nullary `(gcon 0)` and prints `con 0`. `con1` is `(gcon 1 gze)`.
 the one field of `(gcon 1 gze)` and returns that nat. `empty-gcase`
 is refused at `decideB` (`empty gcase`). `case-miss` loads and runs
 to `stuck` (no matching tag).
+
+Edge cases, also hand-written:
+
+- `con2` is `(gcon 0 gze (gsu gze))` and prints `con 0`.
+- `case2-last` binds both fields of `con2` and returns `gvar 0`, the
+  last field: `nat 1`. `case2-first` returns `gvar 1`, the first
+  field: `nat 0`.
+- `case-first` has two arms on tag 1, arity 1. The first,
+  `(gsu (gvar 0))`, wins: `nat 1`.
+- `case-arity` has an arm on tag 0 with arity 1, then an arm on tag 0
+  with arity 0. The scrutinee is `(gcon 0)`. The first tag hit has the
+  wrong arity, and the run is `stuck`: `pickArms` does not fall
+  through to the second arm.
+- `gmatch-con` is `gmatch` on `(gcon 0)`. `gmatch` does not match a
+  `con`, so it is `stuck`, like `gcase` on a nat.
+- `case-w` matches an `ω` binder holding `(gcon 0 gze)` and returns
+  the field: `nat 0`. `case-g1` is the same term with a `g1` binder.
+  The pointer moves before the `cs` frame reads `predComp`, so the
+  field binds at `g0` and the run is `stuck`. That is the `gmatch`
+  limit in `docs/DESIGN.md`.
+
+`drive` keeps no nat for a `con` result (`v-`). `MuroBeam.DataPins`
+pins echo, run, and drive for every data image with `refl`, so
+`make agda` checks these lines without GHC. It also pins the
+`badFields` refusal of an aliased `g1` field on a hand-built heap,
+because no image reaches that branch.

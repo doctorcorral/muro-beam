@@ -31,6 +31,21 @@ VALUES = {
     "plus": "v5",
     "half": "v2",
     "iseven": "v1",
+    # B1d data images. Drove.val is nat-only, so a con keeps v-.
+    # The stuck ones still stop stuck 0 after at least one tr-step.
+    "con0": "v-",
+    "con1": "v-",
+    "con2": "v-",
+    "case0": "v0",
+    "case1": "v0",
+    "case2-last": "v1",
+    "case2-first": "v0",
+    "case-first": "v1",
+    "case-w": "v0",
+    "case-miss": "v-",
+    "case-arity": "v-",
+    "gmatch-con": "v-",
+    "case-g1": "v-",
 }
 
 LINE = re.compile(
