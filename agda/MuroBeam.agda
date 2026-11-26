@@ -58,6 +58,8 @@ import MuroBeam.SchedThm
 import MuroBeam.Conform
 -- Shared event printer used by Conform and RunImage.
 import MuroBeam.Show
+-- B1d closed pins on the data images (echo, run, drive) and `badFields`.
+import MuroBeam.DataPins
 -- Image loading is Agda-side. Not opened: the names stay off the v1c API.
 import MuroBeam.Image
 import MuroBeam.Parse

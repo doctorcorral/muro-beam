@@ -30,7 +30,7 @@ open import Muro.Grade using
 open import MuroBeam.BTm using
   ( BTm; embed; decideB; lookupIx
   ; gvar; gtyp; glam; gpi; gapp; gmatch )
-  renaming (gze to bze; gsu to bsu; gref to bref)
+  renaming (gze to bze; gsu to bsu; gref to bref; gcon to bcon; gcase to bcase)
 
 open import MuroBeam.Boundary using (inB?; Cxt; sharpCxt)
 open import MuroBeam.Grade using (kind; Kind; Kmove; Kcopy)
@@ -247,6 +247,7 @@ freshHead (bsu _)       = true
 freshHead (glam _ _ _)  = true
 freshHead (gtyp _)      = true
 freshHead (gpi _ _ _)   = true
+freshHead (bcon _ _)    = true
 freshHead _             = false
 
 -- One `gref`, and only to a fresh head. A chain of `gref`s is not fresh.
@@ -277,6 +278,8 @@ isGlam bze            = false
 isGlam (bsu _)        = false
 isGlam (gmatch _ _ _) = false
 isGlam (bref _)       = false
+isGlam (bcon _ _)     = false
+isGlam (bcase _ _)    = false
 
 guardGlam : ∀ {n} → GCtx n → BTm n → PTm (suc n) → Result ⊤
 guardGlam Γ e k with replyRoot k

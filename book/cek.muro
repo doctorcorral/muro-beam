@@ -54,6 +54,107 @@ def step-mt : evidence
       ≡ just (at0 nil (ev 0 (gze 0) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) : Maybe Sys} :=
   refl
 
+-- Nullary constructor: allocate `con` and return a fresh omega ref.
+def con0Step : run Sys :=
+  at0 (cons (cell (con 0 nil) live) nil) (rv (om 0) nil nil)
+
+def step-con0 : evidence
+    {eval1 (at0 nil (ev 0 (gcon0 0 0) nil nil)) 0 ≡ just con0Step : Maybe Sys} :=
+  refl
+
+-- A constructor with one argument pushes `ca` and does not allocate yet.
+def step-con1 : evidence
+    {eval1 (at0 nil (ev 0 (gcon1 0 1 (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil (cons (ca 0 1 nil nil) nil))) : Maybe Sys} :=
+  refl
+
+-- The last field of `ca` allocates the constructor. Field 0 is the
+-- returned nat cell.
+def con1Done : run Sys :=
+  at0 (cons (cell (nat 0) live) (cons (cell (con 1 (cons (om 0) nil)) live) nil))
+      (rv (om 1) nil nil)
+
+def step-ca-done : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) nil)
+              (rv (om 0) nil (cons (ca 0 1 nil nil) nil))) 0
+      ≡ just con1Done : Maybe Sys} :=
+  refl
+
+-- `gcase0` pushes `cs0`.
+def step-cs0 : evidence
+    {eval1 (at0 nil (ev 0 (gcase0 0 (gcon0 0 0) 0 (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gcon0 0 0) nil
+                        (cons (cs0 0 (gcon0 0 0) 0 (gze 0)) nil))) : Maybe Sys} :=
+  refl
+
+-- A matching arity-0 arm runs the body and clears the scrutinee cell.
+def case0Done : run Sys :=
+  at0 (cons (cell (nat 0) live) nil) (ev 0 (gze 0) nil nil)
+
+def step-cs0-hit : evidence
+    {eval1 (at0 (cons (cell (con 0 nil) live) nil)
+              (rv (om 0) nil (cons (cs0 0 (gcon0 0 0) 0 (gze 0)) nil))) 0
+      ≡ just case0Done : Maybe Sys} :=
+  refl
+
+-- A nat scrutinee is not a constructor. `gcase0` gets stuck.
+def step-cs0-nat : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) nil)
+              (rv (om 0) nil (cons (cs0 0 (gze 0) 0 (gze 0)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
+-- A one-field arm hits: the field binds at `predComp` of the
+-- scrutinee (`aff` for a non-variable), the body runs under it, and
+-- the scrutinee cell is cleared.
+def conField : run List Obj :=
+  cons (cell (nat 0) live) (cons (cell (con 1 (cons (om 0) nil)) live) nil)
+
+def case1Done : run Sys :=
+  at0 (cons (cell (nat 0) live) (cons (cell (nat 0) live) nil))
+      (ev 1 var0 (cons (regrade (om 0) aff) nil) nil)
+
+def step-cs1-hit : evidence
+    {eval1 (at0 conField
+              (rv (om 1) nil (cons (cs1 0 (gcon1 0 1 (gze 0)) 1 var0) nil))) 0
+      ≡ just case1Done : Maybe Sys} :=
+  refl
+
+-- `gcon2` pushes `ca` with the second argument still to run.
+def step-con2 : evidence
+    {eval1 (at0 nil (ev 0 (gcon2 0 0 (gze 0) (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil
+                        (cons (ca 0 0 nil (cons (gze 0) nil)) nil))) : Maybe Sys} :=
+  refl
+
+-- The first field returns: `ca` keeps it and runs the next argument.
+def step-ca-mid : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) nil)
+              (rv (om 0) nil (cons (ca 0 0 nil (cons (gze 0) nil)) nil))) 0
+      ≡ just (at0 (cons (cell (nat 0) live) nil)
+                (ev 0 (gze 0) nil (cons (ca 0 0 (cons (om 0) nil) nil) nil))) : Maybe Sys} :=
+  refl
+
+-- The second field returns: `ca` allocates the constructor with the
+-- fields in order, first field first.
+def con2Done : run Sys :=
+  at0 (cons (cell (nat 0) live) (cons (cell (nat 0) live)
+        (cons (cell (con 0 (cons (om 0) (cons (om 1) nil))) live) nil)))
+      (rv (om 2) nil nil)
+
+def step-ca-finish : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) (cons (cell (nat 0) live) nil))
+              (rv (om 1) nil (cons (ca 0 0 (cons (om 0) nil) nil) nil))) 0
+      ≡ just con2Done : Maybe Sys} :=
+  refl
+
+-- A constructor with another tag does not match. `gcase0` gets stuck.
+def step-cs0-wrong-tag : evidence
+    {eval1 (at0 (cons (cell (con 1 nil) live) nil)
+              (rv (om 0) nil (cons (cs0 0 (gcon0 0 1) 0 (gze 0)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
 -- glam with an empty env appends a clo and returns a fresh omega ref.
 def lamStep : run Sys :=
   at0 (cons (cell (clo nil (scoped 0 lamW)) live) nil) (rv (om 0) nil nil)

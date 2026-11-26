@@ -601,7 +601,8 @@ def freeCell : run Π (o : Obj) → Bool :=
                         | free => true)
                   | suc n1 => false)
             | suc-up r => false
-            | clo rs tm => false)
+            | clo rs tm => false
+            | con t rs => false)
 
 def allFreeB : run Π (os : List Obj) → Bool :=
   λ (os : List Obj) →

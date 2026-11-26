@@ -33,7 +33,7 @@ open import Data.String.Base using (String; _++_; fromList)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 open import Muro.Base using (Result; ok; fail)
 
-open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; obj)
+open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; con; obj)
 open import MuroBeam.Image using (showImage; showNat)
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Load using (load)
@@ -52,11 +52,13 @@ open import MuroBeam.Process using
 data Halt : Set where
   hnat  : ℕ → Halt
   hclo  : Halt
+  hcon  : ℕ → Halt
   hstuck : Halt
 
 bump : Halt → Halt
 bump (hnat n) = hnat (suc n)
 bump hclo     = hstuck
+bump (hcon _) = hstuck
 bump hstuck   = hstuck
 
 -- Fuel is one past the heap length, so a successor chain that is
@@ -67,11 +69,13 @@ readRef h (suc f) i with payloadAt h i
 ... | just (nat n)    = hnat n
 ... | just (suc↑ r)   = bump (readRef h f (obj r))
 ... | just (clo _ _)  = hclo
+... | just (con t _)  = hcon t
 ... | nothing         = hstuck
 
 renderV : Halt → String
 renderV (hnat n) = "nat " ++ fromList (showNat n)
 renderV hclo     = "closure"
+renderV (hcon t) = "con " ++ fromList (showNat t)
 renderV hstuck   = "stuck"
 
 valueCtl : List Obj → Ctl → String

@@ -82,6 +82,9 @@ def scrubFrame : run Π (+ tag : Nat) → Π (+ h : List Obj) → Π (f : Frame)
       | fn r => fn (scrubOne tag h r)
       | su => su
       | mt n a z s => mt n a z s
+      | ca n t acc es => ca n t (scrubRefs tag h acc) es
+      | cs0 n e tg b => cs0 n e tg b
+      | cs1 n e tg b => cs1 n e tg b
       | bd env => bd (scrubRefs tag h env)
       | saved cd => saved (scrubCode tag h cd)
 
@@ -136,6 +139,11 @@ def blankVal : run Π (+ tag : Nat) → Π (v : Val) → Val :=
             (match b motive (λ _ → Val)
               | true => nat 0
               | false => clo rs2 tm))
+      | con tg rs =>
+          (let (b, rs2) = holdsRebuild tag rs in
+            (match b motive (λ _ → Val)
+              | true => nat 0
+              | false => con tg rs2))
 
 def blankObj : run Π (+ tag : Nat) → Π (o : Obj) → Obj :=
   λ (+ tag : Nat) → λ (o : Obj) →

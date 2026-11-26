@@ -50,6 +50,11 @@ def predComp : run Π (env : List Ref) → Π (-n : Nat) → Π (e : GTm n) → 
       | gpi m c ty b => aff
       | glam m c ty b => aff
       | gmatch m e1 z s => aff
+      | gcon0 m t => aff
+      | gcon1 m t e => aff
+      | gcon2 m t e1 e2 => aff
+      | gcase0 m e tg b => aff
+      | gcase1 m e tg b => aff
 
 def payloadAt : run Π (os : List Obj) → Π (n : Nat) → Maybe Val :=
   λ (os : List Obj) → λ (n : Nat) →
@@ -152,7 +157,8 @@ def seeVal : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
           (match v motive (λ _ → Maybe Sys)
             | nat num => seeNat h ps i env ks ix o c g kp num
             | suc-up p => seePtr h ps i env ks ix o c g kp
-            | clo rs sc => seePtr h ps i env ks ix o c g kp)
+            | clo rs sc => seePtr h ps i env ks ix o c g kp
+            | con t rs => seePtr h ps i env ks ix o c g kp)
 
 def useVarGo : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
     Π (env : List Ref) → Π (ks : List Frame) → Π (ix : Nat) →
@@ -192,6 +198,128 @@ def retOmega : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) 
   λ (env : List Ref) → λ (ks : List Frame) →
     install (snoc h (nat 0)) ps i (rv (freshRef h gradeOmega) env ks)
 
+def bindExact : run Π (k : Nat) → Π (+ g : Grade) → Π (rs : List Ref) →
+    Π (env : List Ref) → Maybe (List Ref) :=
+  λ (k : Nat) → λ (+ g : Grade) → λ (rs : List Ref) → λ (env : List Ref) →
+    match k motive (λ _ → Maybe (List Ref))
+      | 0 =>
+          (match rs motive (λ _ → Maybe (List Ref))
+            | nil => just env
+            | cons r rs1 => nothing)
+      | suc k1 =>
+          (match rs motive (λ _ → Maybe (List Ref))
+            | nil => nothing
+            | cons r rs1 => bindExact k1 g rs1 (cons (regrade r g) env))
+
+def badFields : run Π (rs : List Ref) → Π (+ c : Grade) → Π (+ all : List Ref) → Bool :=
+  λ (rs : List Ref) → λ (+ c : Grade) → λ (+ all : List Ref) →
+    match rs motive (λ _ → Bool)
+      | nil => false
+      | cons r rs1 => orB (badG1 c (obj r) all) (badFields rs1 c all)
+
+def evalCa : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (r : Ref) → Π (+ env : List Ref) → Π (+ n : Nat) → Π (+ t : Nat) →
+    Π (acc : List Ref) → Π (es : List (GTm n)) → Π (fs : List Frame) →
+    Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (r : Ref) → λ (+ env : List Ref) → λ (+ n : Nat) → λ (+ t : Nat) →
+  λ (acc : List Ref) → λ (es : List (GTm n)) → λ (fs : List Frame) →
+    match es motive (λ _ → Maybe Sys)
+      | nil =>
+          install (snoc h (con t (append Ref acc (cons r nil)))) ps i
+            (rv (freshRef h gradeOmega) env fs)
+      | cons e es1 =>
+          install h ps i
+            (ev n e env (cons (ca n t (append Ref acc (cons r nil)) es1) fs))
+
+def onCon0 : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (+ env : List Ref) → Π (+ n : Nat) → Π (+ e : GTm n) →
+    Π (tg : Nat) → Π (b : GTm n) → Π (fs : List Frame) →
+    Π (tag : Nat) → Π (+ rs : List Ref) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (+ env : List Ref) → λ (+ n : Nat) → λ (+ e : GTm n) →
+  λ (tg : Nat) → λ (b : GTm n) → λ (fs : List Frame) →
+  λ (tag : Nat) → λ (+ rs : List Ref) →
+    match (natEq tag tg) motive (λ _ → Maybe Sys)
+      | true =>
+          (match (bindExact 0 (predComp env n e) rs env) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just env' =>
+                pass Sys (notB (badFields rs (predComp env n e) (refsOfH h ps)))
+                  (install (setPayload h o (nat 0)) ps i
+                    (ev n b env' fs)))
+      | false => nothing
+
+def onCon1 : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (+ env : List Ref) → Π (+ n : Nat) → Π (+ e : GTm n) →
+    Π (tg : Nat) → Π (b : GTm suc(n)) → Π (fs : List Frame) →
+    Π (tag : Nat) → Π (+ rs : List Ref) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (+ ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (+ env : List Ref) → λ (+ n : Nat) → λ (+ e : GTm n) →
+  λ (tg : Nat) → λ (b : GTm suc(n)) → λ (fs : List Frame) →
+  λ (tag : Nat) → λ (+ rs : List Ref) →
+    match (natEq tag tg) motive (λ _ → Maybe Sys)
+      | true =>
+          (match (bindExact (suc 0) (predComp env n e) rs env) motive (λ _ → Maybe Sys)
+            | nothing => nothing
+            | just env' =>
+                pass Sys (notB (badFields rs (predComp env n e) (refsOfH h ps)))
+                  (install (setPayload h o (nat 0)) ps i
+                    (ev (suc n) b env' fs)))
+      | false => nothing
+
+def onCase0Val : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (tg : Nat) → Π (b : GTm n) → Π (fs : List Frame) →
+    Π (mv : Maybe Val) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (tg : Nat) → λ (b : GTm n) → λ (fs : List Frame) →
+  λ (mv : Maybe Val) →
+    match mv motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just v =>
+          (match v motive (λ _ → Maybe Sys)
+            | nat num => nothing
+            | suc-up p => nothing
+            | clo rs sc => nothing
+            | con tag rs => onCon0 h ps i o env n e tg b fs tag rs)
+
+def onCase1Val : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (o : Nat) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (tg : Nat) → Π (b : GTm suc(n)) → Π (fs : List Frame) →
+    Π (mv : Maybe Val) → Maybe Sys :=
+  λ (h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (o : Nat) → λ (env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (tg : Nat) → λ (b : GTm suc(n)) → λ (fs : List Frame) →
+  λ (mv : Maybe Val) →
+    match mv motive (λ _ → Maybe Sys)
+      | nothing => nothing
+      | just v =>
+          (match v motive (λ _ → Maybe Sys)
+            | nat num => nothing
+            | suc-up p => nothing
+            | clo rs sc => nothing
+            | con tag rs => onCon1 h ps i o env n e tg b fs tag rs)
+
+def onCase0 : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (r : Ref) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (tg : Nat) → Π (b : GTm n) → Π (fs : List Frame) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (r : Ref) → λ (env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (tg : Nat) → λ (b : GTm n) → λ (fs : List Frame) →
+    match r motive (λ _ → Maybe Sys)
+      | ref o c g kp => onCase0Val h ps i o env n e tg b fs (payloadAt h o)
+
+def onCase1 : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
+    Π (r : Ref) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
+    Π (tg : Nat) → Π (b : GTm suc(n)) → Π (fs : List Frame) → Maybe Sys :=
+  λ (+ h : List Obj) → λ (ps : List Proc) → λ (i : Nat) →
+  λ (r : Ref) → λ (env : List Ref) → λ (n : Nat) → λ (e : GTm n) →
+  λ (tg : Nat) → λ (b : GTm suc(n)) → λ (fs : List Frame) →
+    match r motive (λ _ → Maybe Sys)
+      | ref o c g kp => onCase1Val h ps i o env n e tg b fs (payloadAt h o)
+
 def evalTm : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
     Π (-n : Nat) → Π (t : GTm n) → Π (+ env : List Ref) → Π (ks : List Frame) →
     Maybe Sys :=
@@ -210,6 +338,17 @@ def evalTm : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) �
               (rv (freshRef h gradeOmega) env ks))
       | gmatch m e z s =>
           install h ps i (ev m e env (cons (mt m e z s) ks))
+      | gcon0 m t =>
+          install (snoc h (con t nil)) ps i
+            (rv (freshRef h gradeOmega) env ks)
+      | gcon1 m t e =>
+          install h ps i (ev m e env (cons (ca m t nil nil) ks))
+      | gcon2 m t e1 e2 =>
+          install h ps i (ev m e1 env (cons (ca m t nil (cons e2 nil)) ks))
+      | gcase0 m e tg b =>
+          install h ps i (ev m e env (cons (cs0 m e tg b) ks))
+      | gcase1 m e tg b =>
+          install h ps i (ev m e env (cons (cs1 m e tg b) ks))
 
 -- Open a clo of a glam. badG1 and anyG1 of the captured env both refuse.
 def betaClo : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat) →
@@ -233,7 +372,12 @@ def betaClo : run Π (+ h : List Obj) → Π (+ ps : List Proc) → Π (i : Nat)
                     (install h ps i
                       (ev (suc m) body (cons (regrade ra c) envC)
                         (cons (bd env) ks))))
-            | gmatch m e z s => nothing)
+            | gmatch m e z s => nothing
+            | gcon0 m t => nothing
+            | gcon1 m t e => nothing
+            | gcon2 m t e1 e2 => nothing
+            | gcase0 m e tg b => nothing
+            | gcase1 m e tg b => nothing)
 
 def betaVal : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
     Π (ra : Ref) → Π (env : List Ref) → Π (ks : List Frame) →
@@ -247,7 +391,8 @@ def betaVal : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
           (match v motive (λ _ → Maybe Sys)
             | nat num => nothing
             | suc-up p => nothing
-            | clo envC sc => betaClo h ps i ra env ks envC sc)
+            | clo envC sc => betaClo h ps i ra env ks envC sc
+            | con t rs => nothing)
 
 def beta : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
     Π (ra : Ref) → Π (rf : Ref) → Π (env : List Ref) → Π (ks : List Frame) →
@@ -292,7 +437,8 @@ def onPayload : run Π (h : List Obj) → Π (ps : List Proc) → Π (i : Nat) �
                   | 0 => install h ps i (ev n z env ks)
                   | suc num1 => nothing)
             | suc-up pred => onSuc h ps i o env n e s ks pred
-            | clo rs sc => nothing)
+            | clo rs sc => nothing
+            | con t rs => nothing)
 
 def onMatch : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) →
     Π (r : Ref) → Π (env : List Ref) → Π (n : Nat) → Π (e : GTm n) →
@@ -318,6 +464,9 @@ def evalRet : run Π (+ h : List Obj) → Π (ps : List Proc) → Π (i : Nat) �
                 install (snoc h (suc-up r)) ps i
                   (rv (freshRef h gradeOmega) env fs)
             | mt n e z s => onMatch h ps i r env n e z s fs
+            | ca n t acc es => evalCa h ps i r env n t acc es fs
+            | cs0 n e tg b => onCase0 h ps i r env n e tg b fs
+            | cs1 n e tg b => onCase1 h ps i r env n e tg b fs
             | bd env0 => install h ps i (rv r env0 fs)
             | saved cd => nothing)
 
@@ -454,6 +603,11 @@ def isLam : run Π (n : Nat) → Π (t : GTm n) → Bool :=
       | gpi m c0 ty0 b0 => false
       | glam m c0 ty0 b0 => true
       | gmatch m e z s => false
+      | gcon0 m t => false
+      | gcon1 m t e => false
+      | gcon2 m t e1 e2 => false
+      | gcase0 m e tg b => false
+      | gcase1 m e tg b => false
 
 data CapIx : Type where
   capix : Π (z : Bool) → Π (n : Nat) → Vec Grade n → CapIx

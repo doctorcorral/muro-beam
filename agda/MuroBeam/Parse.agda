@@ -13,7 +13,7 @@ open import Data.Char.Base using (Char)
 open import Data.Fin.Base using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.List.Base using (List; []; _∷_; _++_; reverse; reverseAcc)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc)
+open import Data.Nat.Base using (ℕ; zero; suc; _+_)
 open import Data.Product.Base using (_×_; _,_; Σ; proj₁; proj₂)
 open import Data.String.Base using (String; toList)
 open import Data.Unit.Base using (⊤; tt)
@@ -22,14 +22,14 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 open import Muro.Base using (Result; ok; fail)
 open import Muro.Grade using (Point; fin; inf; Grade; pt; iv)
 open import MuroBeam.BTm using
-  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+  ( BTm; Arm; arm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; gcon; gcase )
 open import MuroBeam.PSyntax using (Thin; t[]; keep; skip)
 
 open import MuroBeam.Image using
   ( Image; mk; format; boundary; entry; defs
   ; SPtm; sdone; ssend; srecv; sspawn; sseq; sawait; signore; snignore
   ; isLegacy
-  ; showNat; showPoint; showGrade; showPair; showB; showDefs; showThin; showS
+  ; showNat; showPoint; showGrade; showPair; showB; showBArgs; showBArm; showBArms; showDefs; showThin; showS
   ; render; renderWith; renderGen
   ; readNatAtom; read-show
   ; AllD; Dig; D0; D1; D2; D3; D4; D5; D6; D7; D8; D9
@@ -46,7 +46,7 @@ data Sexp : Set where
   nest : List Sexp → Sexp
 
 data Tag : Set where
-  tgze tgsu tgapp tgmatch tglam tgpi tgvar tgtyp tgref tiv tw : Tag
+  tgze tgsu tgapp tgmatch tglam tgpi tgvar tgtyp tgref tgcon tgcase tgarm tiv tw : Tag
   timage tbound tdefs tentry tseq tdone tno : Tag
   tsend trecv tspawn tawait tignore tnignore : Tag
   tkeep tskip tthin : Tag
@@ -62,6 +62,9 @@ tag ('g' ∷ 'p' ∷ 'i' ∷ []) = tgpi
 tag ('g' ∷ 'v' ∷ 'a' ∷ 'r' ∷ []) = tgvar
 tag ('g' ∷ 't' ∷ 'y' ∷ 'p' ∷ []) = tgtyp
 tag ('g' ∷ 'r' ∷ 'e' ∷ 'f' ∷ []) = tgref
+tag ('g' ∷ 'c' ∷ 'o' ∷ 'n' ∷ []) = tgcon
+tag ('g' ∷ 'c' ∷ 'a' ∷ 's' ∷ 'e' ∷ []) = tgcase
+tag ('g' ∷ 'a' ∷ 'r' ∷ 'm' ∷ []) = tgarm
 tag ('i' ∷ 'v' ∷ []) = tiv
 tag ('w' ∷ []) = tw
 tag ('m' ∷ 'u' ∷ 'r' ∷ 'o' ∷ '-' ∷ 'b' ∷ 'e' ∷ 'a' ∷ 'm' ∷ '-' ∷ 'i' ∷ 'm' ∷ 'a' ∷ 'g' ∷ 'e' ∷ []) = timage
@@ -97,17 +100,33 @@ sexpGrade (iv a b) = nest (atom (toList "iv") ∷ sexpPoint a ∷ sexpPoint b �
 sexpPair : Grade → Grade → Sexp
 sexpPair c t = nest (sexpGrade c ∷ sexpGrade t ∷ [])
 
-sexpB : ∀ {n} → BTm n → Sexp
-sexpB (gvar x) = nest (atom (toList "gvar") ∷ atom (showNat (toℕ x)) ∷ [])
-sexpB (gtyp x) = nest (atom (toList "gtyp") ∷ atom (showNat (toℕ x)) ∷ [])
-sexpB (glam c t b) = nest (atom (toList "glam") ∷ sexpPair c t ∷ sexpB b ∷ [])
-sexpB (gpi c t b) = nest (atom (toList "gpi") ∷ sexpPair c t ∷ sexpB b ∷ [])
-sexpB (gapp f a) = nest (atom (toList "gapp") ∷ sexpB f ∷ sexpB a ∷ [])
-sexpB gze = atom (toList "gze")
-sexpB (gsu e) = nest (atom (toList "gsu") ∷ sexpB e ∷ [])
-sexpB (gmatch e z s) =
-  nest (atom (toList "gmatch") ∷ sexpB e ∷ sexpB z ∷ sexpB s ∷ [])
-sexpB (gref k) = nest (atom (toList "gref") ∷ atom (showNat k) ∷ [])
+mutual
+  sexpB : ∀ {n} → BTm n → Sexp
+  sexpB (gvar x) = nest (atom (toList "gvar") ∷ atom (showNat (toℕ x)) ∷ [])
+  sexpB (gtyp x) = nest (atom (toList "gtyp") ∷ atom (showNat (toℕ x)) ∷ [])
+  sexpB (glam c t b) = nest (atom (toList "glam") ∷ sexpPair c t ∷ sexpB b ∷ [])
+  sexpB (gpi c t b) = nest (atom (toList "gpi") ∷ sexpPair c t ∷ sexpB b ∷ [])
+  sexpB (gapp f a) = nest (atom (toList "gapp") ∷ sexpB f ∷ sexpB a ∷ [])
+  sexpB gze = atom (toList "gze")
+  sexpB (gsu e) = nest (atom (toList "gsu") ∷ sexpB e ∷ [])
+  sexpB (gmatch e z s) =
+    nest (atom (toList "gmatch") ∷ sexpB e ∷ sexpB z ∷ sexpB s ∷ [])
+  sexpB (gref k) = nest (atom (toList "gref") ∷ atom (showNat k) ∷ [])
+  sexpB (gcon t es) = nest (atom (toList "gcon") ∷ atom (showNat t) ∷ sexpArgs es)
+  sexpB (gcase e as) = nest (atom (toList "gcase") ∷ sexpB e ∷ sexpArms as)
+
+  sexpArgs : ∀ {n} → List (BTm n) → List Sexp
+  sexpArgs [] = []
+  sexpArgs (e ∷ es) = sexpB e ∷ sexpArgs es
+
+  sexpArm : ∀ {n} → Arm n → Sexp
+  sexpArm (arm t k b) =
+    nest (atom (toList "garm") ∷ atom (showNat t) ∷ atom (showNat k) ∷ sexpB b ∷ [])
+
+  sexpArms : ∀ {n} → List (Arm n) → List Sexp
+  sexpArms [] = []
+  sexpArms (a ∷ as) = sexpArm a ∷ sexpArms as
+
 
 sexpList : List (BTm 0) → List Sexp
 sexpList [] = []
@@ -256,6 +275,51 @@ fromRef _ = fail "junk"
 mutual
   fromB : ∀ {n} → Sexp → Result (BTm n)
 
+  fromArgs : ∀ {n} → List Sexp → Result (List (BTm n))
+  fromArgs [] = ok []
+  fromArgs (s ∷ ss) with fromB s
+  ... | fail e = fail e
+  ... | ok t with fromArgs ss
+  ... | fail e = fail e
+  ... | ok ts = ok (t ∷ ts)
+
+  fromArm : ∀ {n} → Sexp → Result (Arm n)
+  fromArm {n} (nest (atom cs ∷ atom ts ∷ atom ks ∷ b ∷ [])) with tag cs
+  ... | tgarm = go (readNatAtom ts) (readNatAtom ks)
+    where
+    go : Maybe ℕ → Maybe ℕ → Result (Arm n)
+    go nothing _ = fail "junk"
+    go (just _) nothing = fail "junk"
+    go (just t) (just k) with fromB {k + n} b
+    ... | fail e  = fail e
+    ... | ok body = ok (arm t k body)
+  ... | _ = fail "junk"
+  fromArm _ = fail "junk"
+
+  fromArms : ∀ {n} → List Sexp → Result (List (Arm n))
+  fromArms [] = ok []
+  fromArms (s ∷ ss) with fromArm s
+  ... | fail e = fail e
+  ... | ok a with fromArms ss
+  ... | fail e = fail e
+  ... | ok as = ok (a ∷ as)
+
+  fromCon : ∀ {n} → List Sexp → Result (BTm n)
+  fromCon (atom ds ∷ xs) with readNatAtom ds
+  ... | nothing = fail "junk"
+  ... | just t with fromArgs xs
+  ... | fail e = fail e
+  ... | ok es = ok (gcon t es)
+  fromCon _ = fail "junk"
+
+  fromCase : ∀ {n} → List Sexp → Result (BTm n)
+  fromCase (e ∷ xs) with fromB e
+  ... | fail e = fail e
+  ... | ok ev with fromArms xs
+  ... | fail e = fail e
+  ... | ok as = ok (gcase ev as)
+  fromCase _ = fail "junk"
+
   fromSu : ∀ {n} → List Sexp → Result (BTm n)
   fromSu (e ∷ []) with fromB e
   ... | ok t   = ok (gsu t)
@@ -298,6 +362,8 @@ mutual
   ... | tgvar   = fromVar gvar xs
   ... | tgtyp   = fromVar gtyp xs
   ... | tgref   = fromRef xs
+  ... | tgcon   = fromCon xs
+  ... | tgcase  = fromCase xs
   ... | _       = fail "junk"
   fromB (nest (_ ∷ _)) = fail "junk"
 
@@ -766,16 +832,30 @@ fromGrade-ok (iv a b) rewrite fromPoint-ok a | fromPoint-ok b = refl
 fromPair-ok : ∀ c t → fromPair (sexpPair c t) ≡ ok (c , t)
 fromPair-ok c t rewrite fromGrade-ok c | fromGrade-ok t = refl
 
-fromB-ok : ∀ {n} (t : BTm n) → fromB (sexpB t) ≡ ok t
-fromB-ok gze = refl
-fromB-ok (gsu e) rewrite fromB-ok e = refl
-fromB-ok (gapp f a) rewrite fromB-ok f | fromB-ok a = refl
-fromB-ok (gmatch e z s) rewrite fromB-ok e | fromB-ok z | fromB-ok s = refl
-fromB-ok (glam c t b) rewrite fromPair-ok c t | fromB-ok b = refl
-fromB-ok (gpi c t b) rewrite fromPair-ok c t | fromB-ok b = refl
-fromB-ok (gvar x) rewrite read-show (toℕ x) | fin-to x = refl
-fromB-ok (gtyp x) rewrite read-show (toℕ x) | fin-to x = refl
-fromB-ok (gref k) rewrite read-show k = refl
+mutual
+  fromB-ok : ∀ {n} (t : BTm n) → fromB (sexpB t) ≡ ok t
+  fromB-ok gze = refl
+  fromB-ok (gsu e) rewrite fromB-ok e = refl
+  fromB-ok (gapp f a) rewrite fromB-ok f | fromB-ok a = refl
+  fromB-ok (gmatch e z s) rewrite fromB-ok e | fromB-ok z | fromB-ok s = refl
+  fromB-ok (glam c t b) rewrite fromPair-ok c t | fromB-ok b = refl
+  fromB-ok (gpi c t b) rewrite fromPair-ok c t | fromB-ok b = refl
+  fromB-ok (gvar x) rewrite read-show (toℕ x) | fin-to x = refl
+  fromB-ok (gtyp x) rewrite read-show (toℕ x) | fin-to x = refl
+  fromB-ok (gref k) rewrite read-show k = refl
+  fromB-ok (gcon t es) rewrite read-show t | fromArgs-ok es = refl
+  fromB-ok (gcase e as) rewrite fromB-ok e | fromArms-ok as = refl
+
+  fromArgs-ok : ∀ {n} (es : List (BTm n)) → fromArgs (sexpArgs es) ≡ ok es
+  fromArgs-ok [] = refl
+  fromArgs-ok (e ∷ es) rewrite fromB-ok e | fromArgs-ok es = refl
+
+  fromArm-ok : ∀ {n} (a : Arm n) → fromArm (sexpArm a) ≡ ok a
+  fromArm-ok (arm t k b) rewrite read-show t | read-show k | fromB-ok b = refl
+
+  fromArms-ok : ∀ {n} (as : List (Arm n)) → fromArms (sexpArms as) ≡ ok as
+  fromArms-ok [] = refl
+  fromArms-ok (a ∷ as) rewrite fromArm-ok a | fromArms-ok as = refl
 
 tail-ok : ∀ ts → defsTail (sexpList ts) ≡ ok ts
 tail-ok [] = refl
@@ -928,190 +1008,333 @@ specPair c t fr stk rest d = chain
     after (fr ++ sexpPair c t ∷ []) stk rest
       ∎
 
-specB : ∀ {n} (t : BTm n) fr stk rest → Delim rest →
-  parseGo (need (fr ∷ stk)) (showB t ++ rest)
-  ≡ after (fr ++ sexpB t ∷ []) stk rest
-specB gze fr stk rest d =
-  specAtom 'g' ('z' ∷ 'e' ∷ []) fr stk rest refl (refl ∷ refl ∷ []) d
-specB (gvar x) fr stk rest d = chain
-  where
-  kw = toList "gvar "
-  body = showNat (toℕ x) ++ toList ")"
-  kwF = atom (toList "gvar") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (gvar x) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('v' ∷ 'a' ∷ 'r' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ toList ")") ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) (toList ")") rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (toList ")" ++ rest))
-      ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (gvar x) ∷ []) stk rest
-      ∎
-specB (gtyp x) fr stk rest d = chain
-  where
-  kw = toList "gtyp "
-  body = showNat (toℕ x) ++ toList ")"
-  kwF = atom (toList "gtyp") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (gtyp x) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('t' ∷ 'y' ∷ 'p' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ toList ")") ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) (toList ")") rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (toList ")" ++ rest))
-      ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (gtyp x) ∷ []) stk rest
-      ∎
-specB (gsu e) fr stk rest d = chain
-  where
-  kw = toList "gsu "
-  body = showB e ++ toList ")"
-  kwF = atom (toList "gsu") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (gsu e) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('s' ∷ 'u' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showB e ++ toList ")") ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showB e) (toList ")") rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (toList ")" ++ rest))
-      ≡⟨ specB e kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ sexpB e ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ sexpB e ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (gsu e) ∷ []) stk rest
-      ∎
-specB (gapp f a) fr stk rest d = chain
-  where
-  kw = toList "gapp "
-  mid = toList " " ++ (showB a ++ toList ")")
-  body = showB f ++ mid
-  kwF = atom (toList "gapp") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (gapp f a) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('a' ∷ 'p' ∷ 'p' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showB f ++ mid) ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showB f) mid rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showB f ++ (mid ++ rest))
-      ≡⟨ specB f kwF (fr ∷ stk) (mid ++ rest) (dsp ((showB a ++ toList ")") ++ rest)) ⟩
-    after (kwF ++ sexpB f ∷ []) (fr ∷ stk) (mid ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ((kwF ++ sexpB f ∷ []) ∷ fr ∷ stk)) ((showB a ++ toList ")") ++ rest)
-      ≡⟨ push (kwF ++ sexpB f ∷ []) (fr ∷ stk) (showB a) (toList ")") rest ⟩
-    parseGo (need ((kwF ++ sexpB f ∷ []) ∷ fr ∷ stk)) (showB a ++ (toList ")" ++ rest))
-      ≡⟨ specB a (kwF ++ sexpB f ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ sexpB f ∷ sexpB a ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ sexpB f ∷ sexpB a ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (gapp f a) ∷ []) stk rest
-      ∎
-specB (gmatch e z s) fr stk rest d = chain
-  where
-  kw = toList "gmatch "
-  spS = toList " " ++ (showB s ++ toList ")")
-  spZ = toList " " ++ (showB z ++ spS)
-  body = showB e ++ spZ
-  kwF = atom (toList "gmatch") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (gmatch e z s) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('m' ∷ 'a' ∷ 't' ∷ 'c' ∷ 'h' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showB e ++ spZ) ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showB e) spZ rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (spZ ++ rest))
-      ≡⟨ specB e kwF (fr ∷ stk) (spZ ++ rest) (dsp ((showB z ++ spS) ++ rest)) ⟩
-    after (kwF ++ sexpB e ∷ []) (fr ∷ stk) (spZ ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ((kwF ++ sexpB e ∷ []) ∷ fr ∷ stk)) ((showB z ++ spS) ++ rest)
-      ≡⟨ push (kwF ++ sexpB e ∷ []) (fr ∷ stk) (showB z) spS rest ⟩
-    parseGo (need ((kwF ++ sexpB e ∷ []) ∷ fr ∷ stk)) (showB z ++ (spS ++ rest))
-      ≡⟨ specB z (kwF ++ sexpB e ∷ []) (fr ∷ stk) (spS ++ rest) (dsp ((showB s ++ toList ")") ++ rest)) ⟩
-    after (kwF ++ sexpB e ∷ sexpB z ∷ []) (fr ∷ stk) (spS ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ((kwF ++ sexpB e ∷ sexpB z ∷ []) ∷ fr ∷ stk)) ((showB s ++ toList ")") ++ rest)
-      ≡⟨ push (kwF ++ sexpB e ∷ sexpB z ∷ []) (fr ∷ stk) (showB s) (toList ")") rest ⟩
-    parseGo (need ((kwF ++ sexpB e ∷ sexpB z ∷ []) ∷ fr ∷ stk)) (showB s ++ (toList ")" ++ rest))
-      ≡⟨ specB s (kwF ++ sexpB e ∷ sexpB z ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ sexpB e ∷ sexpB z ∷ sexpB s ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ sexpB e ∷ sexpB z ∷ sexpB s ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (gmatch e z s) ∷ []) stk rest
-      ∎
-specB (glam c t b) fr stk rest d = chain
-  where
-  kw = toList "glam "
-  mid = toList " " ++ (showB b ++ toList ")")
-  body = showPair c t ++ mid
-  kwF = atom (toList "glam") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (glam c t b) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('l' ∷ 'a' ∷ 'm' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showPair c t ++ mid) ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showPair c t) mid rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showPair c t ++ (mid ++ rest))
-      ≡⟨ specPair c t kwF (fr ∷ stk) (mid ++ rest) (dsp ((showB b ++ toList ")") ++ rest)) ⟩
-    after (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (mid ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) ((showB b ++ toList ")") ++ rest)
-      ≡⟨ push (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (showB b) (toList ")") rest ⟩
-    parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) (showB b ++ (toList ")" ++ rest))
-      ≡⟨ specB b (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ sexpPair c t ∷ sexpB b ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ sexpPair c t ∷ sexpB b ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (glam c t b) ∷ []) stk rest
-      ∎
-specB (gpi c t b) fr stk rest d = chain
-  where
-  kw = toList "gpi "
-  mid = toList " " ++ (showB b ++ toList ")")
-  body = showPair c t ++ mid
-  kwF = atom (toList "gpi") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB (gpi c t b) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('p' ∷ 'i' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showPair c t ++ mid) ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showPair c t) mid rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showPair c t ++ (mid ++ rest))
-      ≡⟨ specPair c t kwF (fr ∷ stk) (mid ++ rest) (dsp ((showB b ++ toList ")") ++ rest)) ⟩
-    after (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (mid ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) ((showB b ++ toList ")") ++ rest)
-      ≡⟨ push (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (showB b) (toList ")") rest ⟩
-    parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) (showB b ++ (toList ")" ++ rest))
-      ≡⟨ specB b (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ sexpPair c t ∷ sexpB b ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ sexpPair c t ∷ sexpB b ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB (gpi c t b) ∷ []) stk rest
-      ∎
-specB {n} (gref k) fr stk rest d = chain
-  where
-  kw = toList "gref "
-  body = showNat k ++ toList ")"
-  kwF = atom (toList "gref") ∷ []
-  chain =
-    parseGo (need (fr ∷ stk)) (showB {n} (gref k) ++ rest)
-      ≡⟨ refl ⟩
-    parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
-      ≡⟨ eatKw 'g' ('r' ∷ 'e' ∷ 'f' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) ((showNat k ++ toList ")") ++ rest)
-      ≡⟨ push kwF (fr ∷ stk) (showNat k) (toList ")") rest ⟩
-    parseGo (need (kwF ∷ fr ∷ stk)) (showNat k ++ (toList ")" ++ rest))
-      ≡⟨ specNat k kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
-    after (kwF ++ atom (showNat k) ∷ []) (fr ∷ stk) (')' ∷ rest)
-      ≡⟨ shut (kwF ++ atom (showNat k) ∷ []) fr stk rest ⟩
-    after (fr ++ sexpB {n} (gref k) ∷ []) stk rest
-      ∎
+mutual
+  specB : ∀ {n} (t : BTm n) fr stk rest → Delim rest →
+    parseGo (need (fr ∷ stk)) (showB t ++ rest)
+    ≡ after (fr ++ sexpB t ∷ []) stk rest
+  specB gze fr stk rest d =
+    specAtom 'g' ('z' ∷ 'e' ∷ []) fr stk rest refl (refl ∷ refl ∷ []) d
+  specB (gvar x) fr stk rest d = chain
+    where
+    kw = toList "gvar "
+    body = showNat (toℕ x) ++ toList ")"
+    kwF = atom (toList "gvar") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gvar x) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('v' ∷ 'a' ∷ 'r' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ toList ")") ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) (toList ")") rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (toList ")" ++ rest))
+        ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (gvar x) ∷ []) stk rest
+        ∎
+  specB (gtyp x) fr stk rest d = chain
+    where
+    kw = toList "gtyp "
+    body = showNat (toℕ x) ++ toList ")"
+    kwF = atom (toList "gtyp") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gtyp x) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('t' ∷ 'y' ∷ 'p' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showNat (toℕ x) ++ toList ")") ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showNat (toℕ x)) (toList ")") rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showNat (toℕ x) ++ (toList ")" ++ rest))
+        ≡⟨ specNat (toℕ x) kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ atom (showNat (toℕ x)) ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ atom (showNat (toℕ x)) ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (gtyp x) ∷ []) stk rest
+        ∎
+  specB (gsu e) fr stk rest d = chain
+    where
+    kw = toList "gsu "
+    body = showB e ++ toList ")"
+    kwF = atom (toList "gsu") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gsu e) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('s' ∷ 'u' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showB e ++ toList ")") ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showB e) (toList ")") rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (toList ")" ++ rest))
+        ≡⟨ specB e kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ sexpB e ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ sexpB e ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (gsu e) ∷ []) stk rest
+        ∎
+  specB (gapp f a) fr stk rest d = chain
+    where
+    kw = toList "gapp "
+    mid = toList " " ++ (showB a ++ toList ")")
+    body = showB f ++ mid
+    kwF = atom (toList "gapp") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gapp f a) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('a' ∷ 'p' ∷ 'p' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showB f ++ mid) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showB f) mid rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showB f ++ (mid ++ rest))
+        ≡⟨ specB f kwF (fr ∷ stk) (mid ++ rest) (dsp ((showB a ++ toList ")") ++ rest)) ⟩
+      after (kwF ++ sexpB f ∷ []) (fr ∷ stk) (mid ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ((kwF ++ sexpB f ∷ []) ∷ fr ∷ stk)) ((showB a ++ toList ")") ++ rest)
+        ≡⟨ push (kwF ++ sexpB f ∷ []) (fr ∷ stk) (showB a) (toList ")") rest ⟩
+      parseGo (need ((kwF ++ sexpB f ∷ []) ∷ fr ∷ stk)) (showB a ++ (toList ")" ++ rest))
+        ≡⟨ specB a (kwF ++ sexpB f ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ sexpB f ∷ sexpB a ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ sexpB f ∷ sexpB a ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (gapp f a) ∷ []) stk rest
+        ∎
+  specB (gmatch e z s) fr stk rest d = chain
+    where
+    kw = toList "gmatch "
+    spS = toList " " ++ (showB s ++ toList ")")
+    spZ = toList " " ++ (showB z ++ spS)
+    body = showB e ++ spZ
+    kwF = atom (toList "gmatch") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gmatch e z s) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('m' ∷ 'a' ∷ 't' ∷ 'c' ∷ 'h' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showB e ++ spZ) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showB e) spZ rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (spZ ++ rest))
+        ≡⟨ specB e kwF (fr ∷ stk) (spZ ++ rest) (dsp ((showB z ++ spS) ++ rest)) ⟩
+      after (kwF ++ sexpB e ∷ []) (fr ∷ stk) (spZ ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ((kwF ++ sexpB e ∷ []) ∷ fr ∷ stk)) ((showB z ++ spS) ++ rest)
+        ≡⟨ push (kwF ++ sexpB e ∷ []) (fr ∷ stk) (showB z) spS rest ⟩
+      parseGo (need ((kwF ++ sexpB e ∷ []) ∷ fr ∷ stk)) (showB z ++ (spS ++ rest))
+        ≡⟨ specB z (kwF ++ sexpB e ∷ []) (fr ∷ stk) (spS ++ rest) (dsp ((showB s ++ toList ")") ++ rest)) ⟩
+      after (kwF ++ sexpB e ∷ sexpB z ∷ []) (fr ∷ stk) (spS ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ((kwF ++ sexpB e ∷ sexpB z ∷ []) ∷ fr ∷ stk)) ((showB s ++ toList ")") ++ rest)
+        ≡⟨ push (kwF ++ sexpB e ∷ sexpB z ∷ []) (fr ∷ stk) (showB s) (toList ")") rest ⟩
+      parseGo (need ((kwF ++ sexpB e ∷ sexpB z ∷ []) ∷ fr ∷ stk)) (showB s ++ (toList ")" ++ rest))
+        ≡⟨ specB s (kwF ++ sexpB e ∷ sexpB z ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ sexpB e ∷ sexpB z ∷ sexpB s ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ sexpB e ∷ sexpB z ∷ sexpB s ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (gmatch e z s) ∷ []) stk rest
+        ∎
+  specB (glam c t b) fr stk rest d = chain
+    where
+    kw = toList "glam "
+    mid = toList " " ++ (showB b ++ toList ")")
+    body = showPair c t ++ mid
+    kwF = atom (toList "glam") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (glam c t b) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('l' ∷ 'a' ∷ 'm' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showPair c t ++ mid) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showPair c t) mid rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showPair c t ++ (mid ++ rest))
+        ≡⟨ specPair c t kwF (fr ∷ stk) (mid ++ rest) (dsp ((showB b ++ toList ")") ++ rest)) ⟩
+      after (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (mid ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) ((showB b ++ toList ")") ++ rest)
+        ≡⟨ push (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (showB b) (toList ")") rest ⟩
+      parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) (showB b ++ (toList ")" ++ rest))
+        ≡⟨ specB b (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ sexpPair c t ∷ sexpB b ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ sexpPair c t ∷ sexpB b ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (glam c t b) ∷ []) stk rest
+        ∎
+  specB (gpi c t b) fr stk rest d = chain
+    where
+    kw = toList "gpi "
+    mid = toList " " ++ (showB b ++ toList ")")
+    body = showPair c t ++ mid
+    kwF = atom (toList "gpi") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gpi c t b) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('p' ∷ 'i' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showPair c t ++ mid) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showPair c t) mid rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showPair c t ++ (mid ++ rest))
+        ≡⟨ specPair c t kwF (fr ∷ stk) (mid ++ rest) (dsp ((showB b ++ toList ")") ++ rest)) ⟩
+      after (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (mid ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) ((showB b ++ toList ")") ++ rest)
+        ≡⟨ push (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (showB b) (toList ")") rest ⟩
+      parseGo (need ((kwF ++ sexpPair c t ∷ []) ∷ fr ∷ stk)) (showB b ++ (toList ")" ++ rest))
+        ≡⟨ specB b (kwF ++ sexpPair c t ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ sexpPair c t ∷ sexpB b ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ sexpPair c t ∷ sexpB b ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB (gpi c t b) ∷ []) stk rest
+        ∎
+  specB {n} (gref k) fr stk rest d = chain
+    where
+    kw = toList "gref "
+    body = showNat k ++ toList ")"
+    kwF = atom (toList "gref") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB {n} (gref k) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('r' ∷ 'e' ∷ 'f' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showNat k ++ toList ")") ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showNat k) (toList ")") rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showNat k ++ (toList ")" ++ rest))
+        ≡⟨ specNat k kwF (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ atom (showNat k) ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ atom (showNat k) ∷ []) fr stk rest ⟩
+      after (fr ++ sexpB {n} (gref k) ∷ []) stk rest
+        ∎
+  specB (gcon t es) fr stk rest d = chain
+    where
+    kw = toList "gcon "
+    mid = showBArgs es ++ toList ")"
+    body = showNat t ++ mid
+    kwF = atom (toList "gcon") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gcon t es) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('c' ∷ 'o' ∷ 'n' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showNat t ++ mid) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showNat t) mid rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showNat t ++ (mid ++ rest))
+        ≡⟨ cong (λ zs → parseGo (need (kwF ∷ fr ∷ stk)) (showNat t ++ zs))
+             (++-assoc (showBArgs es) (toList ")") rest) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showNat t ++ (showBArgs es ++ (')' ∷ rest)))
+        ≡⟨ specNat t kwF (fr ∷ stk) (showBArgs es ++ (')' ∷ rest)) (bargsDelim es (drp rest)) ⟩
+      after (kwF ++ atom (showNat t) ∷ []) (fr ∷ stk) (showBArgs es ++ (')' ∷ rest))
+        ≡⟨ specBArgs es (kwF ++ atom (showNat t) ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ atom (showNat t) ∷ sexpArgs es) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ atom (showNat t) ∷ sexpArgs es) fr stk rest ⟩
+      after (fr ++ sexpB (gcon t es) ∷ []) stk rest
+        ∎
+  specB (gcase e as) fr stk rest d = chain
+    where
+    kw = toList "gcase "
+    mid = showBArms as ++ toList ")"
+    body = showB e ++ mid
+    kwF = atom (toList "gcase") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showB (gcase e as) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('c' ∷ 'a' ∷ 's' ∷ 'e' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showB e ++ mid) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showB e) mid rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (mid ++ rest))
+        ≡⟨ cong (λ zs → parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ zs))
+             (++-assoc (showBArms as) (toList ")") rest) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showB e ++ (showBArms as ++ (')' ∷ rest)))
+        ≡⟨ specB e kwF (fr ∷ stk) (showBArms as ++ (')' ∷ rest)) (barmsDelim as (drp rest)) ⟩
+      after (kwF ++ sexpB e ∷ []) (fr ∷ stk) (showBArms as ++ (')' ∷ rest))
+        ≡⟨ specBArms as (kwF ++ sexpB e ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ sexpB e ∷ sexpArms as) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ sexpB e ∷ sexpArms as) fr stk rest ⟩
+      after (fr ++ sexpB (gcase e as) ∷ []) stk rest
+        ∎
+
+  bargsDelim : ∀ {n} (es : List (BTm n)) {rest} → Delim rest → Delim (showBArgs es ++ rest)
+  bargsDelim [] d = d
+  bargsDelim (_ ∷ _) d = dsp _
+
+  barmsDelim : ∀ {n} (as : List (Arm n)) {rest} → Delim rest → Delim (showBArms as ++ rest)
+  barmsDelim [] d = d
+  barmsDelim (_ ∷ _) d = dsp _
+
+  specBArgs : ∀ {n} (es : List (BTm n)) fr stk rest → Delim rest →
+    after fr stk (showBArgs es ++ rest)
+    ≡ after (fr ++ sexpArgs es) stk rest
+  specBArgs [] fr stk rest d rewrite ++-identityʳ fr = refl
+  specBArgs (e ∷ es) fr stk rest d = chain
+    where
+    mid = showBArgs es ++ rest
+    chain =
+      after fr stk (showBArgs (e ∷ es) ++ rest)
+        ≡⟨ refl ⟩
+      after fr stk (' ' ∷ ((showB e ++ showBArgs es) ++ rest))
+        ≡⟨ cong (λ zs → after fr stk (' ' ∷ zs))
+             (++-assoc (showB e) (showBArgs es) rest) ⟩
+      after fr stk (' ' ∷ (showB e ++ mid))
+        ≡⟨ gap fr stk (showB e ++ mid) ⟩
+      parseGo (need (fr ∷ stk)) (showB e ++ mid)
+        ≡⟨ specB e fr stk mid (bargsDelim es d) ⟩
+      after (fr ++ sexpB e ∷ []) stk mid
+        ≡⟨ specBArgs es (fr ++ sexpB e ∷ []) stk rest d ⟩
+      after ((fr ++ sexpB e ∷ []) ++ sexpArgs es) stk rest
+        ≡⟨ cong (λ zs → after zs stk rest)
+             (++-assoc fr (sexpB e ∷ []) (sexpArgs es)) ⟩
+      after (fr ++ sexpArgs (e ∷ es)) stk rest
+        ∎
+
+  specBArm : ∀ {n} (a : Arm n) fr stk rest → Delim rest →
+    parseGo (need (fr ∷ stk)) (showBArm a ++ rest)
+    ≡ after (fr ++ sexpArm a ∷ []) stk rest
+  specBArm (arm t k b) fr stk rest d = chain
+    where
+    kw = toList "garm "
+    spB = toList " " ++ (showB b ++ toList ")")
+    spK = toList " " ++ (showNat k ++ spB)
+    body = showNat t ++ spK
+    kwF = atom (toList "garm") ∷ []
+    chain =
+      parseGo (need (fr ∷ stk)) (showBArm (arm t k b) ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ([] ∷ fr ∷ stk)) ((kw ++ body) ++ rest)
+        ≡⟨ eatKw 'g' ('a' ∷ 'r' ∷ 'm' ∷ []) [] (fr ∷ stk) (body ++ rest) refl (refl ∷ refl ∷ refl ∷ []) ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) ((showNat t ++ spK) ++ rest)
+        ≡⟨ push kwF (fr ∷ stk) (showNat t) spK rest ⟩
+      parseGo (need (kwF ∷ fr ∷ stk)) (showNat t ++ (spK ++ rest))
+        ≡⟨ specNat t kwF (fr ∷ stk) (spK ++ rest) (dsp ((showNat k ++ spB) ++ rest)) ⟩
+      after (kwF ++ atom (showNat t) ∷ []) (fr ∷ stk) (spK ++ rest)
+        ≡⟨ gap (kwF ++ atom (showNat t) ∷ []) (fr ∷ stk) ((showNat k ++ spB) ++ rest) ⟩
+      parseGo (need ((kwF ++ atom (showNat t) ∷ []) ∷ fr ∷ stk)) ((showNat k ++ spB) ++ rest)
+        ≡⟨ push (kwF ++ atom (showNat t) ∷ []) (fr ∷ stk) (showNat k) spB rest ⟩
+      parseGo (need ((kwF ++ atom (showNat t) ∷ []) ∷ fr ∷ stk)) (showNat k ++ (spB ++ rest))
+        ≡⟨ specNat k (kwF ++ atom (showNat t) ∷ []) (fr ∷ stk) (spB ++ rest) (dsp ((showB b ++ toList ")") ++ rest)) ⟩
+      after (kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ []) (fr ∷ stk) (spB ++ rest)
+        ≡⟨ refl ⟩
+      parseGo (need ((kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ []) ∷ fr ∷ stk)) ((showB b ++ toList ")") ++ rest)
+        ≡⟨ push (kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ []) (fr ∷ stk) (showB b) (toList ")") rest ⟩
+      parseGo (need ((kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ []) ∷ fr ∷ stk)) (showB b ++ (toList ")" ++ rest))
+        ≡⟨ specB b (kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ []) (fr ∷ stk) (')' ∷ rest) (drp rest) ⟩
+      after (kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ sexpB b ∷ []) (fr ∷ stk) (')' ∷ rest)
+        ≡⟨ shut (kwF ++ atom (showNat t) ∷ atom (showNat k) ∷ sexpB b ∷ []) fr stk rest ⟩
+      after (fr ++ sexpArm (arm t k b) ∷ []) stk rest
+        ∎
+
+  specBArms : ∀ {n} (as : List (Arm n)) fr stk rest → Delim rest →
+    after fr stk (showBArms as ++ rest)
+    ≡ after (fr ++ sexpArms as) stk rest
+  specBArms [] fr stk rest d rewrite ++-identityʳ fr = refl
+  specBArms (a ∷ as) fr stk rest d = chain
+    where
+    mid = showBArms as ++ rest
+    chain =
+      after fr stk (showBArms (a ∷ as) ++ rest)
+        ≡⟨ refl ⟩
+      after fr stk (' ' ∷ ((showBArm a ++ showBArms as) ++ rest))
+        ≡⟨ cong (λ zs → after fr stk (' ' ∷ zs))
+             (++-assoc (showBArm a) (showBArms as) rest) ⟩
+      after fr stk (' ' ∷ (showBArm a ++ mid))
+        ≡⟨ gap fr stk (showBArm a ++ mid) ⟩
+      parseGo (need (fr ∷ stk)) (showBArm a ++ mid)
+        ≡⟨ specBArm a fr stk mid (barmsDelim as d) ⟩
+      after (fr ++ sexpArm a ∷ []) stk mid
+        ≡⟨ specBArms as (fr ++ sexpArm a ∷ []) stk rest d ⟩
+      after ((fr ++ sexpArm a ∷ []) ++ sexpArms as) stk rest
+        ≡⟨ cong (λ zs → after zs stk rest)
+             (++-assoc fr (sexpArm a ∷ []) (sexpArms as)) ⟩
+      after (fr ++ sexpArms (a ∷ as)) stk rest
+        ∎
 
 imgTail : List Char
 imgTail = 'u' ∷ 'r' ∷ 'o' ∷ '-' ∷ 'b' ∷ 'e' ∷ 'a' ∷ 'm' ∷ '-' ∷ 'i' ∷ 'm' ∷ 'a' ∷ 'g' ∷ 'e' ∷ []

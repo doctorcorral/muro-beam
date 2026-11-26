@@ -55,19 +55,22 @@ record Ref : Set where
 open Ref public
 
 ------------------------------------------------------------------------
--- Payloads. nat is copied on deref. suc↑ and clo hold child Refs.
--- The child index of a successor is obj of its Ref.
+-- Payloads. nat is copied on deref. suc↑, clo, and con hold child Refs.
+-- The child index of a successor is obj of its Ref. A declared-data
+-- constructor is `con tag fields`, never a nat copy.
 ------------------------------------------------------------------------
 
 data Val : Set where
   nat  : ℕ → Val
   suc↑ : Ref → Val
   clo  : List Ref → Σ ℕ (λ n → BTm n) → Val
+  con  : ℕ → List Ref → Val
 
 kids : Val → List Ref
 kids (nat _)    = []
 kids (suc↑ r)   = r ∷ []
 kids (clo rs _) = rs
+kids (con _ rs) = rs
 
 kidsBelow : ℕ → List Ref → Bool
 kidsBelow _ []       = true
@@ -77,6 +80,7 @@ childrenBelow : ℕ → Val → Bool
 childrenBelow _ (nat _)    = true
 childrenBelow n (suc↑ r)   = obj r <ᵇ n
 childrenBelow n (clo rs _) = kidsBelow n rs
+childrenBelow n (con _ rs) = kidsBelow n rs
 
 record Obj : Set where
   constructor cell
@@ -107,6 +111,7 @@ data Below (n : ℕ) : Val → Set where
   b-nat : ∀ {k} → Below n (nat k)
   b-suc : ∀ {r} → obj r < n → Below n (suc↑ r)
   b-clo : ∀ {rs tm} → AllBelow n rs → Below n (clo rs tm)
+  b-con : ∀ {t rs} → AllBelow n rs → Below n (con t rs)
 
 Ordered : List Obj → Set
 Ordered h = ∀ i o → lookup h i ≡ just o → Below i (payload o)

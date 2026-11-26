@@ -32,7 +32,7 @@ open import MuroBeam.BTm using (embed)
 open import MuroBeam.Heap using
   ( Obj; cell; Status; live; free; payload; status
   ; Ref; ref; residual; checked; obj; count
-  ; Val; nat; suc↑; clo )
+  ; Val; nat; suc↑; clo; con )
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Process using
   ( Proc; proc; ready; idle; Msg; msg; Sys; sys; heap; procs; roots; inbox
@@ -72,6 +72,7 @@ natOf : Val → Maybe ℕ
 natOf (nat n)    = just n
 natOf (suc↑ _)   = nothing
 natOf (clo _ _)  = nothing
+natOf (con _ _)  = nothing
 
 payOf : Maybe Obj → Maybe ℕ
 payOf nothing  = nothing

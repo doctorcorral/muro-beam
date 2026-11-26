@@ -25,12 +25,12 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 open import Muro.Base using (run)
 open import Muro.Grade using (Grade; g0; g1; gω)
 open import MuroBeam.BTm using
-  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+  ( BTm; Arm; arm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; gcon; gcase )
 
 open import MuroBeam.Grade using
   ( selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy )
 open import MuroBeam.Heap using
-  ( Obj; cell; live; Val; nat; suc↑; clo; Ref; ref; obj; checked; residual
+  ( Obj; cell; live; Val; nat; suc↑; clo; con; Ref; ref; obj; checked; residual
   ; repl; count; kids; payload; edgeRefs; spendRef; spendRef-obj
   ; count-++ ; removeAt-count )
 open import MuroBeam.Lib using
@@ -43,13 +43,13 @@ open import MuroBeam.Lib using
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; bd; saved; seg; lookupDef
+  ; Frame; ar; fn; su; mt; ca; cs; bd; saved; seg; lookupDef
   ; roots; inbox; state; Msg; msg; mapRef
   ; refsP; refsPs; refsOf; ctlRefs; ctlRefsPs; framesRefs; frameRefs
   ; preOf; mapSys; post; putRoot; setProc; install; pass; snoc
   ; freshRef; regrade; payloadAt; setPayload; poke; length-poke
   ; deref; alloc; reuse; eval1; evalHere; evalTm; evalRet
-  ; useVar; beta; onMatch
+  ; useVar; beta; onMatch; onCase; pickArms; bindExact; badFields
   ; rootAt; derefAt; derefSpent; recvAt; recvInbox; addRoot
   ; sendFrom; sendTaken; dropRoot; dispatch; addMsg
   ; reuseFrom; reuseOk; anyG1; badG1; predComp
@@ -85,7 +85,8 @@ open import MuroBeam.Unique using
   ; length-snoc; length-set; length-apply
   ; put-count; upd-count; post-count; snoc-root-count; recv-refs
   ; keep-on; refs-count; set-refsPs
-  ; edge-nat; edge-suc; edge-clo; edge-at; EdgeAt; eat
+  ; edge-nat; edge-suc; edge-clo; edge-con; edge-con-nil; edge-at; EdgeAt; eat
+  ; bindExact-count
   ; sub-zero; count-edge; count-filter; ctl-clean; refs-cleaned
   ; root-lookup )
 
@@ -430,6 +431,8 @@ module Preserve (τ : ℕ) where
   scrubFrame-keep _ _ (ar _) _ eq = eq
   scrubFrame-keep _ _ su _ eq = eq
   scrubFrame-keep _ _ (mt _ _ _) _ eq = eq
+  scrubFrame-keep _ _ (cs _ _) _ eq = eq
+  scrubFrame-keep τf ph (ca _ acc _) np eq = scrubRefs-keep τf ph acc np eq
   scrubFrame-keep _ _ (seg _) _ eq = eq
 
   scrubFrames-keep _ _ [] _ _ = refl
@@ -528,6 +531,8 @@ module Preserve (τ : ℕ) where
   scrubFrame-kill _ (ar _) _ = refl
   scrubFrame-kill _ su _ = refl
   scrubFrame-kill _ (mt _ _ _) _ = refl
+  scrubFrame-kill _ (cs _ _) _ = refl
+  scrubFrame-kill ph (ca _ acc _) np = scrubRefs-kill ph acc np
   scrubFrame-kill _ (seg _) _ = refl
 
   scrubFrames-kill _ [] _ = refl
@@ -740,6 +745,8 @@ module Preserve (τ : ℕ) where
     pullFrames-free (fn r ∷ ks) f ks' eq z = pullRest (fn r) ks f ks' eq z
     pullFrames-free (su ∷ ks) f ks' eq z = pullRest su ks f ks' eq z
     pullFrames-free (mt e0 z0 s ∷ ks) f ks' eq z = pullRest (mt e0 z0 s) ks f ks' eq z
+    pullFrames-free (ca t acc es ∷ ks) f ks' eq z = pullRest (ca t acc es) ks f ks' eq z
+    pullFrames-free (cs e as ∷ ks) f ks' eq z = pullRest (cs e as) ks f ks' eq z
     pullFrames-free (bd env ∷ ks) f ks' eq z = pullRest (bd env) ks f ks' eq z
     pullFrames-free (seg ds ∷ ks) f ks' eq z = pullRest (seg ds) ks f ks' eq z
 
@@ -1121,6 +1128,15 @@ module Preserve (τ : ℕ) where
         seal h (ev e0 env (su ∷ k)) ze (0++ env (framesRefs k) ze0 zf) fit eqt
       onTm (gmatch e0 z s) env k ze0 zf eqt =
         seal h (ev e0 env (mt e0 z s ∷ k)) ze (0++ env (framesRefs k) ze0 zf) fit eqt
+      onTm (gcon t []) env k ze0 zf eqt =
+        seal (snoc h (con t [])) (rv (freshRef h gω) env k)
+          (trans (cong (count τ) (edge-con-nil h t)) ze)
+          (freshCtl env k gω ze0 zf)
+          (fit-snoc h (con t []) fit) eqt
+      onTm (gcon t (e ∷ es)) env k ze0 zf eqt =
+        seal h (ev e env (ca t [] es ∷ k)) ze (0++ env (framesRefs k) ze0 zf) fit eqt
+      onTm (gcase e0 arms) env k ze0 zf eqt =
+        seal h (ev e0 env (cs e0 arms ∷ k)) ze (0++ env (framesRefs k) ze0 zf) fit eqt
       onTm (gtyp _) env k ze0 zf eqt =
         seal (snoc h (nat zero)) (rv (freshRef h gω) env k) (trans (cong (count τ) (edge-nat h zero)) ze)
              (freshCtl env k gω ze0 zf) (fit-snoc h (nat zero) fit) eqt
@@ -1198,6 +1214,9 @@ module Preserve (τ : ℕ) where
           fromS (just r') eqv es | just (clo _ _) with isG1 (checked r')
           fromS (just r') eqv es | just (clo _ _) | true  = moveGo r' es eqv
           fromS (just r') eqv es | just (clo _ _) | false = aliasGo r' es eqv
+          fromS (just r') eqv es | just (con _ _) with isG1 (checked r')
+          fromS (just r') eqv es | just (con _ _) | true  = moveGo r' es eqv
+          fromS (just r') eqv es | just (con _ _) | false = aliasGo r' es eqv
 
       onRet : ∀ r env k →
               (obj r ≡ᵇ τ) ≡ false → count τ env ≡ 0 → count τ (framesRefs k) ≡ 0 →
@@ -1225,6 +1244,9 @@ module Preserve (τ : ℕ) where
           opened (just (clo envC (_ , gsu _))) eqp pv rewrite pv = stuck-just eqp
           opened (just (clo envC (_ , gmatch _ _ _))) eqp pv rewrite pv = stuck-just eqp
           opened (just (clo envC (_ , gref _))) eqp pv rewrite pv = stuck-just eqp
+          opened (just (clo envC (_ , gcon _ _))) eqp pv rewrite pv = stuck-just eqp
+          opened (just (clo envC (_ , gcase _ _))) eqp pv rewrite pv = stuck-just eqp
+          opened (just (con _ _)) eqp pv rewrite pv = stuck-just eqp
           opened (just (clo envC (nb , glam cG ty body))) eqp pv rewrite pv =
             let inner = install h ps i (ev body (regrade r cG ∷ envC) (bd env ∷ k))
                 outer = pass-ok (not (badG1 cG (obj r) (refsOf (sys h ps))))
@@ -1253,6 +1275,7 @@ module Preserve (τ : ℕ) where
         onV nothing eqp pv rewrite pv = stuck-just eqp
         onV (just (nat (suc _))) eqp pv rewrite pv = stuck-just eqp
         onV (just (clo _ _)) eqp pv rewrite pv = stuck-just eqp
+        onV (just (con _ _)) eqp pv rewrite pv = stuck-just eqp
         onV (just (nat zero)) eqp pv rewrite pv =
           seal h (ev z env k) ze (0++ env (framesRefs k) ze0 zf) fit eqp
         onV (just (suc↑ pred)) eqp pv rewrite pv =
@@ -1277,6 +1300,70 @@ module Preserve (τ : ℕ) where
                  (cons0 (regrade pred (predComp env e0)) (env ++ framesRefs k) np
                     (0++ env (framesRefs k) ze0 zf))
                  (fit-set h (obj r) (nat zero) fit) eI
+      onRet r env (ca t acc [] ∷ k) nr ze0 zf eqt =
+        let zAcc , zf' = ++0 acc (framesRefs k) zf
+            zFields = 0++ acc (r ∷ []) zAcc (cons0 r [] nr refl)
+        in seal (snoc h (con t (acc ++ r ∷ []))) (rv (freshRef h gω) env k)
+             (trans (cong (count τ) (edge-con h t (acc ++ r ∷ [])))
+                    (0++ (edgeRefs h) (acc ++ r ∷ []) ze zFields))
+             (freshCtl env k gω ze0 zf')
+             (fit-snoc h (con t (acc ++ r ∷ [])) fit) eqt
+      onRet r env (ca t acc (e ∷ es) ∷ k) nr ze0 zf eqt =
+        let zAcc , zf' = ++0 acc (framesRefs k) zf
+            zNewF = 0++ (acc ++ r ∷ []) (framesRefs k)
+                      (0++ acc (r ∷ []) zAcc (cons0 r [] nr refl)) zf'
+        in seal h (ev e env (ca t (acc ++ r ∷ []) es ∷ k)) ze
+             (0++ env ((acc ++ r ∷ []) ++ framesRefs k) ze0 zNewF) fit eqt
+      onRet r env (cs {n} e0 arms ∷ k) nr ze0 zf eqt = onC (payloadAt h (obj r)) eqt refl
+        where
+        g = predComp env e0
+        all = refsOf (sys h ps)
+        onC : (v : Maybe Val) →
+              onCase h ps i r env e0 arms k (payloadAt h (obj r)) ≡ just t →
+              payloadAt h (obj r) ≡ v → Clear t
+        onC nothing eqp pv rewrite pv = stuck-just eqp
+        onC (just (nat _)) eqp pv rewrite pv = stuck-just eqp
+        onC (just (suc↑ _)) eqp pv rewrite pv = stuck-just eqp
+        onC (just (clo _ _)) eqp pv rewrite pv = stuck-just eqp
+        onC (just (con tag rs)) eqp pv rewrite pv = pickGo arms eqp
+          where
+          pickGo : (as : List (Arm n)) →
+                   pickArms h ps i r env e0 as k tag rs ≡ just t → Clear t
+          pickGo [] ()
+          pickGo (arm atag binds body ∷ rest) eP
+            with atag ≡ᵇ tag | bindExact binds g rs env in beq
+          ... | false | _ = pickGo rest eP
+          ... | true | nothing = stuck-just eP
+          ... | true | just env' =
+            let inner = install (setPayload h (obj r) (nat zero)) ps i
+                          (ev body env' k)
+                outer = pass-ok (not (badFields g rs all)) inner eP
+            in caseDone env' body binds beq pv (proj₂ outer)
+            where
+            caseDone : ∀ env' {m} (body : BTm m) binds →
+              bindExact binds g rs env ≡ just env' →
+              payloadAt h (obj r) ≡ just (con tag rs) →
+              install (setPayload h (obj r) (nat zero)) ps i
+                (ev body env' k) ≡ just t →
+              Clear t
+            caseDone env' body binds beq pv' eI =
+              conDone (edge-at h (obj r) (con tag rs) pv') eI
+              where
+              conDone : EdgeAt h (obj r) (con tag rs) →
+                        install (setPayload h (obj r) (nat zero)) ps i
+                          (ev body env' k) ≡ just t →
+                        Clear t
+              conDone (eat L R e1 e2) eI =
+                let zAll = trans (cong (count τ) (sym e1)) ze
+                    zL , zKR = ++0 L (rs ++ R) zAll
+                    zRs , zR = ++0 rs R zKR
+                    zEnv' = trans (bindExact-count binds g rs env env' τ beq)
+                              (trans (cong (_+ count τ env) zRs) ze0)
+                    h2 = setPayload h (obj r) (nat zero)
+                in seal h2 (ev body env' k)
+                     (trans (cong (count τ) e2) (0++ L R zL zR))
+                     (0++ env' (framesRefs k) zEnv' zf)
+                     (fit-set h (obj r) (nat zero) fit) eI
       onRet r env (bd env0 ∷ k) nr ze0 zf eqt =
         let z0 , zf' = ++0 env0 (framesRefs k) zf
         in seal h (rv r env0 k) ze (cons0 r (env0 ++ framesRefs k) nr (0++ env0 (framesRefs k) z0 zf')) fit eqt
@@ -2048,12 +2135,16 @@ module Preserve (τ : ℕ) where
       onC (rv _ _ (fn _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (ca _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (cs _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (seg _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ ar _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ fn _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ ca _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+      onC (rv _ _ (saved (go _ _ _ _ _) ∷ cs _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ saved _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
       onC (rv _ _ (saved (go _ _ _ _ _) ∷ seg _ ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc

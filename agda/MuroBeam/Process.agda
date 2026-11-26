@@ -18,12 +18,12 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 open import Muro.Base using (Mode; run; spec; evid)
 open import Muro.Grade using (Grade; g0; g1; gω; aff; _≤ᵍ_)
 open import MuroBeam.BTm using
-  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; lookupIx )
+  ( BTm; Arm; arm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; gcon; gcase; lookupIx )
 
 open import MuroBeam.Grade using
   ( selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy )
 open import MuroBeam.Heap using
-  ( Obj; cell; Status; live; Val; nat; suc↑; clo; Ref; ref; residual; checked; obj
+  ( Obj; cell; Status; live; Val; nat; suc↑; clo; con; Ref; ref; residual; checked; obj
   ; payload; kids; childrenBelow; edgeRefs; Ordered; Below; b-nat
   ; spendRef; spendRef-zero; residual-inv; ref-inv
   ; count; hasG1; Grade1Unique
@@ -41,12 +41,16 @@ data PState : Set where
 data Msg : Set where
   msg : Ref → Msg
 
--- CEK frames. ar/mt carry syntax. fn and bd carry Refs.
+-- CEK frames. ar/mt/ca/cs carry syntax. fn, bd, and ca's accumulator
+-- carry Refs. `ca` collects constructor arguments left to right.
+-- `cs` holds the scrutinee term (for predComp) and the arms.
 data Frame : Set where
   ar : ∀ {n} → BTm n → Frame
   fn : Ref → Frame
   su : Frame
   mt : ∀ {n} → BTm n → BTm n → BTm (suc n) → Frame
+  ca : ∀ {n} → ℕ → List Ref → List (BTm n) → Frame
+  cs : ∀ {n} → BTm n → List (Arm n) → Frame
   bd : List Ref → Frame
   -- Parked process code. The environment and the flights are both
   -- references. `seq` parks an empty environment, so the CEK
@@ -67,6 +71,8 @@ frameRefs (ar _)       = []
 frameRefs (fn r)       = r ∷ []
 frameRefs su           = []
 frameRefs (mt _ _ _)   = []
+frameRefs (ca _ acc _) = acc
+frameRefs (cs _ _)     = []
 frameRefs (bd env)     = env
 frameRefs (saved c)    = codeRefs c
 frameRefs (seg _)      = []
@@ -517,6 +523,7 @@ useVar h ps i env k ix (just r) = spent (spendRef r)
       install (snoc h (nat n)) ps i (rv (freshRef h gω) env' k)
     see (just (suc↑ _)) = ptr (isG1 (checked r'))
     see (just (clo _ _)) = ptr (isG1 (checked r'))
+    see (just (con _ _)) = ptr (isG1 (checked r'))
     see nothing = nothing
 
 evalTm : ∀ {n} → List Obj → List Proc → ℕ → BTm n → List Ref → List Frame → Maybe Sys
@@ -536,6 +543,12 @@ evalTm h ps i gze env k =
   install (snoc h (nat zero)) ps i (rv (freshRef h gω) env k)
 evalTm h ps i (gsu e) env k = install h ps i (ev e env (su ∷ k))
 evalTm h ps i (gmatch e z s) env k = install h ps i (ev e env (mt e z s ∷ k))
+evalTm h ps i (gcon t []) env k =
+  install (snoc h (con t [])) ps i (rv (freshRef h gω) env k)
+evalTm h ps i (gcon t (e ∷ es)) env k =
+  install h ps i (ev e env (ca t [] es ∷ k))
+evalTm h ps i (gcase e arms) env k =
+  install h ps i (ev e env (cs e arms ∷ k))
 -- Install the closed code under the caller's environment. `bd`
 -- restores that environment when the code returns, so the pending
 -- argument frames still see it. `[] ++` drops out of `ctlRefs`, and
@@ -564,7 +577,49 @@ onMatch h ps i r env e _ s k (just (suc↑ pred)) =
        (install (setPayload h (obj r) (nat zero)) ps i
          (ev s (regrade pred (predComp env e) ∷ env) k))
 onMatch _ _ _ _ _ _ _ _ _ (just (clo _ _)) = nothing
+onMatch _ _ _ _ _ _ _ _ _ (just (con _ _)) = nothing
 onMatch _ _ _ _ _ _ _ _ _ nothing = nothing
+
+-- Bind k fields left to right onto env, last field nearest. Length
+-- must be exactly k. Each field is regraded to g (predComp of the
+-- scrutinee).
+bindExact : (k : ℕ) → Grade → List Ref → List Ref → Maybe (List Ref)
+bindExact zero _ [] env = just env
+bindExact zero _ (_ ∷ _) _ = nothing
+bindExact (suc _) _ [] _ = nothing
+bindExact (suc k) g (r ∷ rs) env = bindExact k g rs (regrade r g ∷ env)
+
+badFields : Grade → List Ref → List Ref → Bool
+badFields _ [] _ = false
+badFields c (r ∷ rs) all =
+  badG1 c (obj r) all ∨ badFields c rs all
+
+-- Walk constructor arms. First matching tag wins. `bindExact` requires
+-- the field count, and `badFields` refuses an aliased g1 field.
+pickArms : List Obj → List Proc → ℕ → Ref → List Ref →
+           ∀ {n} → BTm n → List (Arm n) → List Frame →
+           ℕ → List Ref → Maybe Sys
+pickArms h ps i r env e arms k t rs = go arms
+  where
+  g = predComp env e
+  all = refsOf (sys h ps)
+  go : ∀ {n} → List (Arm n) → Maybe Sys
+  go [] = nothing
+  go (arm tag binds body ∷ rest) with tag ≡ᵇ t | bindExact binds g rs env
+  ... | false | _ = go rest
+  ... | true | nothing = nothing
+  ... | true | just env' =
+    pass (not (badFields g rs all))
+         (install (setPayload h (obj r) (nat zero)) ps i (ev body env' k))
+
+onCase : List Obj → List Proc → ℕ → Ref → List Ref →
+         ∀ {n} → BTm n → List (Arm n) → List Frame → Maybe Val → Maybe Sys
+onCase _ _ _ _ _ _ _ _ nothing = nothing
+onCase _ _ _ _ _ _ _ _ (just (nat _)) = nothing
+onCase _ _ _ _ _ _ _ _ (just (suc↑ _)) = nothing
+onCase _ _ _ _ _ _ _ _ (just (clo _ _)) = nothing
+onCase h ps i r env e arms k (just (con t rs)) =
+  pickArms h ps i r env e arms k t rs
 
 evalRet h ps i r env [] = nothing
 evalRet h ps i r env (ar a ∷ k) = install h ps i (ev a env (fn r ∷ k))
@@ -572,6 +627,11 @@ evalRet h ps i r env (fn rf ∷ k) = beta h ps i r rf env k
 evalRet h ps i r env (su ∷ k) =
   install (snoc h (suc↑ r)) ps i (rv (freshRef h gω) env k)
 evalRet h ps i r env (mt e z s ∷ k) = onMatch h ps i r env e z s k (payloadAt h (obj r))
+evalRet h ps i r env (ca t acc [] ∷ k) =
+  install (snoc h (con t (acc ++ r ∷ []))) ps i (rv (freshRef h gω) env k)
+evalRet h ps i r env (ca t acc (e ∷ es) ∷ k) =
+  install h ps i (ev e env (ca t (acc ++ r ∷ []) es ∷ k))
+evalRet h ps i r env (cs e arms ∷ k) = onCase h ps i r env e arms k (payloadAt h (obj r))
 evalRet h ps i r env (bd env0 ∷ k) = install h ps i (rv r env0 k)
 -- `saved` is resumed by the process layer, not by `eval1`.
 -- `seg` stays under it for the whole run.

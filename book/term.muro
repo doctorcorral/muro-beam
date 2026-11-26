@@ -13,6 +13,14 @@ data GTm : Nat → Type where
   gpi : Π (+ n : Nat) → Π (+ c : Grade) → Grade → GTm suc(n) → GTm n
   glam : Π (+ n : Nat) → Π (+ c : Grade) → Grade → GTm suc(n) → GTm n
   gmatch : Π (+ n : Nat) → Π (+ e : GTm n) → GTm n → GTm suc(n) → GTm n
+  -- List (GTm n) is not strictly positive in this muro, and a general
+  -- `gcase` / `Arm` family is mutually inductive with `GTm`. The book
+  -- keeps typable fragments: gcon0/1/2 and one-arm gcase0/gcase1.
+  gcon0 : Π (+ n : Nat) → Nat → GTm n
+  gcon1 : Π (+ n : Nat) → Nat → GTm n → GTm n
+  gcon2 : Π (+ n : Nat) → Nat → GTm n → GTm n → GTm n
+  gcase0 : Π (+ n : Nat) → Π (+ e : GTm n) → Nat → GTm n → GTm n
+  gcase1 : Π (+ n : Nat) → Π (+ e : GTm n) → Nat → GTm suc(n) → GTm n
 
 -- Agda's Σ ℕ (λ n → GTm n). muro 0.20.33 has no dependent pair in this
 -- position that keeps the index, so the pair is a constructor.
@@ -31,7 +39,12 @@ def predGrade : run Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) �
       | gapp m f a => λ (d : Vec Grade m) → aff
       | gpi m c ty b => λ (d : Vec Grade m) → aff
       | glam m c ty b => λ (d : Vec Grade m) → aff
-      | gmatch m e1 z s => λ (d : Vec Grade m) → aff) ctx
+      | gmatch m e1 z s => λ (d : Vec Grade m) → aff
+      | gcon0 m t => λ (d : Vec Grade m) → aff
+      | gcon1 m t e => λ (d : Vec Grade m) → aff
+      | gcon2 m t e1 e2 => λ (d : Vec Grade m) → aff
+      | gcase0 m e tg b => λ (d : Vec Grade m) → aff
+      | gcase1 m e tg b => λ (d : Vec Grade m) → aff) ctx
 
 -- predGrade as a relation. The run function is recursive, so InB cannot
 -- store a call to it in an index.
@@ -59,3 +72,17 @@ data Pred : PredIx → Type where
   pr-mat : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
            Π (z : GTm n) → Π (s : GTm suc(n)) →
            Pred (prix n ctx (gmatch n e z s) aff)
+  pr-con0 : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (t : Nat) →
+            Pred (prix n ctx (gcon0 n t) aff)
+  pr-con1 : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (t : Nat) →
+            Π (e : GTm n) →
+            Pred (prix n ctx (gcon1 n t e) aff)
+  pr-con2 : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (t : Nat) →
+            Π (e1 : GTm n) → Π (e2 : GTm n) →
+            Pred (prix n ctx (gcon2 n t e1 e2) aff)
+  pr-cs0 : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+           Π (tg : Nat) → Π (b : GTm n) →
+           Pred (prix n ctx (gcase0 n e tg b) aff)
+  pr-cs1 : Π (n : Nat) → Π (ctx : Vec Grade n) → Π (e : GTm n) →
+           Π (tg : Nat) → Π (b : GTm suc(n)) →
+           Pred (prix n ctx (gcase1 n e tg b) aff)

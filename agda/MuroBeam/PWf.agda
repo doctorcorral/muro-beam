@@ -43,7 +43,7 @@ open import MuroBeam.Lib using
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; bd; saved; seg
+  ; Frame; ar; fn; su; mt; ca; cs; bd; saved; seg
   ; roots; inbox; state; Msg; msg; mapRef; post
   ; refsP; refsPs; refsOf; ctlRefs; ctlRefsPs; framesRefs; frameRefs
   ; preOf; mapSys; setProc; snoc; regrade
@@ -699,12 +699,16 @@ bind-wf h ps i t wf eq = from (lookup ps i) eq refl
     onC (rv _ _ (fn _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (ca _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (cs _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (seg _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ ar _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ fn _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ su ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ mt _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ ca _ _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
+    onC (rv _ _ (saved (go _ _ _ _ _) ∷ cs _ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ bd _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ saved _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
     onC (rv _ _ (saved (go _ _ _ _ _) ∷ seg _ ∷ _ ∷ _)) eqc lk0 ec rewrite lk0 | ec = nope eqc
@@ -843,6 +847,8 @@ frame-le : ∀ k τ ph f → (obj ph ≡ᵇ k) ≡ false →
 frame-le k τ ph (ar _) hp = ≤-refl
 frame-le k τ ph su hp = ≤-refl
 frame-le k τ ph (mt _ _ _) hp = ≤-refl
+frame-le k τ ph (cs _ _) hp = ≤-refl
+frame-le k τ ph (ca _ acc _) hp = scrub-count k τ ph acc hp
 frame-le k τ ph (seg _) hp = ≤-refl
 frame-le k τ ph (fn r) hp with obj r ≡ᵇ τ
 ... | true rewrite hp = z≤n
@@ -978,6 +984,8 @@ frame-has : ∀ k τ ph f → isG1 (checked ph) ≡ false →
 frame-has k τ ph (ar _) ng ()
 frame-has k τ ph su ng ()
 frame-has k τ ph (mt _ _ _) ng ()
+frame-has k τ ph (cs _ _) ng ()
+frame-has k τ ph (ca _ acc _) ng hf = scrub-has k τ ph acc ng hf
 frame-has k τ ph (seg _) ng ()
 frame-has k τ ph (fn r) ng hf with obj r ≡ᵇ τ
 ... | true rewrite ng | ∧-falseʳ (obj ph ≡ᵇ k) =
@@ -1097,6 +1105,8 @@ frame-miss : ∀ τ ph f → isG1 (checked ph) ≡ false →
 frame-miss τ ph (ar _) ng b = refl
 frame-miss τ ph su ng b = refl
 frame-miss τ ph (mt _ _ _) ng b = refl
+frame-miss τ ph (cs _ _) ng b = refl
+frame-miss τ ph (ca _ acc _) ng b = scrub-miss τ ph acc ng b
 frame-miss τ ph (seg _) ng b = refl
 frame-miss τ ph (fn r) ng (bcons lt _) with obj r ≡ᵇ τ
 ... | true rewrite ≡ᵇ-refl (obj ph) | ng | ∧-falseʳ true = refl
@@ -1189,6 +1199,8 @@ frame-bd : ∀ {n} τ ph f → Bound n (frameRefs f) → obj ph < n →
 frame-bd τ ph (ar _) b olt = b
 frame-bd τ ph su b olt = b
 frame-bd τ ph (mt _ _ _) b olt = b
+frame-bd τ ph (cs _ _) b olt = b
+frame-bd τ ph (ca _ acc _) b olt = scrub-bound τ ph acc b olt
 frame-bd τ ph (seg _) b olt = b
 frame-bd τ ph (fn r) (bcons lt rest) olt with obj r ≡ᵇ τ
 ... | true = bcons olt rest
@@ -2357,6 +2369,8 @@ mutual
   pullFrames-drop (fn r ∷ ks) f fs' eq = frame-tail (fn r) ks f fs' eq
   pullFrames-drop (su ∷ ks) f fs' eq = frame-tail su ks f fs' eq
   pullFrames-drop (mt a b c ∷ ks) f fs' eq = frame-tail (mt a b c) ks f fs' eq
+  pullFrames-drop (ca t acc es ∷ ks) f fs' eq = frame-tail (ca t acc es) ks f fs' eq
+  pullFrames-drop (cs e as ∷ ks) f fs' eq = frame-tail (cs e as) ks f fs' eq
   pullFrames-drop (bd env ∷ ks) f fs' eq = frame-tail (bd env) ks f fs' eq
   pullFrames-drop (seg ds ∷ ks) f fs' eq = frame-tail (seg ds) ks f fs' eq
 

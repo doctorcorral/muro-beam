@@ -43,8 +43,9 @@ open import Muro.Grade using
   ; pcomp; ptype; refuse; typeRefuse
   ; zeros; oneS; charge; addU; maxU; addᶜ; maxᶜ ; gω )
 open import MuroBeam.BTm using
-  ( BTm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref
-  ; decideB; decide-embed; predPair )
+  ( BTm; Arm; arm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref
+  ; gcon; gcase; decideB; decideArgs; decideArm; decideArms
+  ; decide-embed; predPair; unders; tel )
 
 -- The pure path has an empty code table. `decide` here is `decideB`
 -- at bound 0, so a `gref` is refused. `decide-embed` is the agreement
@@ -56,14 +57,14 @@ open import MuroBeam.Grade using
   ( Kept; fin-kept; isG1; isG1-sound; isG1-complete; selfKept; spend; spent
   ; isZeroGrade; Kind; Kmove; Kcopy; kind )
 open import MuroBeam.Heap using
-  ( Obj; cell; Status; live; free; Val; nat; suc↑; clo; Ref; ref
+  ( Obj; cell; Status; live; free; Val; nat; suc↑; clo; con; Ref; ref
   ; obj; checked; residual; kept; payload; spendRef; repl
   ; spendRef-zero; spendRef-checked; count; childrenBelow )
 open import MuroBeam.Lib using
   ( lookup; update; removeAt; +-assoc; +-identityʳ; ≡ᵇ-refl; ≡ᵇ-sound
-  ; ∨-false; ≤-refl; ≤-trans; <ᵇzero ) renaming (lower to lower≤)
+  ; ∨-false; ≤-refl; ≤-trans; ≤-step; m≤m+k; k≤n+k; <ᵇzero ) renaming (lower to lower≤)
 open import MuroBeam.Process using
-  ( anyG1; Frame; ar; fn; su; mt; bd; saved; seg; lookupDef
+  ( anyG1; Frame; ar; fn; su; mt; ca; cs; bd; saved; seg; lookupDef
   ; Sys; sys; Proc; proc; ctl; roots; inbox; Msg; msg; Ctl; idle; ev; rv; pr
   ; eval1; evalTm; evalRet; useVar; beta; pass; install; freshRef; snoc
   ; regrade; badG1; payloadAt; deref; send; recv; alloc; reuse; poke
@@ -88,16 +89,57 @@ open Checked public
 -- branch. A λ counts free uses of the captured env. A Π is erased.
 ------------------------------------------------------------------------
 
-occ : ∀ {n} → ℕ → BTm n → ℕ
-occ i (gvar x) = if toℕ x ≡ᵇ i then suc zero else zero
-occ _ (gtyp _) = zero
-occ i (glam _ _ b) = occ (suc i) b
-occ _ (gpi _ _ _) = zero
-occ i (gapp f a) = occ i f + occ i a
-occ _ gze = zero
-occ i (gsu e) = occ i e
-occ i (gmatch e z s) = occ i e + (occ i z ⊔ occ (suc i) s)
-occ _ (gref _) = zero
+mutual
+  occ : ∀ {n} → ℕ → BTm n → ℕ
+  occ i (gvar x) = if toℕ x ≡ᵇ i then suc zero else zero
+  occ _ (gtyp _) = zero
+  occ i (glam _ _ b) = occ (suc i) b
+  occ _ (gpi _ _ _) = zero
+  occ i (gapp f a) = occ i f + occ i a
+  occ _ gze = zero
+  occ i (gsu e) = occ i e
+  occ i (gmatch e z s) = occ i e + (occ i z ⊔ occ (suc i) s)
+  occ _ (gref _) = zero
+  occ i (gcon _ es) = occArgs i es
+  occ i (gcase e as) = occ i e + occArms i as
+
+  occArgs : ∀ {n} → ℕ → List (BTm n) → ℕ
+  occArgs _ [] = zero
+  occArgs i (e ∷ es) = occ i e + occArgs i es
+
+  occArm : ∀ {n} → ℕ → Arm n → ℕ
+  occArm i (arm _ k b) = occ (k + i) b
+
+  occArms : ∀ {n} → ℕ → List (Arm n) → ℕ
+  occArms _ [] = zero
+  occArms i (a ∷ []) = occArm i a
+  occArms i (a ∷ a2 ∷ as) = occArm i a ⊔ occArms i (a2 ∷ as)
+
+mutual
+  sizeB : ∀ {n} → BTm n → ℕ
+  sizeB (gvar _) = suc zero
+  sizeB (gtyp _) = suc zero
+  sizeB (glam _ _ b) = suc (sizeB b)
+  sizeB (gpi _ _ b) = suc (sizeB b)
+  sizeB (gapp f a) = suc (sizeB f + sizeB a)
+  sizeB gze = suc zero
+  sizeB (gsu e) = suc (sizeB e)
+  sizeB (gmatch e z s) = suc (sizeB e + (sizeB z + sizeB s))
+  sizeB (gref _) = suc zero
+  sizeB (gcon _ es) = suc (sizeArgs es)
+  sizeB (gcase e as) = suc (sizeB e + sizeArms as)
+
+  sizeArgs : ∀ {n} → List (BTm n) → ℕ
+  sizeArgs [] = zero
+  sizeArgs (e ∷ es) = suc (sizeB e + sizeArgs es)
+
+  sizeArm : ∀ {n} → Arm n → ℕ
+  sizeArm (arm _ _ b) = suc (sizeB b)
+
+  sizeArms : ∀ {n} → List (Arm n) → ℕ
+  sizeArms [] = zero
+  sizeArms (a ∷ []) = suc (sizeArm a)
+  sizeArms (a ∷ a2 ∷ as) = suc (sizeArm a + sizeArms (a2 ∷ as))
 
 debtF : ℕ → List Frame → ℕ
 debtF _ [] = zero
@@ -105,6 +147,8 @@ debtF i (ar a ∷ k) = occ i a + debtF i k
 debtF i (fn _ ∷ k) = debtF i k
 debtF i (su ∷ k) = debtF i k
 debtF i (mt _ z s ∷ k) = (occ i z ⊔ occ (suc i) s) + debtF i k
+debtF i (ca _ _ es ∷ k) = occArgs i es + debtF i k
+debtF i (cs _ as ∷ k) = occArms i as + debtF i k
 debtF _ (bd _ ∷ _) = zero
 debtF _ (saved _ ∷ _) = zero
 debtF i (seg _ ∷ k) = debtF i k
@@ -128,6 +172,13 @@ private
 
   ok-inj : ∀ {A : Set} {x y : A} → okR x ≡ okR y → x ≡ y
   ok-inj refl = refl
+
+  inspect : ∀ {A : Set} (x : A) → Σ A (λ y → x ≡ y)
+  inspect x = x , refl
+
+  suc-≤-pred : ∀ {m} n → suc m ≤ n → ∃ λ n' → (n ≡ suc n') × (m ≤ n')
+  suc-≤-pred zero ()
+  suc-≤-pred (suc n') (s≤s le) = n' , refl , le
 
   check-ok : ∀ {A : Set} (b : Bool) (x : A) (msg : String) {y : A} →
              (if b then okR x else fail msg) ≡ okR y → b ≡ true × x ≡ y
@@ -236,150 +287,421 @@ private
     step (fsuc _) fzero = refl
     step (fsuc y) (fsuc j) = comp-oneS y j c ty
 
+  raisek : ∀ k {n} → Fin n → Fin (k + n)
+  raisek zero i = i
+  raisek (suc k) i = fsuc (raisek k i)
+
+  raisek-toℕ : ∀ k {n} (i : Fin n) → toℕ (raisek k i) ≡ k + toℕ i
+  raisek-toℕ zero _ = refl
+  raisek-toℕ (suc k) i = cong suc (raisek-toℕ k i)
+
+  unders-index-spec : ∀ {n} k c t (us : Uses (k + n)) out (i : Fin n) →
+    unders k spec c t us ≡ okR out →
+    compAt out i ≡ compAt us (raisek k i)
+  unders-index-spec zero _ _ us out i eq rewrite sym (ok-inj eq) = refl
+  unders-index-spec {n} (suc k) c t (sp co ty ∷ᵥ rest) out i eq
+    with under spec c t (sp co ty ∷ᵥ rest) in uq
+  ... | fail _ = ⊥-elim (fail≢ok eq)
+  ... | okR mid with under-tail c t co ty rest mid uq
+  ... | refl = unders-index-spec k c t rest out i eq
+
+  unders-index-run : ∀ {n} k c t (us : Uses (k + n)) out (i : Fin n) →
+    unders k run c t us ≡ okR out →
+    compAt out i ≡ compAt us (raisek k i)
+  unders-index-run zero _ _ us out i eq rewrite sym (ok-inj eq) = refl
+  unders-index-run {n} (suc k) c t (sp co ty ∷ᵥ rest) out i eq
+    with under run c t (sp co ty ∷ᵥ rest) in uq
+  ... | fail _ = ⊥-elim (fail≢ok eq)
+  ... | okR mid with under-both c t co ty rest mid uq
+  ... | _ , refl = unders-index-run k c t rest out i eq
+
+  mutual
+    spec-zero-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) (e : BTm n) (us : Uses n) →
+                  sizeB e ≤ μ →
+                  decideB w spec Γ e ≡ okR us →
+                  (i : Fin n) → compAt us i ≡ finᶜ zero
+    spec-zero-μ μ w Γ (gvar x) us le eq i rewrite sym (ok-inj eq) =
+      trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
+            (both-zero (toℕ x ≡ᵇ toℕ i))
+    spec-zero-μ μ w Γ (gtyp x) us le eq i rewrite sym (ok-inj eq) =
+      trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
+            (both-zero (toℕ x ≡ᵇ toℕ i))
+    spec-zero-μ μ w Γ gze us le eq i rewrite sym (ok-inj eq) = comp-zeros i
+    spec-zero-μ μ w Γ (gref k) us le eq i with k <ᵇ w
+    ... | false = ⊥-elim (fail≢ok eq)
+    ... | true =
+      trans (cong (λ u → compAt u i) (sym (ok-inj eq))) (comp-zeros i)
+    spec-zero-μ μ w Γ (gsu e) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' = spec-zero-μ μ' w Γ e us le' eq
+    spec-zero-μ μ w Γ (gapp f a) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' with decideB w spec Γ f in fq
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR fu with decideB w spec Γ a in aq
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR au = λ i →
+      trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
+        (trans (comp-add fu au i)
+          (trans (cong₂ addᶜ
+                    (spec-zero-μ μ' w Γ f fu (≤-trans (m≤m+k (sizeB f) (sizeB a)) le') fq i)
+                    (spec-zero-μ μ' w Γ a au (≤-trans (k≤n+k (sizeB f) (sizeB a)) le') aq i))
+                 (fin-add zero zero)))
+    spec-zero-μ {n} μ w Γ (glam c t b) out le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' with decideB w spec (gp c t ∷ᵥ Γ) b in bq
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR bus = from bus bq eq
+      where
+      from : (bus : Uses (suc n)) →
+             decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
+             under spec c t bus ≡ okR out →
+             (i : Fin n) → compAt out i ≡ finᶜ zero
+      from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
+      ... | refl = spec-zero-μ μ' w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) le' bq' (fsuc i)
+    spec-zero-μ {n} μ w Γ (gpi c t b) out le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' with decideB w spec (gp c t ∷ᵥ Γ) b in bq
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR bus = from bus bq eq
+      where
+      from : (bus : Uses (suc n)) →
+             decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
+             under spec c t bus ≡ okR out →
+             (i : Fin n) → compAt out i ≡ finᶜ zero
+      from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
+      ... | refl = spec-zero-μ μ' w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) le' bq' (fsuc i)
+    spec-zero-μ {n} μ w Γ (gmatch e z s) out le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' with decideB w spec Γ e in eqe
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR eu with decideB w spec Γ z in eqz
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR zu with decideB w spec (predPair Γ e ∷ᵥ Γ) s in eqs
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR suU with under spec (pcomp (predPair Γ e)) (ptype (predPair Γ e)) suU in equ
+    ... | fail _ = ⊥-elim (fail≢ok eq)
+    ... | okR srest = from suU eqs equ
+      where
+      pc = pcomp (predPair Γ e)
+      pt = ptype (predPair Γ e)
+      le-e = ≤-trans (m≤m+k (sizeB e) (sizeB z + sizeB s)) le'
+      le-z = ≤-trans (m≤m+k (sizeB z) (sizeB s)) (≤-trans (k≤n+k (sizeB e) (sizeB z + sizeB s)) le')
+      le-s = ≤-trans (k≤n+k (sizeB z) (sizeB s)) (≤-trans (k≤n+k (sizeB e) (sizeB z + sizeB s)) le')
+      from : (suU : Uses (suc n)) →
+             decideB w spec (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
+             under spec pc pt suU ≡ okR srest →
+             ∀ i → compAt out i ≡ finᶜ zero
+      from (sp co ty ∷ᵥ rest) eqs' uq i with under-tail pc pt co ty rest srest uq
+      ... | refl =
+        trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
+          (trans (comp-add eu (maxU zu rest) i)
+            (trans (cong₂ addᶜ
+                      (spec-zero-μ μ' w Γ e eu le-e eqe i)
+                      (trans (comp-max zu rest i)
+                        (cong₂ maxᶜ
+                          (spec-zero-μ μ' w Γ z zu le-z eqz i)
+                          (spec-zero-μ μ' w (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) le-s eqs' (fsuc i)))))
+                   zero-arith))
+    spec-zero-μ μ w Γ (gcon _ es) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' = spec-zero-args-μ μ' w Γ es us le' eq
+    spec-zero-μ μ w Γ (gcase e []) us le eq =
+      empty-case (inspect (decideB w spec Γ e)) eq
+      where
+      empty-case : (s : Σ _ (λ r → decideB w spec Γ e ≡ r)) →
+                   (proj₁ s >>= λ _ → fail "empty gcase") ≡ okR us →
+                   (i : Fin _) → compAt us i ≡ finᶜ zero
+      empty-case (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+      empty-case (okR _  , _) eq' = ⊥-elim (fail≢ok eq')
+    spec-zero-μ μ w Γ (gcase e (a ∷ as)) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' =
+      case-ok (inspect (decideB w spec Γ e))
+              (inspect (decideArms w spec Γ (predPair Γ e) (a ∷ as))) eq
+      where
+      le-e = ≤-trans (m≤m+k (sizeB e) (sizeArms (a ∷ as))) le'
+      le-as = ≤-trans (k≤n+k (sizeB e) (sizeArms (a ∷ as))) le'
+      case-ok : (s1 : Σ _ (λ r → decideB w spec Γ e ≡ r))
+                (s2 : Σ _ (λ r → decideArms w spec Γ (predPair Γ e) (a ∷ as) ≡ r)) →
+                (proj₁ s1 >>= λ eu → proj₁ s2 >>= λ au → okR (addU eu au)) ≡ okR us →
+                (i : Fin _) → compAt us i ≡ finᶜ zero
+      case-ok (fail _ , _) _ eq' = ⊥-elim (fail≢ok eq')
+      case-ok (okR _ , _) (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+      case-ok (okR eu , eqe) (okR au , eqa) eq' i =
+        trans (cong (λ u → compAt u i) (sym (ok-inj eq')))
+          (trans (comp-add eu au i)
+            (trans (cong₂ addᶜ (spec-zero-μ μ' w Γ e eu le-e eqe i)
+                              (spec-zero-arms-μ μ' w Γ (predPair Γ e) (a ∷ as) au le-as eqa i))
+                   (fin-add zero zero)))
+
+    spec-zero-args-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) (es : List (BTm n)) us →
+                       sizeArgs es ≤ μ →
+                       decideArgs w spec Γ es ≡ okR us →
+                       (i : Fin n) → compAt us i ≡ finᶜ zero
+    spec-zero-args-μ μ w Γ [] us le eq i rewrite sym (ok-inj eq) = comp-zeros i
+    spec-zero-args-μ μ w Γ (e ∷ es) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' =
+      args-ok (inspect (decideB w spec Γ e)) (inspect (decideArgs w spec Γ es)) eq
+      where
+      le-e = ≤-trans (m≤m+k (sizeB e) (sizeArgs es)) le'
+      le-es = ≤-trans (k≤n+k (sizeB e) (sizeArgs es)) le'
+      args-ok : (s1 : Σ _ (λ r → decideB w spec Γ e ≡ r))
+                (s2 : Σ _ (λ r → decideArgs w spec Γ es ≡ r)) →
+                (proj₁ s1 >>= λ eu → proj₁ s2 >>= λ ru → okR (addU eu ru)) ≡ okR us →
+                (i : Fin _) → compAt us i ≡ finᶜ zero
+      args-ok (fail _ , _) _ eq' = ⊥-elim (fail≢ok eq')
+      args-ok (okR _ , _) (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+      args-ok (okR eu , eqe) (okR ru , eqs) eq' i =
+        trans (cong (λ u → compAt u i) (sym (ok-inj eq')))
+          (trans (comp-add eu ru i)
+            (trans (cong₂ addᶜ (spec-zero-μ μ' w Γ e eu le-e eqe i)
+                              (spec-zero-args-μ μ' w Γ es ru le-es eqs i))
+                   (fin-add zero zero)))
+
+    spec-zero-arm-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) p (a : Arm n) us →
+                      sizeArm a ≤ μ →
+                      decideArm w spec Γ p a ≡ okR us →
+                      (i : Fin n) → compAt us i ≡ finᶜ zero
+    spec-zero-arm-μ {n} μ w Γ p (arm _ k body) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' =
+      arm-ok (inspect (decideB w spec (tel k p Γ) body)) eq
+      where
+      arm-ok : (s : Σ _ (λ r → decideB w spec (tel k p Γ) body ≡ r)) →
+               (proj₁ s >>= unders k spec (pcomp p) (ptype p)) ≡ okR us →
+               (i : Fin n) → compAt us i ≡ finᶜ zero
+      arm-ok (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+      arm-ok (okR bus , bq) eq' =
+        arm-under (inspect (unders k spec (pcomp p) (ptype p) bus)) eq'
+        where
+        arm-under : (s : Σ _ (λ r → unders k spec (pcomp p) (ptype p) bus ≡ r)) →
+                    (proj₁ s) ≡ okR us →
+                    (i : Fin n) → compAt us i ≡ finᶜ zero
+        arm-under (fail _ , _) eq'' = ⊥-elim (fail≢ok eq'')
+        arm-under (okR out , uq) eq'' i =
+          trans (cong (λ u → compAt u i) (sym (ok-inj eq'')))
+          (trans (unders-index-spec k (pcomp p) (ptype p) bus out i uq)
+                 (spec-zero-μ μ' w (tel k p Γ) body bus le' bq (raisek k i)))
+
+    spec-zero-arms-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) p (as : List (Arm n)) us →
+                       sizeArms as ≤ μ →
+                       decideArms w spec Γ p as ≡ okR us →
+                       (i : Fin n) → compAt us i ≡ finᶜ zero
+    spec-zero-arms-μ μ w Γ p [] us le eq = ⊥-elim (fail≢ok eq)
+    spec-zero-arms-μ μ w Γ p (a ∷ []) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' = spec-zero-arm-μ μ' w Γ p a us le' eq
+    spec-zero-arms-μ μ w Γ p (a ∷ a2 ∷ as) us le eq with suc-≤-pred μ le
+    ... | μ' , refl , le' =
+      arms-ok (inspect (decideArm w spec Γ p a))
+              (inspect (decideArms w spec Γ p (a2 ∷ as))) eq
+      where
+      le-a = ≤-trans (m≤m+k (sizeArm a) (sizeArms (a2 ∷ as))) le'
+      le-as = ≤-trans (k≤n+k (sizeArm a) (sizeArms (a2 ∷ as))) le'
+      arms-ok : (s1 : Σ _ (λ r → decideArm w spec Γ p a ≡ r))
+                (s2 : Σ _ (λ r → decideArms w spec Γ p (a2 ∷ as) ≡ r)) →
+                (proj₁ s1 >>= λ u0 → proj₁ s2 >>= λ u1 → okR (maxU u0 u1)) ≡ okR us →
+                (i : Fin _) → compAt us i ≡ finᶜ zero
+      arms-ok (fail _ , _) _ eq' = ⊥-elim (fail≢ok eq')
+      arms-ok (okR _ , _) (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+      arms-ok (okR u0 , eq0) (okR u1 , eq1) eq' i =
+        trans (cong (λ u → compAt u i) (sym (ok-inj eq')))
+          (trans (comp-max u0 u1 i)
+            (trans (cong₂ maxᶜ (spec-zero-arm-μ μ' w Γ p a u0 le-a eq0 i)
+                              (spec-zero-arms-μ μ' w Γ p (a2 ∷ as) u1 le-as eq1 i))
+                   (fin-max zero zero)))
+
   spec-zero : ∀ {n} (w : ℕ) (Γ : GCtx n) (e : BTm n) (us : Uses n) →
               decideB w spec Γ e ≡ okR us →
               (i : Fin n) → compAt us i ≡ finᶜ zero
-  spec-zero w _ (gvar x) us eq i rewrite sym (ok-inj eq) =
+  spec-zero w Γ e us eq = spec-zero-μ (sizeB e) w Γ e us ≤-refl eq
+
+mutual
+  count-sound-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) (e : BTm n) us →
+                  sizeB e ≤ μ →
+                  decideB w run Γ e ≡ okR us →
+                  ∀ i → compAt us i ≡ finᶜ (occ (toℕ i) e)
+  count-sound-μ μ w Γ (gvar x) us le eq i rewrite sym (ok-inj eq) =
+    trans (comp-oneS x i (finᶜ (suc zero)) (finᶜ zero))
+          (fin-if (toℕ x ≡ᵇ toℕ i) (suc zero) zero)
+  count-sound-μ μ w Γ (gtyp x) us le eq i rewrite sym (ok-inj eq) =
     trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
           (both-zero (toℕ x ≡ᵇ toℕ i))
-  spec-zero w _ (gtyp x) us eq i rewrite sym (ok-inj eq) =
-    trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
-          (both-zero (toℕ x ≡ᵇ toℕ i))
-  spec-zero w _ gze us eq i rewrite sym (ok-inj eq) = comp-zeros i
-  spec-zero w Γ (gref k) us eq i with k <ᵇ w
+  count-sound-μ μ w Γ gze us le eq i rewrite sym (ok-inj eq) = comp-zeros i
+  count-sound-μ μ w Γ (gref k) us le eq i with k <ᵇ w
   ... | false = ⊥-elim (fail≢ok eq)
   ... | true =
     trans (cong (λ u → compAt u i) (sym (ok-inj eq))) (comp-zeros i)
-  spec-zero w Γ (gsu e) us eq = spec-zero w Γ e us eq
-  spec-zero w Γ (gapp f a) us eq with decideB w spec Γ f in fq
+  count-sound-μ μ w Γ (gsu e) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' = count-sound-μ μ' w Γ e us le' eq
+  count-sound-μ μ w Γ (gapp f a) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' with decideB w run Γ f in fq
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR fu with decideB w spec Γ a in aq
+  ... | okR fu with decideB w run Γ a in aq
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR au = λ i →
     trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
       (trans (comp-add fu au i)
-        (trans (cong₂ addᶜ (spec-zero w Γ f fu fq i) (spec-zero w Γ a au aq i))
-               (fin-add zero zero)))
-  spec-zero {n} w Γ (glam c t b) out eq with decideB w spec (gp c t ∷ᵥ Γ) b in bq
+        (trans (cong₂ addᶜ
+                  (count-sound-μ μ' w Γ f fu (≤-trans (m≤m+k (sizeB f) (sizeB a)) le') fq i)
+                  (count-sound-μ μ' w Γ a au (≤-trans (k≤n+k (sizeB f) (sizeB a)) le') aq i))
+               (fin-add (occ (toℕ i) f) (occ (toℕ i) a))))
+  count-sound-μ {n} μ w Γ (glam c t b) out le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' with decideB w run (gp c t ∷ᵥ Γ) b in bq
+  ... | fail _ = ⊥-elim (fail≢ok eq)
+  ... | okR bus = from bus bq eq
+    where
+    from : (bus : Uses (suc n)) →
+           decideB w run (gp c t ∷ᵥ Γ) b ≡ okR bus →
+           under run c t bus ≡ okR out →
+           ∀ i → compAt out i ≡ finᶜ (occ (suc (toℕ i)) b)
+    from (sp co ty ∷ᵥ rest) bq' uq i with under-both c t co ty rest out uq
+    ... | _ , refl = count-sound-μ μ' w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) le' bq' (fsuc i)
+  count-sound-μ {n} μ w Γ (gpi c t b) out le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' with decideB w spec (gp c t ∷ᵥ Γ) b in bq
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR bus = from bus bq eq
     where
     from : (bus : Uses (suc n)) →
            decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
            under spec c t bus ≡ okR out →
-           (i : Fin n) → compAt out i ≡ finᶜ zero
+           ∀ i → compAt out i ≡ finᶜ zero
     from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
-    ... | refl = spec-zero w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-  spec-zero {n} w Γ (gpi c t b) out eq with decideB w spec (gp c t ∷ᵥ Γ) b in bq
+    ... | refl = spec-zero-μ μ' w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) le' bq' (fsuc i)
+  count-sound-μ {n} μ w Γ (gmatch e z s) out le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' with decideB w run Γ e in eqe
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR bus = from bus bq eq
-    where
-    from : (bus : Uses (suc n)) →
-           decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
-           under spec c t bus ≡ okR out →
-           (i : Fin n) → compAt out i ≡ finᶜ zero
-    from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
-    ... | refl = spec-zero w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-  spec-zero {n} w Γ (gmatch e z s) out eq with decideB w spec Γ e in eqe
+  ... | okR eu with decideB w run Γ z in eqz
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR eu with decideB w spec Γ z in eqz
+  ... | okR zu with decideB w run (predPair Γ e ∷ᵥ Γ) s in eqs
   ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR zu with decideB w spec (predPair Γ e ∷ᵥ Γ) s in eqs
-  ... | fail _ = ⊥-elim (fail≢ok eq)
-  ... | okR suU with under spec (pcomp (predPair Γ e)) (ptype (predPair Γ e)) suU in equ
+  ... | okR suU with under run (pcomp (predPair Γ e)) (ptype (predPair Γ e)) suU in equ
   ... | fail _ = ⊥-elim (fail≢ok eq)
   ... | okR srest = from suU eqs equ
     where
     pc = pcomp (predPair Γ e)
     pt = ptype (predPair Γ e)
+    le-e = ≤-trans (m≤m+k (sizeB e) (sizeB z + sizeB s)) le'
+    le-z = ≤-trans (m≤m+k (sizeB z) (sizeB s)) (≤-trans (k≤n+k (sizeB e) (sizeB z + sizeB s)) le')
+    le-s = ≤-trans (k≤n+k (sizeB z) (sizeB s)) (≤-trans (k≤n+k (sizeB e) (sizeB z + sizeB s)) le')
     from : (suU : Uses (suc n)) →
-           decideB w spec (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
-           under spec pc pt suU ≡ okR srest →
-           ∀ i → compAt out i ≡ finᶜ zero
-    from (sp co ty ∷ᵥ rest) eqs' uq i with under-tail pc pt co ty rest srest uq
-    ... | refl =
+           decideB w run (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
+           under run pc pt suU ≡ okR srest →
+           ∀ i → compAt out i ≡
+                 finᶜ (occ (toℕ i) e + (occ (toℕ i) z ⊔ occ (suc (toℕ i)) s))
+    from (sp co ty ∷ᵥ rest) eqs' uq i with under-both pc pt co ty rest srest uq
+    ... | _ , refl =
       trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
         (trans (comp-add eu (maxU zu rest) i)
           (trans (cong₂ addᶜ
-                    (spec-zero w Γ e eu eqe i)
+                    (count-sound-μ μ' w Γ e eu le-e eqe i)
                     (trans (comp-max zu rest i)
                       (cong₂ maxᶜ
-                        (spec-zero w Γ z zu eqz i)
-                        (spec-zero w (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) eqs' (fsuc i)))))
-                 zero-arith))
+                        (count-sound-μ μ' w Γ z zu le-z eqz i)
+                        (count-sound-μ μ' w (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) le-s eqs' (fsuc i)))))
+                 (match-arith (occ (toℕ i) e) (occ (toℕ i) z) (occ (suc (toℕ i)) s))))
+  count-sound-μ μ w Γ (gcon _ es) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' = count-sound-args-μ μ' w Γ es us le' eq
+  count-sound-μ μ w Γ (gcase e []) us le eq =
+    empty-case (inspect (decideB w run Γ e)) eq
+    where
+    empty-case : (s : Σ _ (λ r → decideB w run Γ e ≡ r)) →
+                 (proj₁ s >>= λ _ → fail "empty gcase") ≡ okR us →
+                 ∀ i → compAt us i ≡ finᶜ (occ (toℕ i) (gcase e []))
+    empty-case (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+    empty-case (okR _  , _) eq' = ⊥-elim (fail≢ok eq')
+  count-sound-μ μ w Γ (gcase e (a ∷ as)) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' =
+    case-ok (inspect (decideB w run Γ e))
+            (inspect (decideArms w run Γ (predPair Γ e) (a ∷ as))) eq
+    where
+    le-e = ≤-trans (m≤m+k (sizeB e) (sizeArms (a ∷ as))) le'
+    le-as = ≤-trans (k≤n+k (sizeB e) (sizeArms (a ∷ as))) le'
+    case-ok : (s1 : Σ _ (λ r → decideB w run Γ e ≡ r))
+              (s2 : Σ _ (λ r → decideArms w run Γ (predPair Γ e) (a ∷ as) ≡ r)) →
+              (proj₁ s1 >>= λ eu → proj₁ s2 >>= λ au → okR (addU eu au)) ≡ okR us →
+              ∀ i → compAt us i ≡ finᶜ (occ (toℕ i) e + occArms (toℕ i) (a ∷ as))
+    case-ok (fail _ , _) _ eq' = ⊥-elim (fail≢ok eq')
+    case-ok (okR _ , _) (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+    case-ok (okR eu , eqe) (okR au , eqa) eq' i =
+      trans (cong (λ u → compAt u i) (sym (ok-inj eq')))
+        (trans (comp-add eu au i)
+          (trans (cong₂ addᶜ (count-sound-μ μ' w Γ e eu le-e eqe i)
+                            (count-sound-arms-μ μ' w Γ (predPair Γ e) (a ∷ as) au le-as eqa i))
+                 (fin-add (occ (toℕ i) e) (occArms (toℕ i) (a ∷ as)))))
+
+  count-sound-args-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) (es : List (BTm n)) us →
+                       sizeArgs es ≤ μ →
+                       decideArgs w run Γ es ≡ okR us →
+                       ∀ i → compAt us i ≡ finᶜ (occArgs (toℕ i) es)
+  count-sound-args-μ μ w Γ [] us le eq i rewrite sym (ok-inj eq) = comp-zeros i
+  count-sound-args-μ μ w Γ (e ∷ es) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' =
+    args-ok (inspect (decideB w run Γ e)) (inspect (decideArgs w run Γ es)) eq
+    where
+    le-e = ≤-trans (m≤m+k (sizeB e) (sizeArgs es)) le'
+    le-es = ≤-trans (k≤n+k (sizeB e) (sizeArgs es)) le'
+    args-ok : (s1 : Σ _ (λ r → decideB w run Γ e ≡ r))
+              (s2 : Σ _ (λ r → decideArgs w run Γ es ≡ r)) →
+              (proj₁ s1 >>= λ eu → proj₁ s2 >>= λ ru → okR (addU eu ru)) ≡ okR us →
+              ∀ i → compAt us i ≡ finᶜ (occ (toℕ i) e + occArgs (toℕ i) es)
+    args-ok (fail _ , _) _ eq' = ⊥-elim (fail≢ok eq')
+    args-ok (okR _ , _) (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+    args-ok (okR eu , eqe) (okR ru , eqs) eq' i =
+      trans (cong (λ u → compAt u i) (sym (ok-inj eq')))
+        (trans (comp-add eu ru i)
+          (trans (cong₂ addᶜ (count-sound-μ μ' w Γ e eu le-e eqe i)
+                            (count-sound-args-μ μ' w Γ es ru le-es eqs i))
+                 (fin-add (occ (toℕ i) e) (occArgs (toℕ i) es))))
+
+  count-sound-arm-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) p (a : Arm n) us →
+                      sizeArm a ≤ μ →
+                      decideArm w run Γ p a ≡ okR us →
+                      ∀ i → compAt us i ≡ finᶜ (occArm (toℕ i) a)
+  count-sound-arm-μ {n} μ w Γ p (arm _ k body) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' =
+    arm-ok (inspect (decideB w run (tel k p Γ) body)) eq
+    where
+    arm-ok : (s : Σ _ (λ r → decideB w run (tel k p Γ) body ≡ r)) →
+             (proj₁ s >>= unders k run (pcomp p) (ptype p)) ≡ okR us →
+             ∀ i → compAt us i ≡ finᶜ (occ (k + toℕ i) body)
+    arm-ok (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+    arm-ok (okR bus , bq) eq' =
+      arm-under (inspect (unders k run (pcomp p) (ptype p) bus)) eq'
+      where
+      arm-under : (s : Σ _ (λ r → unders k run (pcomp p) (ptype p) bus ≡ r)) →
+                  proj₁ s ≡ okR us →
+                  ∀ i → compAt us i ≡ finᶜ (occ (k + toℕ i) body)
+      arm-under (fail _ , _) eq'' = ⊥-elim (fail≢ok eq'')
+      arm-under (okR out , uq) eq'' i =
+        trans (cong (λ u → compAt u i) (sym (ok-inj eq'')))
+        (trans (unders-index-run k (pcomp p) (ptype p) bus out i uq)
+        (trans (count-sound-μ μ' w (tel k p Γ) body bus le' bq (raisek k i))
+               (cong finᶜ (cong (λ j → occ j body) (raisek-toℕ k i)))))
+
+  count-sound-arms-μ : ∀ {n} (μ : ℕ) (w : ℕ) (Γ : GCtx n) p (as : List (Arm n)) us →
+                       sizeArms as ≤ μ →
+                       decideArms w run Γ p as ≡ okR us →
+                       ∀ i → compAt us i ≡ finᶜ (occArms (toℕ i) as)
+  count-sound-arms-μ μ w Γ p [] us le eq i = ⊥-elim (fail≢ok eq)
+  count-sound-arms-μ μ w Γ p (a ∷ []) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' = count-sound-arm-μ μ' w Γ p a us le' eq
+  count-sound-arms-μ μ w Γ p (a ∷ a2 ∷ as) us le eq with suc-≤-pred μ le
+  ... | μ' , refl , le' =
+    arms-ok (inspect (decideArm w run Γ p a))
+            (inspect (decideArms w run Γ p (a2 ∷ as))) eq
+    where
+    le-a = ≤-trans (m≤m+k (sizeArm a) (sizeArms (a2 ∷ as))) le'
+    le-as = ≤-trans (k≤n+k (sizeArm a) (sizeArms (a2 ∷ as))) le'
+    arms-ok : (s1 : Σ _ (λ r → decideArm w run Γ p a ≡ r))
+              (s2 : Σ _ (λ r → decideArms w run Γ p (a2 ∷ as) ≡ r)) →
+              (proj₁ s1 >>= λ u0 → proj₁ s2 >>= λ u1 → okR (maxU u0 u1)) ≡ okR us →
+              ∀ i → compAt us i ≡ finᶜ (occArm (toℕ i) a ⊔ occArms (toℕ i) (a2 ∷ as))
+    arms-ok (fail _ , _) _ eq' = ⊥-elim (fail≢ok eq')
+    arms-ok (okR _ , _) (fail _ , _) eq' = ⊥-elim (fail≢ok eq')
+    arms-ok (okR u0 , eq0) (okR u1 , eq1) eq' i =
+      trans (cong (λ u → compAt u i) (sym (ok-inj eq')))
+        (trans (comp-max u0 u1 i)
+          (trans (cong₂ maxᶜ (count-sound-arm-μ μ' w Γ p a u0 le-a eq0 i)
+                            (count-sound-arms-μ μ' w Γ p (a2 ∷ as) u1 le-as eq1 i))
+                 (fin-max (occArm (toℕ i) a) (occArms (toℕ i) (a2 ∷ as)))))
 
 count-sound : ∀ {n} (w : ℕ) (Γ : GCtx n) (e : BTm n) us →
               decideB w run Γ e ≡ okR us →
               ∀ i → compAt us i ≡ finᶜ (occ (toℕ i) e)
-count-sound w Γ (gvar x) us eq i rewrite sym (ok-inj eq) =
-  trans (comp-oneS x i (finᶜ (suc zero)) (finᶜ zero))
-        (fin-if (toℕ x ≡ᵇ toℕ i) (suc zero) zero)
-count-sound w Γ (gtyp x) us eq i rewrite sym (ok-inj eq) =
-  trans (comp-oneS x i (finᶜ zero) (finᶜ (suc zero)))
-        (both-zero (toℕ x ≡ᵇ toℕ i))
-count-sound w Γ gze us eq i rewrite sym (ok-inj eq) = comp-zeros i
-count-sound w Γ (gref k) us eq i with k <ᵇ w
-... | false = ⊥-elim (fail≢ok eq)
-... | true =
-  trans (cong (λ u → compAt u i) (sym (ok-inj eq))) (comp-zeros i)
-count-sound w Γ (gsu e) us eq = count-sound w Γ e us eq
-count-sound w Γ (gapp f a) us eq with decideB w run Γ f in fq
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR fu with decideB w run Γ a in aq
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR au = λ i →
-  trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
-    (trans (comp-add fu au i)
-      (trans (cong₂ addᶜ (count-sound w Γ f fu fq i) (count-sound w Γ a au aq i))
-             (fin-add (occ (toℕ i) f) (occ (toℕ i) a))))
-count-sound {n} w Γ (glam c t b) out eq with decideB w run (gp c t ∷ᵥ Γ) b in bq
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR bus = from bus bq eq
-  where
-  from : (bus : Uses (suc n)) →
-         decideB w run (gp c t ∷ᵥ Γ) b ≡ okR bus →
-         under run c t bus ≡ okR out →
-         ∀ i → compAt out i ≡ finᶜ (occ (suc (toℕ i)) b)
-  from (sp co ty ∷ᵥ rest) bq' uq i with under-both c t co ty rest out uq
-  ... | _ , refl = count-sound w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-count-sound {n} w Γ (gpi c t b) out eq with decideB w spec (gp c t ∷ᵥ Γ) b in bq
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR bus = from bus bq eq
-  where
-  from : (bus : Uses (suc n)) →
-         decideB w spec (gp c t ∷ᵥ Γ) b ≡ okR bus →
-         under spec c t bus ≡ okR out →
-         ∀ i → compAt out i ≡ finᶜ zero
-  from (sp co ty ∷ᵥ rest) bq' uq i with under-tail c t co ty rest out uq
-  ... | refl = spec-zero w (gp c t ∷ᵥ Γ) b (sp co ty ∷ᵥ rest) bq' (fsuc i)
-count-sound {n} w Γ (gmatch e z s) out eq with decideB w run Γ e in eqe
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR eu with decideB w run Γ z in eqz
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR zu with decideB w run (predPair Γ e ∷ᵥ Γ) s in eqs
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR suU with under run (pcomp (predPair Γ e)) (ptype (predPair Γ e)) suU in equ
-... | fail _ = ⊥-elim (fail≢ok eq)
-... | okR srest = from suU eqs equ
-  where
-  pc = pcomp (predPair Γ e)
-  pt = ptype (predPair Γ e)
-  from : (suU : Uses (suc n)) →
-         decideB w run (predPair Γ e ∷ᵥ Γ) s ≡ okR suU →
-         under run pc pt suU ≡ okR srest →
-         ∀ i → compAt out i ≡
-               finᶜ (occ (toℕ i) e + (occ (toℕ i) z ⊔ occ (suc (toℕ i)) s))
-  from (sp co ty ∷ᵥ rest) eqs' uq i with under-both pc pt co ty rest srest uq
-  ... | _ , refl =
-    trans (cong (λ u → compAt u i) (sym (ok-inj eq)))
-      (trans (comp-add eu (maxU zu rest) i)
-        (trans (cong₂ addᶜ
-                  (count-sound w Γ e eu eqe i)
-                  (trans (comp-max zu rest i)
-                    (cong₂ maxᶜ
-                      (count-sound w Γ z zu eqz i)
-                      (count-sound w (predPair Γ e ∷ᵥ Γ) s (sp co ty ∷ᵥ rest) eqs' (fsuc i)))))
-               (match-arith (occ (toℕ i) e) (occ (toℕ i) z) (occ (suc (toℕ i)) s))))
+count-sound w Γ e us eq = count-sound-μ (sizeB e) w Γ e us ≤-refl eq
 
 -- A checked g1 binder is used exactly once by the syntax `occ` counts.
 g1-count : ∀ {n} (Γ : GCtx n) c t b us →
@@ -546,6 +868,7 @@ TMf tight e = Mf e
 data Pay (tg : Tight) : Val → Set where
   pay-nat : ∀ k → Pay tg (nat k)
   pay-suc : ∀ r → Pay tg (suc↑ r)
+  pay-con : ∀ t rs → Pay tg (con t rs)
   pay-clo : ∀ {n} {env : List Ref} {Γ : GCtx n} {c t : Grade}
               {b : BTm (suc n)} {us : Uses (suc n)} →
             anyG1 env ≡ false →
@@ -1092,6 +1415,20 @@ pres-var {h} {p} {t} {env = env} {k = k} {Γ = Γ} {x = x} hp ns fu fr eq =
                 (foc-rv
                   (ns-set ns lk (λ q → subst (λ c → isG1 c ≡ true) chk q))
                   (funds-repl fu lk skip (slot-ω gq)) fr)
+          see (just (con _ _)) pv chk eqU =
+            go (isG1 (checked r')) refl eqU
+            where
+            go : (b : Bool) → isG1 (checked r') ≡ b →
+                 useVar h (p ∷ []) zero env k (toℕ x) (just r) ≡ just t →
+                 Inv tight t
+            go true gq _ =
+              ⊥-elim (true≢false
+                (trans (sym (subst (λ c → isG1 c ≡ true) chk gq)) ng))
+            go false gq eqG rewrite es | pv | gq | sym (just-inj eqG) =
+              inv hp
+                (foc-rv
+                  (ns-set ns lk (λ q → subst (λ c → isG1 c ≡ true) chk q))
+                  (funds-repl fu lk skip (slot-ω gq)) fr)
       onS' (slot-g1 cg rz _ le) eqv with spend-g1 r cg rz
       ... | r' , es , rz' , chk , _ = see (payloadAt h (obj r)) refl eqv
         where
@@ -1136,6 +1473,20 @@ pres-var {h} {p} {t} {env = env} {k = k} {Γ = Γ} {x = x} hp ns fu fr eq =
             inv (hp-snoc hp (pay-nat zero))
               (foc-rv (ns-set ns lk (λ ()))
                       (funds-repl fu lk skip (slot-ω refl)) fr)
+        see (just (con _ _)) pv eqS =
+          go (count (obj r) (refsOf (sys h (p ∷ []))) ≡ᵇ 1) refl eqS
+          where
+          go : (b : Bool) →
+               (count (obj r) (refsOf (sys h (p ∷ []))) ≡ᵇ 1) ≡ b →
+               useVar h (p ∷ []) zero env k (toℕ x) (just r) ≡ just t →
+               Inv tight t
+          go false cq eqG rewrite es | pv | chk | cg | cq =
+            ⊥-elim (∅-just eqG)
+          go true cq eqG
+              rewrite es | pv | chk | cg | cq | sym (just-inj eqG) =
+            inv (hp-snoc hp (pay-nat zero))
+              (foc-rv (ns-set ns lk (λ ()))
+                      (funds-repl fu lk skip (slot-ω refl)) fr)
 
 pres-beta : ∀ {n h p t ra rf env k} {gs : Vec Grade n} →
             HeapPay tight h →
@@ -1152,6 +1503,7 @@ pres-beta {h = h} {p = p} {t = t} {ra = ra} {rf = rf} {env = env} {k = k}
   opened nothing pv eqB rewrite pv = ⊥-elim (∅-just eqB)
   opened (just (nat _)) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
   opened (just (suc↑ _)) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
+  opened (just (con _ _)) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
   opened (just (clo _ (_ , gvar _))) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
   opened (just (clo _ (_ , gtyp _))) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
   opened (just (clo _ (_ , gpi _ _ _))) pv eqB rewrite pv = ⊥-elim (∅-just eqB)
@@ -1161,6 +1513,10 @@ pres-beta {h = h} {p = p} {t = t} {ra = ra} {rf = rf} {env = env} {k = k}
   opened (just (clo _ (_ , gmatch _ _ _))) pv eqB rewrite pv =
     ⊥-elim (∅-just eqB)
   opened (just (clo _ (_ , gref _))) pv eqB rewrite pv =
+    ⊥-elim (∅-just eqB)
+  opened (just (clo _ (_ , gcon _ _))) pv eqB rewrite pv =
+    ⊥-elim (∅-just eqB)
+  opened (just (clo _ (_ , gcase _ _))) pv eqB rewrite pv =
     ⊥-elim (∅-just eqB)
   opened (just (clo envC (_ , glam c _ body))) pv eqB =
     go (pay-at hp pv) (trans (sym (betaForm pv)) eqB)
@@ -1256,6 +1612,16 @@ pres-ret {h = h} {p = p} {t = t} {r = r} {env = env} {k = k}
     noMatch : Fr tight gs (mt e z s ∷ xs) (λ i → debtF i (mt e z s ∷ xs)) →
               Inv tight t
     noMatch (fr-mt () _ _ _ _ _ _ _ _)
+  go (ca tag acc es ∷ xs) _ fr' refl _ = noCa fr'
+    where
+    noCa : Fr tight gs (ca tag acc es ∷ xs) (λ i → debtF i (ca tag acc es ∷ xs)) →
+           Inv tight t
+    noCa ()
+  go (cs e as ∷ xs) _ fr' refl _ = noCs fr'
+    where
+    noCs : Fr tight gs (cs e as ∷ xs) (λ i → debtF i (cs e as ∷ xs)) →
+           Inv tight t
+    noCs ()
   go (ar a ∷ xs) fu' fr' refl eq' = pop fr' eq'
     where
     pop : Fr tight gs (ar a ∷ xs) (λ i → debtF i (ar a ∷ xs)) →
@@ -1335,6 +1701,8 @@ pres-at {h} {p} {t} zero hp foc eq = by (ctl p) eq refl
       ... | nothing | _ = ⊥-elim (∅-just eqv)
       ... | just _  | ()
       go (gmatch _ _ _) _ _ () _ _ _ _
+      go (gcon _ _) _ _ () _ _ _ _
+      go (gcase _ _) _ _ () _ _ _ _
       go (gvar x) _ _ _ ns' fu' fr' eqv = pres-var hp ns' fu' fr' eqv
       go (gapp f a) (ne-app nf na) (_ , dek) (mf-app mf ma) ns' fu' fr' eqv
         with split-app _ f a _ dek

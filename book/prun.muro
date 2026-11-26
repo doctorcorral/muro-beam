@@ -307,6 +307,9 @@ def tagFrame : run Π (f : Frame) → Π (ds : List Nat) → Π (ms : List Nat) 
       | fn r => (ds, ms)
       | su => (ds, ms)
       | mt n a z s => (ds, ms)
+      | ca n t acc es => (ds, ms)
+      | cs0 n e tg b => (ds, ms)
+      | cs1 n e tg b => (ds, ms)
       | bd env => (ds, ms)
       | saved cd =>
           (match cd motive (λ _ → (List Nat × List Nat))
@@ -504,6 +507,9 @@ def pullFrames : run Π (ks : List Frame) → Maybe (Flight × List Frame) :=
             | fn r => pullKeep (fn r) (pullFrames fs)
             | su => pullKeep su (pullFrames fs)
             | mt n a z s => pullKeep (mt n a z s) (pullFrames fs)
+            | ca n t acc es => pullKeep (ca n t acc es) (pullFrames fs)
+            | cs0 n e tg b => pullKeep (cs0 n e tg b) (pullFrames fs)
+            | cs1 n e tg b => pullKeep (cs1 n e tg b) (pullFrames fs)
             | bd env => pullKeep (bd env) (pullFrames fs)
             | saved cd =>
                 (match (pullCode cd) motive (λ _ → Maybe (Flight × List Frame))
@@ -551,6 +557,9 @@ def frameJoin : run Π (+ tag : Nat) → Π (f : Frame) → Π (p : Bool × List
         | fn r => (b, cons (fn r) fs)
         | su => (b, cons su fs)
         | mt n a z s => (b, cons (mt n a z s) fs)
+        | ca n t acc es => (b, cons (ca n t acc es) fs)
+        | cs0 n e tg bd0 => (b, cons (cs0 n e tg bd0) fs)
+        | cs1 n e tg bd1 => (b, cons (cs1 n e tg bd1) fs)
         | bd env => (b, cons (bd env) fs)
         | saved cd =>
             (match cd motive (λ _ → (Bool × List Frame))
@@ -830,6 +839,9 @@ def bindFrame : run Π (r : Ref) → Π (env : List Ref) → Π (f : Frame) → 
       | fn rf => nothing
       | su => nothing
       | mt n a z s => nothing
+      | ca n t acc es => nothing
+      | cs0 n e tg b => nothing
+      | cs1 n e tg b => nothing
       | bd env0 => nothing
       | saved cd => bindSaved r env cd
 

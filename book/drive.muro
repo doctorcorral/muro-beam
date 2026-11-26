@@ -251,7 +251,8 @@ def readNat : run Π (fuel : Nat) → Π (+ h : List Obj) → Π (ix : Nat) → 
                 (match v motive (λ _ → Maybe Nat)
                   | nat n => just n
                   | suc-up r => bumpVal (readNat f h (obj r))
-                  | clo rs tm => nothing))
+                  | clo rs tm => nothing
+                  | con t rs => nothing))
 
 def payloadNat : run Π (+ h : List Obj) → Π (r : Ref) → Maybe Nat :=
   λ (+ h : List Obj) → λ (r : Ref) →
@@ -307,6 +308,9 @@ def noteRv : run Π (+ s : Sys) → Maybe Nat :=
                               | fn rf => nothing
                               | su => nothing
                               | mt n e1 e2 e3 => nothing
+                              | ca n t acc es => nothing
+                              | cs0 n e tg b => nothing
+                              | cs1 n e tg b => nothing
                               | bd env => nothing
                               | saved cd => payloadNat (heap s) r))
                   | pr cd => nothing))

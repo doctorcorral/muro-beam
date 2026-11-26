@@ -25,11 +25,14 @@ ptm   ::= (done)
 thin  ::= t[] | (keep <thin>) | (skip <thin>)
 btm   ::= (gvar <nat>) | (gtyp <nat>) | (glam <pair> <btm>) | (gpi <pair> <btm>)
         | (gapp <btm> <btm>) | gze | (gsu <btm>) | (gmatch <btm> <btm> <btm>)
-        | (gref <nat>)
+        | (gref <nat>) | (gcon <nat> <btm>*) | (gcase <btm> <garm>+)
+garm  ::= (garm <nat> <nat> <btm>)
 pair  ::= (<grade> <grade>)
 grade ::= <point> | (iv <point> <point>)
 point ::= <nat> | w
 ```
+
+`gcon` / `gcase` / `garm` are the B1d data forms. There is no format number bump: version 1 and 2 wrappers stay, and the `btm` grammar grows. `(gcon tag a0 … a_{k-1})` is a fully applied constructor; `tag` is the 0-based constructor index. `(garm tag arity body)` binds `arity` fields, last field nearest (de Bruijn 0), matching muro `to_db`. First matching tag wins. A tag hit with the wrong arity is stuck: `pickArms` stops at the first arm whose tag matches and does not fall through to a later arm with the same tag and the right arity (`case-arity.mbi`). With two arms on the same tag and arity, the first one runs (`case-first.mbi`). `garm+` is the grammar `decideB` accepts. `Parse` also reads `(gcase e)` with no arms; `decideB` then refuses it (`empty gcase`, `empty-gcase.mbi`). The parser does not check arity against a data table: there is none in the file. `gze` / `gsu` / `gmatch` are unchanged: `gcase` does not match `nat` / `suc↑`, and `gmatch` does not match `con`. The payload is `con tag fields`, a pointer like `suc↑` and `clo`. A `gcase` on a `g1` variable inherits the `gmatch` limit in `docs/DESIGN.md`: the pointer moves, the binder's slot becomes `g0`, the fields bind at `g0`, and a use of one is stuck (`case-g1.mbi`). The same term with an `ω` binder runs (`case-w.mbi`). `MuroBeam.DataPins` pins echo, run, and drive for every data image with `refl`. `muro emit --backend mbi` as of 0.22.x still refuses data (`mbi:data`); B1d is self-contained in muro-beam.
 
 `<version>` is `1` or `2`. Any other number is `bad version`. A file
 with no defs section has an empty definition list, whatever the
