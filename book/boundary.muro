@@ -141,7 +141,19 @@ def inBoundaryAt : run Π (-n : Nat) → Π (t : GTm n) → Π (+ ctx : Vec Grad
             (both (inBoundaryAt m z d sh)
               (inBoundaryAt (suc m) body
                 (vcons m (predGrade m d e) d)
-                (orB sh (isG1 (predGrade m d e)))))) ctx sharp
+                (orB sh (isG1 (predGrade m d e)))))
+      | gcon0 m t => λ (+ d : Vec Grade m) → λ (+ sh : Bool) → yes
+      | gcon1 m t e => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          inBoundaryAt m e d sh
+      | gcon2 m t e1 e2 => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (inBoundaryAt m e1 d sh) (inBoundaryAt m e2 d sh)
+      | gcase0 m e tg b => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (inBoundaryAt m e d sh) (inBoundaryAt m b d sh)
+      | gcase1 m e tg b => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (inBoundaryAt m e d sh)
+            (inBoundaryAt (suc m) b
+              (vcons m (predGrade m d e) d)
+              (orB sh (isG1 (predGrade m d e))))) ctx sharp
 
 def inBoundary : run Π (t : GTm 0) → Answer :=
   λ (t : GTm 0) → inBoundaryAt 0 t vnil false
@@ -168,7 +180,19 @@ def noEscapeAt : run Π (-n : Nat) → Π (t : GTm n) → Π (+ ctx : Vec Grade 
             (both (noEscapeAt m z d sh)
               (noEscapeAt (suc m) body
                 (vcons m (predGrade m d e) d)
-                (orB sh (isG1 (predGrade m d e)))))) ctx sharp
+                (orB sh (isG1 (predGrade m d e)))))
+      | gcon0 m t => λ (+ d : Vec Grade m) → λ (+ sh : Bool) → yes
+      | gcon1 m t e => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          noEscapeAt m e d sh
+      | gcon2 m t e1 e2 => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (noEscapeAt m e1 d sh) (noEscapeAt m e2 d sh)
+      | gcase0 m e tg b => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (noEscapeAt m e d sh) (noEscapeAt m b d sh)
+      | gcase1 m e tg b => λ (+ d : Vec Grade m) → λ (+ sh : Bool) →
+          both (noEscapeAt m e d sh)
+            (noEscapeAt (suc m) b
+              (vcons m (predGrade m d e) d)
+              (orB sh (isG1 (predGrade m d e))))) ctx sharp
 
 def noEscape : run Π (t : GTm 0) → Answer :=
   λ (t : GTm 0) → noEscapeAt 0 t vnil false

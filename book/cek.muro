@@ -54,6 +54,56 @@ def step-mt : evidence
       ≡ just (at0 nil (ev 0 (gze 0) nil (cons (mt 0 (gze 0) (gze 0) (gze 1)) nil))) : Maybe Sys} :=
   refl
 
+-- Nullary constructor: allocate `con` and return a fresh omega ref.
+def con0Step : run Sys :=
+  at0 (cons (cell (con 0 nil) live) nil) (rv (om 0) nil nil)
+
+def step-con0 : evidence
+    {eval1 (at0 nil (ev 0 (gcon0 0 0) nil nil)) 0 ≡ just con0Step : Maybe Sys} :=
+  refl
+
+-- A constructor with one argument pushes `ca` and does not allocate yet.
+def step-con1 : evidence
+    {eval1 (at0 nil (ev 0 (gcon1 0 1 (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gze 0) nil (cons (ca 0 1 nil nil) nil))) : Maybe Sys} :=
+  refl
+
+-- The last field of `ca` allocates the constructor. Field 0 is the
+-- returned nat cell.
+def con1Done : run Sys :=
+  at0 (cons (cell (nat 0) live) (cons (cell (con 1 (cons (om 0) nil)) live) nil))
+      (rv (om 1) nil nil)
+
+def step-ca-done : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) nil)
+              (rv (om 0) nil (cons (ca 0 1 nil nil) nil))) 0
+      ≡ just con1Done : Maybe Sys} :=
+  refl
+
+-- `gcase0` pushes `cs0`.
+def step-cs0 : evidence
+    {eval1 (at0 nil (ev 0 (gcase0 0 (gcon0 0 0) 0 (gze 0)) nil nil)) 0
+      ≡ just (at0 nil (ev 0 (gcon0 0 0) nil
+                        (cons (cs0 0 (gcon0 0 0) 0 (gze 0)) nil))) : Maybe Sys} :=
+  refl
+
+-- A matching arity-0 arm runs the body and clears the scrutinee cell.
+def case0Done : run Sys :=
+  at0 (cons (cell (nat 0) live) nil) (ev 0 (gze 0) nil nil)
+
+def step-cs0-hit : evidence
+    {eval1 (at0 (cons (cell (con 0 nil) live) nil)
+              (rv (om 0) nil (cons (cs0 0 (gcon0 0 0) 0 (gze 0)) nil))) 0
+      ≡ just case0Done : Maybe Sys} :=
+  refl
+
+-- A nat scrutinee is not a constructor. `gcase0` gets stuck.
+def step-cs0-nat : evidence
+    {eval1 (at0 (cons (cell (nat 0) live) nil)
+              (rv (om 0) nil (cons (cs0 0 (gze 0) 0 (gze 0)) nil))) 0
+      ≡ nothing : Maybe Sys} :=
+  refl
+
 -- glam with an empty env appends a clo and returns a fresh omega ref.
 def lamStep : run Sys :=
   at0 (cons (cell (clo nil (scoped 0 lamW)) live) nil) (rv (om 0) nil nil)

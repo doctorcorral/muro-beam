@@ -55,7 +55,7 @@ open import MuroBeam.Emit using
   ; emitFromCtl; recvFromStep; peekSend; freedIdx
   ; SendInfo; sent )
 open import MuroBeam.Event using (Event; tr-collect)
-open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; Ref; obj)
+open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; con; Ref; obj)
 open import MuroBeam.Lib using (lookup; ⊥; ⊥-elim; ¬_)
 open import MuroBeam.PRun using
   ( PStep; PStep*; pdone; pmore; p-lift
@@ -630,6 +630,7 @@ readNat h (suc f) ix with payloadAt h ix
 ... | just (nat n) = just n
 ... | just (suc↑ r) = bump (readNat h f (obj r))
 ... | just (clo _ _) = nothing
+... | just (con _ _) = nothing
 ... | nothing = nothing
 
 payloadNat : List Obj → Ref → Maybe ℕ

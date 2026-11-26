@@ -170,3 +170,14 @@ transcription at 4 and prints `nat 1`. The same definitions at the
 other arguments Elixir was asked for print: half 0 `nat 0`, half 1
 `nat 0`, half 5 `nat 2`, isEven 0 `nat 1`, isEven 1 `nat 0`, isEven 5
 `nat 0`. plus 0 3 prints `nat 3` and plus 2 0 prints `nat 2`.
+
+## B1d data images
+
+`con0.mbi`, `con1.mbi`, `case0.mbi`, `case1.mbi`, `empty-gcase.mbi`,
+and `case-miss.mbi` are hand-written. They are not emitter goldens:
+`muro emit --backend mbi` still refuses data (`mbi:data`). `con0` is
+nullary `(gcon 0)` and prints `con 0`. `con1` is `(gcon 1 gze)`.
+`case0` matches tag 0 at arity 0 and returns `nat 0`. `case1` binds
+the one field of `(gcon 1 gze)` and returns that nat. `empty-gcase`
+is refused at `decideB` (`empty gcase`). `case-miss` loads and runs
+to `stuck` (no matching tag).

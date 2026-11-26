@@ -55,6 +55,7 @@ WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
 REFUSE = [
     ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 3 ", 1), "bad version"),
     ("bad-gref", WRAP.format(body="(gref 0)"), "bad gref"),
+    ("empty-gcase", WRAP.format(body="(gcase gze)"), "empty gcase"),
     (
         "bad-gref-index",
         "(muro-beam-image 2 (boundary 1) (defs (glam ((iv 0 1) 0) (gref 3))) "

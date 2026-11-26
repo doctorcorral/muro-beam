@@ -55,6 +55,9 @@ data Frame : Type where
   fn : Ref → Frame
   su : Frame
   mt : Π (n : Nat) → GTm n → GTm n → GTm suc(n) → Frame
+  ca : Π (n : Nat) → Nat → List Ref → List (GTm n) → Frame
+  cs0 : Π (n : Nat) → GTm n → Nat → GTm n → Frame
+  cs1 : Π (n : Nat) → GTm n → Nat → GTm suc(n) → Frame
   bd : List Ref → Frame
   saved : Code → Frame
 

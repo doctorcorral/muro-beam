@@ -32,6 +32,7 @@ data Val : Type where
   nat : Nat → Val
   suc-up : Ref → Val
   clo : List Ref → Scoped → Val
+  con : Nat → List Ref → Val
 
 def kids : run Π (v : Val) → List Ref :=
   λ (v : Val) →
@@ -39,6 +40,7 @@ def kids : run Π (v : Val) → List Ref :=
       | nat k => nil
       | suc-up r => cons r nil
       | clo rs tm => rs
+      | con t rs => rs
 
 def refsBelow : run Π (rs : List Ref) → Π (+ n : Nat) → Bool :=
   λ (rs : List Ref) → λ (+ n : Nat) →
@@ -52,6 +54,7 @@ def childrenBelow : run Π (n : Nat) → Π (v : Val) → Bool :=
       | nat k => true
       | suc-up r => lt (obj r) n
       | clo rs tm => refsBelow rs n
+      | con t rs => refsBelow rs n
 
 data Obj : Type where
   cell : Val → Status → Obj
@@ -91,6 +94,9 @@ data Below : Nat → Val → Type where
   b-clo : Π (n : Nat) → Π (rs : List Ref) → Π (tm : Scoped) →
           AllBelow n rs →
           Below n (clo rs tm)
+  b-con : Π (n : Nat) → Π (t : Nat) → Π (rs : List Ref) →
+          AllBelow n rs →
+          Below n (con t rs)
 
 data OrdAt : Nat → List Obj → Type where
   oa-nil : Π (+ i : Nat) → OrdAt i nil

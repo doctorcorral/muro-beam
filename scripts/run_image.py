@@ -56,6 +56,12 @@ HAND = {
     "plus": "nat 5",
     "half": "nat 2",
     "iseven": "nat 1",
+    # B1d hand-written data images. Not emitter goldens: muro
+    # `--backend mbi` still refuses data (`mbi:data`).
+    "con0": "con 0",
+    "con1": "con 1",
+    "case0": "nat 0",
+    "case1": "nat 0",
 }
 
 # once (suc 0). Elixir, muro 3f1cae2 (0.21.11), compiled with
@@ -206,6 +212,7 @@ REFUSE = [
     # grade theorem. sendGate is unchanged.
     ("recv-keep-beside-ignore", "kept slot came from recv"),
     ("recv-keep-beside-nignore", "kept slot came from recv"),
+    ("empty-gcase", "empty gcase"),
 ]
 # Tagged heads are not surface syntax, so echo is not the source.
 # drive and run both print the parse reason. spawnTagAwait-no is
@@ -444,6 +451,7 @@ def main():
         # and the harness would print stuck.
         check("run-send-recv", call("run", os.path.join(IMG, "send-recv.mbi")), "nat 2")
         check("run-spawn-done", call("run", os.path.join(IMG, "spawn-done.mbi")), "stuck")
+        check("run-case-miss", call("run", os.path.join(IMG, "case-miss.mbi")), "stuck")
         check("run-spawn-await", call("run", os.path.join(IMG, "spawn-await.mbi")), "nat 0")
         # imgFuel is 1000, the same default the binary uses. plus
         # stops stuck and keeps 5. Fuel 32 is still out of fuel here.

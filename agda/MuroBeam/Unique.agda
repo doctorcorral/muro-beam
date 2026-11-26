@@ -28,7 +28,7 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 open import Muro.Base using (run)
 open import Muro.Grade using (Grade; g0; g1; gω)
 open import MuroBeam.BTm using
-  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+  ( BTm; Arm; arm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; gcon; gcase )
 open import MuroBeam.Grade using
   ( isG1; isZeroGrade; selfKept; Kind; Kmove; Kcopy; kind; kind-g1; copy-not-g1
   ; spend ; Spent )
@@ -42,7 +42,7 @@ open import MuroBeam.Heap using
   ; repl; repl-count; repl-has; bound-repl; bound-remove
   ; spendRef; spendRef-obj; spendRef-checked; applySpend
   ; Obj; cell; live; payload; edgeRefs; edgeRefs-++; nat; kids
-  ; Val; suc↑; clo )
+  ; Val; suc↑; clo; con )
   renaming (kept to refKept)
 open import MuroBeam.Lib using
   ( ⊥; ⊥-elim; ≤-refl; ≤-step; ≤-trans; ≤-antisym; ≤-subst
@@ -64,11 +64,12 @@ open import MuroBeam.Process using
   ; poke; length-poke; reuse; reuseFrom; reuseOk
   ; preOf; ctlRefsPs; ctlEq-putRoot; ctlEq-update; eval1
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; saved; seg; ctlRefs; framesRefs
+  ; Frame; ar; fn; su; mt; ca; cs; saved; seg; ctlRefs; framesRefs
   ; lookupDef
   ; setProc; install; pass; snoc; freshRef; regrade
   ; anyG1; badG1; predComp; payloadAt; setPayload
-  ; evalHere; evalTm; evalRet; useVar; beta; onMatch )
+  ; evalHere; evalTm; evalRet; useVar; beta; onMatch
+  ; onCase; pickArms; bindExact; badFields )
   renaming (bd to frameBd)
 open import MuroBeam.Collect using
   ( Step; step-deref; step-send; step-recv; step-alloc; step-reuse; step-collect
@@ -2243,6 +2244,105 @@ edge-clo h env tm =
   trans (edgeRefs-++ h (cell (clo env tm) live ∷ []))
         (cong (edgeRefs h ++_) (++-identityʳ env))
 
+edge-con : ∀ h t rs → edgeRefs (snoc h (con t rs)) ≡ edgeRefs h ++ rs
+edge-con h t rs =
+  trans (edgeRefs-++ h (cell (con t rs) live ∷ []))
+        (cong (edgeRefs h ++_) (++-identityʳ rs))
+
+edge-con-nil : ∀ h t → edgeRefs (snoc h (con t [])) ≡ edgeRefs h
+edge-con-nil h t = trans (edge-con h t []) (++-identityʳ (edgeRefs h))
+
+-- Count and g1-has of a finished constructor: the accumulator and the
+-- returned field leave the control and land in the payload kids.
+shuffle4 : ∀ x e a f → x + (e + (a + f)) ≡ (a + x) + (e + f)
+shuffle4 x e a f =
+  trans (cong (x +_) (sym (+-assoc e a f)))
+  (trans (sym (+-assoc x (e + a) f))
+  (trans (cong (_+ f) (sym (+-assoc x e a)))
+  (trans (cong (_+ f) (cong (_+ a) (+-comm x e)))
+  (trans (cong (_+ f) (+-assoc e x a))
+  (trans (cong (_+ f) (cong (e +_) (+-comm x a)))
+  (trans (+-assoc e (a + x) f)
+  (trans (cong (e +_) (+-comm (a + x) f))
+  (trans (sym (+-assoc e f (a + x)))
+         (+-comm (e + f) (a + x))))))))))
+
+count-ca-finish : ∀ q r env acc fr →
+  count q (r ∷ env ++ acc ++ fr) ≡ count q (acc ++ r ∷ []) + count q (env ++ fr)
+count-ca-finish q r env acc fr =
+  trans lhs (trans (shuffle4 (ext (obj r ≡ᵇ q)) (count q env) (count q acc) (count q fr)) (sym rhs))
+  where
+  lhs : count q (r ∷ env ++ acc ++ fr) ≡
+        ext (obj r ≡ᵇ q) + (count q env + (count q acc + count q fr))
+  lhs =
+    trans (cong (ext (obj r ≡ᵇ q) +_) (count-++ q env (acc ++ fr)))
+          (cong (λ n0 → ext (obj r ≡ᵇ q) + (count q env + n0)) (count-++ q acc fr))
+  rhs : count q (acc ++ r ∷ []) + count q (env ++ fr) ≡
+        (count q acc + ext (obj r ≡ᵇ q)) + (count q env + count q fr)
+  rhs =
+    trans (cong (_+ count q (env ++ fr))
+            (trans (count-++ q acc (r ∷ []))
+                   (cong (count q acc +_) (+-identityʳ (ext (obj r ≡ᵇ q))))))
+          (cong ((count q acc + ext (obj r ≡ᵇ q)) +_) (count-++ q env fr))
+
+or-shuffle : ∀ b e a f → b ∨ (e ∨ (a ∨ f)) ≡ (a ∨ b) ∨ (e ∨ f)
+or-shuffle b e a f =
+  trans (cong (b ∨_) (sym (∨-assoc e a f)))
+  (trans (sym (∨-assoc b (e ∨ a) f))
+  (trans (cong (_∨ f) (sym (∨-assoc b e a)))
+  (trans (cong (_∨ f) (cong (_∨ a) (∨-comm b e)))
+  (trans (cong (_∨ f) (∨-assoc e b a))
+  (trans (cong (_∨ f) (cong (e ∨_) (∨-comm b a)))
+  (trans (∨-assoc e (a ∨ b) f)
+  (trans (cong (e ∨_) (∨-comm (a ∨ b) f))
+  (trans (sym (∨-assoc e f (a ∨ b)))
+         (∨-comm (e ∨ f) (a ∨ b))))))))))
+
+has-ca-finish : ∀ q r env acc fr →
+  hasG1 q (r ∷ env ++ acc ++ fr) ≡ hasG1 q (acc ++ r ∷ []) ∨ hasG1 q (env ++ fr)
+has-ca-finish q r env acc fr =
+  trans lhs (trans (or-shuffle bit (hasG1 q env) (hasG1 q acc) (hasG1 q fr)) (sym rhs))
+  where
+  bit = (obj r ≡ᵇ q) ∧ isG1 (checked r)
+  lhs : hasG1 q (r ∷ env ++ acc ++ fr) ≡ bit ∨ (hasG1 q env ∨ (hasG1 q acc ∨ hasG1 q fr))
+  lhs =
+    trans (cong (bit ∨_) (has-++ q env (acc ++ fr)))
+          (cong (λ b → bit ∨ (hasG1 q env ∨ b)) (has-++ q acc fr))
+  rhs : hasG1 q (acc ++ r ∷ []) ∨ hasG1 q (env ++ fr) ≡
+        (hasG1 q acc ∨ bit) ∨ (hasG1 q env ∨ hasG1 q fr)
+  rhs =
+    trans (cong (_∨ hasG1 q (env ++ fr))
+            (trans (has-++ q acc (r ∷ []))
+                   (cong (hasG1 q acc ∨_) (∨-falseʳ bit))))
+          (cong ((hasG1 q acc ∨ bit) ∨_) (has-++ q env fr))
+
+-- Mid-list count: kids leaving a cleared payload.
+count-mid : ∀ q xs ys zs →
+  count q (xs ++ ys ++ zs) ≡ count q (xs ++ zs) + count q ys
+count-mid q xs ys zs =
+  trans (count-++ q xs (ys ++ zs))
+  (trans (cong (count q xs +_) (count-++ q ys zs))
+  (trans (sym (+-assoc (count q xs) (count q ys) (count q zs)))
+  (trans (cong (_+ count q zs) (+-comm (count q xs) (count q ys)))
+  (trans (+-assoc (count q ys) (count q xs) (count q zs))
+  (trans (cong (count q ys +_) (sym (count-++ q xs zs)))
+         (+-comm (count q ys) (count q (xs ++ zs))))))))
+
+has-mid-imp : ∀ q xs ys zs →
+  hasG1 q (xs ++ zs) ≡ true → hasG1 q (xs ++ ys ++ zs) ≡ true
+has-mid-imp q xs ys zs hf rewrite has-++ q xs zs | has-++ q xs (ys ++ zs) | has-++ q ys zs =
+  widen (hasG1 q xs) (hasG1 q ys) (hasG1 q zs) hf
+  where
+  widen : ∀ a b c → a ∨ c ≡ true → a ∨ (b ∨ c) ≡ true
+  widen true  _ _ _    = refl
+  widen false b false ()
+  widen false b true  refl = ∨-trueʳ b
+
+anyObj : List Ref → ℕ → Bool
+anyObj []       _ = false
+anyObj (r ∷ rs) q = (obj r ≡ᵇ q) ∨ anyObj rs q
+
+
 data EdgeAt (h : List Obj) (k : ℕ) (v : Val) : Set where
   eat : (L R : List Ref) →
         edgeRefs h ≡ L ++ kids v ++ R →
@@ -2893,6 +2993,67 @@ addXB b t x =
 has-miss : ∀ q r rs → (obj r ≡ᵇ q) ≡ false → hasG1 q (r ∷ rs) ≡ hasG1 q rs
 has-miss q r rs eb rewrite eb = refl
 
+bindExact-count : ∀ k g rs env env' q →
+  bindExact k g rs env ≡ just env' →
+  count q env' ≡ count q rs + count q env
+bindExact-count zero    _ []       env .env q refl = refl
+bindExact-count (suc k) g (r ∷ rs) env env' q eq =
+  trans (bindExact-count k g rs (regrade r g ∷ env) env' q eq)
+  (trans (cong (count q rs +_) (cons-ext q (regrade r g) r env refl))
+  (trans (sym (+-assoc (count q rs) (ext (obj r ≡ᵇ q)) (count q env)))
+         (cong (_+ count q env) (+-comm (count q rs) (ext (obj r ≡ᵇ q))))))
+bindExact-count zero    _ (_ ∷ _) _ _ _ ()
+bindExact-count (suc _) _ []      _ _ _ ()
+
+bindExact-bound : ∀ {n} k g rs env env' →
+  Bound n rs → Bound n env →
+  bindExact k g rs env ≡ just env' →
+  Bound n env'
+bindExact-bound zero    _ []       env .env bnil be refl = be
+bindExact-bound (suc k) g (r ∷ rs) env env' (bcons lt rest) be eq =
+  bindExact-bound k g rs (regrade r g ∷ env) env' rest (bcons lt be) eq
+bindExact-bound zero    _ (_ ∷ _) _ _ _ _ ()
+bindExact-bound (suc _) _ []      _ _ _ _ ()
+
+bindExact-has-nong1 : ∀ k g rs env env' q →
+  isG1 g ≡ false →
+  bindExact k g rs env ≡ just env' →
+  hasG1 q env' ≡ hasG1 q env
+bindExact-has-nong1 zero    _ []       env .env q _ refl = refl
+bindExact-has-nong1 (suc k) g (r ∷ rs) env env' q ng eq =
+  trans (bindExact-has-nong1 k g rs (regrade r g ∷ env) env' q ng eq)
+        (has-nong1 q (regrade r g) env ng)
+bindExact-has-nong1 zero    _ (_ ∷ _) _ _ _ _ ()
+bindExact-has-nong1 (suc _) _ []      _ _ _ _ ()
+
+bindExact-has-miss : ∀ k g rs env env' q →
+  isG1 g ≡ true →
+  anyObj rs q ≡ false →
+  bindExact k g rs env ≡ just env' →
+  hasG1 q env' ≡ hasG1 q env
+bindExact-has-miss zero    _ []       env .env q _ _ refl = refl
+bindExact-has-miss (suc k) g (r ∷ rs) env env' q g1 miss eq =
+  trans (bindExact-has-miss k g rs (regrade r g ∷ env) env' q g1 (proj₂ parts) eq)
+        (has-miss q (regrade r g) env (proj₁ parts))
+  where
+  parts = ∨-false (obj r ≡ᵇ q) (anyObj rs q) miss
+bindExact-has-miss zero    _ (_ ∷ _) _ _ _ _ _ ()
+bindExact-has-miss (suc _) _ []      _ _ _ _ _ ()
+
+badFields-hit : ∀ g rs all q →
+  badFields g rs all ≡ false →
+  isG1 g ≡ true →
+  anyObj rs q ≡ true →
+  count q all ≡ 1
+badFields-hit _ [] _ _ _ _ ()
+badFields-hit g (r ∷ rs) all q eq g1 hit with obj r ≡ᵇ q in eob
+... | true =
+  subst (λ o → count o all ≡ 1) (≡ᵇ-sound (obj r) q eob)
+    (≡ᵇ-sound (count (obj r) all) 1
+      (bad-ok g (count (obj r) all) (proj₁ (∨-false (badG1 g (obj r) all) (badFields g rs all) eq)) g1))
+... | false = badFields-hit g rs all q (proj₂ (∨-false (badG1 g (obj r) all) (badFields g rs all) eq)) g1 hit
+
+
 head-< : ∀ {n r xs} → Bound n (r ∷ xs) → obj r < n
 head-< (bcons lt _) = lt
 
@@ -2980,6 +3141,36 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
                (cong (hasG1 q) rq)
         bNew = close-bound h2 ps2 (suc nH) (length-snoc h (cell (nat n) live))
                  (subst (Bound (suc nH)) (sym (edge-nat h n)) (monoS bEdge))
+                 (set-ctl-bound i ps p c ps2 lk es (monoS bCtl) bLoc)
+                 (monoS (subst (Bound nH) (sym rq) bRs))
+        got = grow-sys {h} {ps} h2 ps2 (λ q → ext (nH ≡ᵇ q)) wf bNew cq hq
+                (λ q hf → fresh-zero q nH (refsOf (sys h ps)) bdF hf)
+
+    grow-con-nil : ∀ tag c →
+      (∀ q → count q (ctlRefs c) ≡ count q (ctlRefs (ctl p)) + ext (nH ≡ᵇ q)) →
+      (∀ q → hasG1 q (ctlRefs c) ≡ hasG1 q (ctlRefs (ctl p))) →
+      Bound (suc nH) (ctlRefs c) →
+      install (snoc h (con tag [])) ps i c ≡ just t →
+      WF t
+    grow-con-nil tag c cLoc hLoc bLoc eI = landed (setProc ps i c) eI refl
+      where
+      h2 = snoc h (con tag [])
+      landed : (m : Maybe (List Proc)) → mapSys h2 m ≡ just t → setProc ps i c ≡ m → WF t
+      landed nothing () _
+      landed (just ps2) eqj es = subst WF (just-inj eqj) got
+        where
+        rq = set-refsPs i ps c ps2 es
+        cq = λ q → count-shift q h h2 ps ps2 zero (ext (nH ≡ᵇ q))
+               (trans (cong (count q) (edge-con-nil h tag))
+                      (sym (+-identityʳ (count q (edgeRefs h)))))
+               (lift-plus q i ps p c ps2 (ext (nH ≡ᵇ q)) lk es (cLoc q))
+               (cong (count q) rq)
+        hq = λ q → has-stable q h h2 ps ps2
+               (cong (hasG1 q) (edge-con-nil h tag))
+               (lift-has q i ps p c ps2 lk es (hLoc q))
+               (cong (hasG1 q) rq)
+        bNew = close-bound h2 ps2 (suc nH) (length-snoc h (cell (con tag []) live))
+                 (subst (Bound (suc nH)) (sym (edge-con-nil h tag)) (monoS bEdge))
                  (set-ctl-bound i ps p c ps2 lk es (monoS bCtl) bLoc)
                  (monoS (subst (Bound nH) (sym rq) bRs))
         got = grow-sys {h} {ps} h2 ps2 (λ q → ext (nH ≡ᵇ q)) wf bNew cq hq
@@ -3074,6 +3265,22 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
       push (ev e0 env (su ∷ k)) (sym (cong ctlRefs eqp)) e′
     onTm (gmatch e0 z s) env k eqp e′ =
       push (ev e0 env (mt e0 z s ∷ k)) (sym (cong ctlRefs eqp)) e′
+    onTm (gcon tag []) env k eqp e′ =
+      grow-con-nil tag c cLoc hLoc bLoc e′
+      where
+      c = rv (freshRef h gω) env k
+      ceq = cong ctlRefs eqp
+      cLoc = λ q →
+        trans (cong (ext (nH ≡ᵇ q) +_) (sym (cong (count q) ceq)))
+              (+-comm (ext (nH ≡ᵇ q)) (count q (ctlRefs (ctl p))))
+      hLoc = λ q →
+        trans (has-nong1 q (freshRef h gω) (env ++ framesRefs k) refl)
+              (sym (cong (hasG1 q) ceq))
+      bLoc = bcons (fresh-< nH) (monoS (subst (Bound nH) ceq bHere))
+    onTm (gcon tag (e ∷ es)) env k eqp e′ =
+      push (ev e env (ca tag [] es ∷ k)) (sym (cong ctlRefs eqp)) e′
+    onTm (gcase e0 arms) env k eqp e′ =
+      push (ev e0 env (cs e0 arms ∷ k)) (sym (cong ctlRefs eqp)) e′
     onTm (gtyp _) env k eqp e′ = freshUnit env k (cong ctlRefs eqp) e′
     onTm (gpi _ _ _) env k eqp e′ = freshUnit env k (cong ctlRefs eqp) e′
     onTm gze env k eqp e′ = freshUnit env k (cong ctlRefs eqp) e′
@@ -3266,6 +3473,21 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
             sm rewrite eq = refl
             eo = spendRef-obj r r′ sm
             ec = spendRef-checked r r′ sm
+          fromS (just (spentK ρ κ)) eq eU | just (con _ _) with isG1 (checked r) in g1eq
+          fromS (just (spentK ρ κ)) eq eU | just (con _ _) | true = movePtr r′ eo ec eU
+            where
+            r′ = ref (obj r) (checked r) ρ κ
+            sm : spendRef r ≡ just r′
+            sm rewrite eq = refl
+            eo = spendRef-obj r r′ sm
+            ec = spendRef-checked r r′ sm
+          fromS (just (spentK ρ κ)) eq eU | just (con _ _) | false = aliasPtr (ref (obj r) (checked r) ρ κ) eo ec g1eq eU
+            where
+            r′ = ref (obj r) (checked r) ρ κ
+            sm : spendRef r ≡ just r′
+            sm rewrite eq = refl
+            eo = spendRef-obj r r′ sm
+            ec = spendRef-checked r r′ sm
 
     rotAr : ∀ r env {n} (a : BTm n) k →
       ctl p ≡ rv r env (ar a ∷ k) →
@@ -3360,6 +3582,9 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
       opened (just (clo envC (nb , gsu _))) eP pv rewrite pv = stuck-just eP
       opened (just (clo envC (nb , gmatch _ _ _))) eP pv rewrite pv = stuck-just eP
       opened (just (clo envC (nb , gref _))) eP pv rewrite pv = stuck-just eP
+      opened (just (clo envC (nb , gcon _ _))) eP pv rewrite pv = stuck-just eP
+      opened (just (clo envC (nb , gcase _ _))) eP pv rewrite pv = stuck-just eP
+      opened (just (con _ _)) eP pv rewrite pv = stuck-just eP
       opened (just (clo envC (nb , glam cG ty body))) eP pv rewrite pv =
         let inner = install h ps i (ev body (regrade ra cG ∷ envC) (frameBd env ∷ k))
             outer = pass-ok (not (badG1 cG (obj ra) (refsOf (sys h ps))))
@@ -3512,6 +3737,7 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
       onV nothing eP pv rewrite pv = stuck-just eP
       onV (just (nat (suc _))) eP pv rewrite pv = stuck-just eP
       onV (just (clo _ _)) eP pv rewrite pv = stuck-just eP
+      onV (just (con _ _)) eP pv rewrite pv = stuck-just eP
       onV (just (nat zero)) eP pv rewrite pv = thin-ctl c le hi bc eP
         where
         c = ev z env k
@@ -3632,12 +3858,280 @@ eval-wf h ps i t eq (bdF , uqF) = at (lookup ps i) eq refl
                      (drop-mid-has q r env ys hn)
       bc = drop-mid-bound r env ys (subst (Bound nH) ceq bHere)
 
+    rotCa : ∀ r env tag acc {n} (e : BTm n) es k →
+      ctl p ≡ rv r env (ca tag acc (e ∷ es) ∷ k) →
+      install h ps i (ev e env (ca tag (acc ++ r ∷ []) es ∷ k)) ≡ just t → WF t
+    rotCa r env tag acc e es k eqp e′ = xfer-ctl c cq hq bc e′
+      where
+      c = ev e env (ca tag (acc ++ r ∷ []) es ∷ k)
+      fr = framesRefs k
+      ceq = cong ctlRefs eqp
+      old≡ : r ∷ env ++ acc ++ fr ≡ r ∷ (env ++ acc) ++ fr
+      old≡ = cong (r ∷_) (sym (++-assoc env acc fr))
+      new≡ : env ++ (acc ++ r ∷ []) ++ fr ≡ (env ++ acc) ++ (r ∷ fr)
+      new≡ =
+        trans (cong (env ++_) (++-assoc acc (r ∷ []) fr))
+              (sym (++-assoc env acc (r ∷ fr)))
+      cq = λ q →
+        trans (cong (count q) new≡)
+        (trans (sym (rot-count q r (env ++ acc) fr))
+        (trans (cong (count q) (sym old≡))
+               (sym (cong (count q) ceq))))
+      hq = λ q →
+        trans (cong (hasG1 q) new≡)
+        (trans (sym (rot-has q r (env ++ acc) fr))
+        (trans (cong (hasG1 q) (sym old≡))
+               (sym (cong (hasG1 q) ceq))))
+      bc = subst (Bound nH) (sym new≡)
+            (rot-bound r (env ++ acc) fr
+              (subst (Bound nH) old≡ (subst (Bound nH) ceq bHere)))
+
+    conGo : ∀ {n} r env tag acc k →
+      ctl p ≡ rv r env (ca {n} tag acc [] ∷ k) →
+      install (snoc h (con tag (acc ++ r ∷ []))) ps i
+        (rv (freshRef h gω) env k) ≡ just t → WF t
+    conGo r env tag acc k eqp eI = landed (setProc ps i c) eI refl
+      where
+      c = rv (freshRef h gω) env k
+      kids' = acc ++ r ∷ []
+      h2 = snoc h (con tag kids')
+      fr = framesRefs k
+      ceq = cong ctlRefs eqp
+      cLoc = λ q →
+        let X = count q kids'
+            B = ext (nH ≡ᵇ q)
+        in trans (trans (+-assoc B (count q (env ++ fr)) X)
+                        (trans (cong (B +_)
+                                 (trans (+-comm (count q (env ++ fr)) X)
+                                        (sym (count-ca-finish q r env acc fr))))
+                               (+-comm B (count q (r ∷ env ++ acc ++ fr)))))
+                 (cong (_+ B) (sym (cong (count q) ceq)))
+      bShape = subst (Bound nH) ceq bHere
+      bRest = bound-uncons bShape
+      bEnv = proj₁ (bound-split env (acc ++ fr) bRest)
+      bAccFr = proj₂ (bound-split env (acc ++ fr) bRest)
+      bAcc = proj₁ (bound-split acc fr bAccFr)
+      bFr = proj₂ (bound-split acc fr bAccFr)
+      bKids = bound-++ bAcc (bcons (head-< bShape) bnil)
+      bLoc = bcons (fresh-< nH) (monoS (bound-++ bEnv bFr))
+      landed : (m : Maybe (List Proc)) → mapSys h2 m ≡ just t → setProc ps i c ≡ m → WF t
+      landed nothing () _
+      landed (just ps2) eqj es = subst WF (just-inj eqj) (use (set-both i ps p c ps2 lk es))
+        where
+        rq = set-refsPs i ps c ps2 es
+        use : Both ps ps2 p c → WF (sys h2 ps2)
+        use (both L R eOld eNew rEq) = grow-sys {h} {ps} h2 ps2 (λ q → ext (nH ≡ᵇ q)) wf bNew cq hq
+          (λ q hf → fresh-zero q nH (refsOf (sys h ps)) bdF hf)
+          where
+          bit = λ q → hasG1 q kids'
+          ee = λ q →
+            trans (cong (count q) (edge-con h tag kids'))
+                  (count-++ q (edgeRefs h) kids')
+          he = λ q →
+            trans (cong (hasG1 q) (edge-con h tag kids'))
+                  (has-++ q (edgeRefs h) kids')
+          hNew = λ q → has-nong1 q (freshRef h gω) (env ++ fr) refl
+          hOld = λ q → trans (cong (hasG1 q) ceq) (has-ca-finish q r env acc fr)
+          cq = λ q →
+            let X = count q kids'
+                B = ext (nH ≡ᵇ q)
+                E = count q (edgeRefs h)
+                C = count q (ctlRefsPs ps)
+                C′ = count q (ctlRefsPs ps2)
+                Rq = count q (refsPs ps)
+            in trans (refs-count q h2 ps2)
+               (trans (cong (λ e0 → (e0 + C′) + count q (refsPs ps2)) (ee q))
+               (trans (cong (λ r0 → ((E + X) + C′) + r0) (cong (count q) rq))
+               (trans (gain-fresh E X C C′ Rq B
+                        (lift-swap q i ps p c ps2 X B lk es (cLoc q)))
+                      (cong (_+ B) (sym (refs-count q h ps))))))
+          hq = λ q →
+            trans (refs-has q h2 ps2)
+            (trans (move-has5 (hasG1 q (edgeRefs h)) (hasG1 q (edgeRefs h2)) (bit q)
+                     (hasG1 q L) (hasG1 q (env ++ fr)) (hasG1 q (ctlRefs c))
+                     (hasG1 q R)
+                     (hasG1 q (ctlRefsPs ps)) (hasG1 q (ctlRefsPs ps2))
+                     (hasG1 q (refsPs ps)) (hasG1 q (refsPs ps2))
+                     (he q)
+                     (trans (cong (hasG1 q) eNew) (has3 q L (ctlRefs c) R))
+                     (hNew q)
+                     (trans (trans (cong (hasG1 q) eOld) (has3 q L (ctlRefs (ctl p)) R))
+                            (cong (λ z → hasG1 q L ∨ (z ∨ hasG1 q R)) (hOld q)))
+                     (cong (hasG1 q) rEq))
+                   (sym (refs-has q h ps)))
+          bNew = close-bound h2 ps2 (suc nH) (length-snoc h (cell (con tag kids') live))
+                   (subst (Bound (suc nH)) (sym (edge-con h tag kids'))
+                      (bound-++ (monoS bEdge) (monoS bKids)))
+                   (set-ctl-bound i ps p c ps2 lk es (monoS bCtl) bLoc)
+                   (monoS (subst (Bound nH) (sym rq) bRs))
+
+    caseGo : ∀ r env {n} (e0 : BTm n) (arms : List (Arm n)) k →
+      ctl p ≡ rv r env (cs e0 arms ∷ k) →
+      onCase h ps i r env e0 arms k (payloadAt h (obj r)) ≡ just t → WF t
+    caseGo r env {n} e0 arms k eqp eM = onC (payloadAt h (obj r)) eM refl
+      where
+      fr = framesRefs k
+      ceq = cong ctlRefs eqp
+      g = predComp env e0
+      all = refsOf (sys h ps)
+      onC : (v : Maybe Val) →
+            onCase h ps i r env e0 arms k (payloadAt h (obj r)) ≡ just t →
+            payloadAt h (obj r) ≡ v → WF t
+      onC nothing eP pv rewrite pv = stuck-just eP
+      onC (just (nat _)) eP pv rewrite pv = stuck-just eP
+      onC (just (suc↑ _)) eP pv rewrite pv = stuck-just eP
+      onC (just (clo _ _)) eP pv rewrite pv = stuck-just eP
+      onC (just (con tag rs)) eP pv rewrite pv = pickGo arms eP
+        where
+        pickGo : (as : List (Arm n)) →
+                 pickArms h ps i r env e0 as k tag rs ≡ just t → WF t
+        pickGo [] ()
+        pickGo (arm atag binds body ∷ rest) eP
+          with atag ≡ᵇ tag | bindExact binds g rs env in beq
+        ... | false | _ = pickGo rest eP
+        ... | true | nothing = stuck-just eP
+        ... | true | just env' =
+          let inner = install (setPayload h (obj r) (nat zero)) ps i (ev body env' k)
+              outer = pass-ok (not (badFields g rs all)) inner eP
+          in caseDone env' body binds beq pv
+               (not-true (badFields g rs all) (proj₁ outer))
+               (proj₂ outer)
+          where
+          caseDone : ∀ env' {m} (body : BTm m) binds →
+            bindExact binds g rs env ≡ just env' →
+            payloadAt h (obj r) ≡ just (con tag rs) →
+            badFields g rs all ≡ false →
+            install (setPayload h (obj r) (nat zero)) ps i
+              (ev body env' k) ≡ just t →
+            WF t
+          caseDone env' body binds beq pv badF eI = landed (setProc ps i c2) eI refl
+            where
+            c2 = ev body env' k
+            h2 = setPayload h (obj r) (nat zero)
+            landed : (m : Maybe (List Proc)) → mapSys h2 m ≡ just t →
+                     setProc ps i c2 ≡ m → WF t
+            landed nothing () _
+            landed (just ps2) eqj es =
+              subst WF (just-inj eqj) (use (edge-at h (obj r) (con tag rs) pv))
+              where
+              rq = set-refsPs i ps c2 ps2 es
+              use : EdgeAt h (obj r) (con tag rs) → WF (sys h2 ps2)
+              use (eat L R e1 e2) = bNew , uNew
+                where
+                cE = λ q →
+                  trans (cong (_+ count q rs) (cong (count q) e2))
+                        (sym (trans (cong (count q) e1) (count-mid q L rs R)))
+                cLoc = λ q →
+                  let X = count q rs
+                      F = ext (obj r ≡ᵇ q)
+                      mid = count q env + count q fr
+                  in trans (cong (_+ F) (count-++ q env' fr))
+                     (trans (cong (λ n0 → (n0 + count q fr) + F)
+                              (bindExact-count binds g rs env env' q beq))
+                     (trans (cong (_+ F) (+-assoc X (count q env) (count q fr)))
+                     (trans (+-assoc X mid F)
+                     (trans (cong (X +_) (+-comm mid F))
+                     (trans (cong (X +_) (cong (F +_) (sym (count-++ q env fr))))
+                     (trans (+-comm X (count q (r ∷ env ++ fr)))
+                            (cong (_+ X) (sym (cong (count q) ceq)))))))))
+                cEq = λ q →
+                  let F = ext (obj r ≡ᵇ q)
+                      X = count q rs
+                      E = count q (edgeRefs h)
+                      E′ = count q (edgeRefs h2)
+                      C = count q (ctlRefsPs ps)
+                      C′ = count q (ctlRefsPs ps2)
+                      Rq = count q (refsPs ps)
+                  in trans (cong (_+ F) (refs-count q h2 ps2))
+                     (trans (cong (λ r0 → ((E′ + C′) + r0) + F) (cong (count q) rq))
+                     (trans (drop-move E E′ C C′ Rq X F (cE q)
+                              (lift-swap q i ps p c2 ps2 F X lk es (cLoc q)))
+                            (sym (refs-count q h ps))))
+                bEd = subst (Bound nH) e1 bEdge
+                bL = proj₁ (bound-split L (rs ++ R) bEd)
+                bMid = proj₂ (bound-split L (rs ++ R) bEd)
+                bRsF = proj₁ (bound-split rs R bMid)
+                bRt = proj₂ (bound-split rs R bMid)
+                bNewE = subst (Bound nH) (sym e2) (bound-++ bL bRt)
+                bEnvFr = bound-uncons (subst (Bound nH) ceq bHere)
+                bEnv = proj₁ (bound-split env fr bEnvFr)
+                bFr = proj₂ (bound-split env fr bEnvFr)
+                bEnv' = bindExact-bound binds g rs env env' bRsF bEnv beq
+                bNewC = bound-++ bEnv' bFr
+                bNew = close-bound h2 ps2 nH (length-set h (obj r) (nat zero)) bNewE
+                         (set-ctl-bound i ps p c2 ps2 lk es bCtl bNewC)
+                         (subst (Bound nH) (sym rq) bRs)
+                ctlEq : ∀ q → hasG1 q (ctlRefs c2) ≡ hasG1 q env' ∨ hasG1 q fr
+                ctlEq q = has-++ q env' fr
+                envEq-nong1 : isG1 g ≡ false →
+                  ∀ q → hasG1 q (ctlRefs c2) ≡ hasG1 q (env ++ fr)
+                envEq-nong1 ng q =
+                  trans (ctlEq q)
+                  (trans (cong (_∨ hasG1 q fr)
+                           (bindExact-has-nong1 binds g rs env env' q ng beq))
+                         (sym (has-++ q env fr)))
+                envEq-miss : isG1 g ≡ true → ∀ q → anyObj rs q ≡ false →
+                  hasG1 q (ctlRefs c2) ≡ hasG1 q (env ++ fr)
+                envEq-miss g1 q miss =
+                  trans (ctlEq q)
+                  (trans (cong (_∨ hasG1 q fr)
+                           (bindExact-has-miss binds g rs env env' q g1 miss beq))
+                         (sym (has-++ q env fr)))
+                uNew : Grade1Unique (refsOf (sys h2 ps2))
+                uNew i0 hn = gradeSplit (isG1 g) refl
+                  where
+                  byMiss : hasG1 i0 (ctlRefs c2) ≡ hasG1 i0 (env ++ fr) →
+                           hasG1 i0 (refsOf (sys h2 ps2)) ≡ true →
+                           count i0 (refsOf (sys h2 ps2)) ≡ 1
+                  byMiss hEq hn′ =
+                    sym (≤-antisym (has-count i0 (refsOf (sys h2 ps2)) hn′)
+                          (≤-subst (le-from-plus (cEq i0)) (uqF i0 ho)))
+                    where
+                    imp : hasG1 i0 (ctlRefs c2) ≡ true → hasG1 i0 (ctlRefs (ctl p)) ≡ true
+                    imp hnC =
+                      subst (λ b → b ≡ true) (sym (cong (hasG1 i0) ceq))
+                        (drop-head-has i0 r (env ++ fr)
+                          (subst (λ b → b ≡ true) hEq hnC))
+                    he : hasG1 i0 (edgeRefs h2) ≡ true → hasG1 i0 (edgeRefs h) ≡ true
+                    he hnE =
+                      subst (λ b → b ≡ true) (sym (cong (hasG1 i0) e1))
+                        (has-mid-imp i0 L rs R
+                          (subst (λ b → b ≡ true) (cong (hasG1 i0) e2) hnE))
+                    ho = has-imp-heap i0 h h2 ps ps2 he
+                           (λ hnC → lift-has-imp i0 i ps p c2 ps2 lk es imp hnC)
+                           (cong (hasG1 i0) rq) hn′
+                  byGate : anyObj rs i0 ≡ true → isG1 g ≡ true →
+                           hasG1 i0 (refsOf (sys h2 ps2)) ≡ true →
+                           count i0 (refsOf (sys h2 ps2)) ≡ 1
+                  byGate eany geb hn′ =
+                    from-sum (count i0 (refsOf (sys h2 ps2))) (ext (obj r ≡ᵇ i0))
+                      (trans (cEq i0) cntI)
+                      (has-count i0 (refsOf (sys h2 ps2)) hn′)
+                    where
+                    cntI = badFields-hit g rs all i0 badF geb eany
+                  gradeSplit : (b : Bool) → isG1 g ≡ b → count i0 (refsOf (sys h2 ps2)) ≡ 1
+                  gradeSplit false geb = byMiss (envEq-nong1 geb i0) hn
+                  gradeSplit true geb = objSplit (anyObj rs i0) refl
+                    where
+                    objSplit : (b : Bool) → anyObj rs i0 ≡ b →
+                               count i0 (refsOf (sys h2 ps2)) ≡ 1
+                    objSplit false eob = byMiss (envEq-miss geb i0 eob) hn
+                    objSplit true eob = byGate eob geb hn
+
     onRet : ∀ r env k → ctl p ≡ rv r env k → evalRet h ps i r env k ≡ just t → WF t
     onRet r env [] eqp ()
     onRet r env (ar a ∷ k) eqp e′ = rotAr r env a k eqp e′
     onRet r env (fn rf ∷ k) eqp e′ = betaGo r rf env k eqp e′
     onRet r env (su ∷ k) eqp e′ = sucGo r env k eqp e′
     onRet r env (mt e0 z s ∷ k) eqp e′ = matchGo r env e0 z s k eqp e′
+    onRet r env (ca tag acc es ∷ k) eqp e′ = caGo es eqp e′
+      where
+      caGo : ∀ {n} (es : List (BTm n)) →
+             ctl p ≡ rv r env (ca tag acc es ∷ k) →
+             evalRet h ps i r env (ca tag acc es ∷ k) ≡ just t → WF t
+      caGo [] eqp′ e″ = conGo r env tag acc k eqp′ e″
+      caGo (e ∷ rest) eqp′ e″ = rotCa r env tag acc e rest k eqp′ e″
+    onRet r env (cs e0 arms ∷ k) eqp e′ = caseGo r env e0 arms k eqp e′
     onRet r env (frameBd env0 ∷ k) eqp e′ = popGo r env env0 k eqp e′
     onRet r env (saved _ ∷ k) eqp e′ with e′
     ... | ()

@@ -25,7 +25,7 @@ open import Data.Bool.Base using (Bool; true; false; _∨_)
 open import Data.Empty using (⊥)
 open import Data.List.Base using (List; []; _∷_)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Nat.Base using (ℕ; zero; suc)
+open import Data.Nat.Base using (ℕ; zero; suc; _+_)
 open import Data.Vec.Base as Vec using (Vec; lookup)
 open import Relation.Binary.PropositionalEquality.Core
   using (_≡_; refl; sym; trans; cong)
@@ -42,7 +42,8 @@ open import Muro.Grade
 open import Muro.Grade using () renaming (glam to gLam)
 
 open import MuroBeam.BTm using
-  ( BTm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+  ( BTm; Arm; arm; embed; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref
+  ; gcon; gcase )
 
 open import MuroBeam.Grade using
   ( Kept; iv-kept; isG1; isZeroGrade
@@ -66,8 +67,9 @@ open import MuroBeam.Unique using
   ) public
 open import MuroBeam.Source using (Checked; term) public
 open import MuroBeam.Source using
-  ( g1InScope; predG; NoEsc; NoEscape
-  ; ne-var; ne-typ; ne-ze; ne-su; ne-app; ne-pi; ne-lam; ne-mat; ne-ref )
+  ( g1InScope; predG; telG; NoEsc; AllNoEsc; NoEscArm; AllNoEscArm; NoEscape
+  ; ne-var; ne-typ; ne-ze; ne-su; ne-app; ne-pi; ne-lam; ne-mat; ne-ref
+  ; ne-con; ne-case; ane-nil; ane-cons; ne-arm; anea-nil; anea-cons )
 open import MuroBeam.Lower using
   ( lower; Step*; lower-safe; lower-g0-never-deref
   ) public
@@ -198,18 +200,34 @@ sharpCxt = g1InScope
 predGrade : ∀ {n} → Cxt n → BTm n → Grade
 predGrade = predG
 
-data InB {n} (Γ : Cxt n) : BTm n → Set where
-  ib-var : ∀ x → isZeroGrade (lookup Γ x) ≡ false → InB Γ (gvar x)
-  ib-typ : ∀ x → InB Γ (gtyp x)
-  ib-ze  : InB Γ gze
-  ib-su  : ∀ {e} → InB Γ e → InB Γ (gsu e)
-  ib-app : ∀ {f a} → InB Γ f → InB Γ a → InB Γ (gapp f a)
-  ib-pi  : ∀ {c t b} → InB (c Vec.∷ Γ) b → InB Γ (gpi c t b)
-  ib-lam : ∀ {c t b} → sharpCxt Γ ≡ false → InB (c Vec.∷ Γ) b →
-           InB Γ (glam c t b)
-  ib-mat : ∀ {e z s} → InB Γ e → InB Γ z →
-           InB (predGrade Γ e Vec.∷ Γ) s → InB Γ (gmatch e z s)
-  ib-ref : ∀ {k} → InB Γ (gref k)
+mutual
+  data InB {n} (Γ : Cxt n) : BTm n → Set where
+    ib-var : ∀ x → isZeroGrade (lookup Γ x) ≡ false → InB Γ (gvar x)
+    ib-typ : ∀ x → InB Γ (gtyp x)
+    ib-ze  : InB Γ gze
+    ib-su  : ∀ {e} → InB Γ e → InB Γ (gsu e)
+    ib-app : ∀ {f a} → InB Γ f → InB Γ a → InB Γ (gapp f a)
+    ib-pi  : ∀ {c t b} → InB (c Vec.∷ Γ) b → InB Γ (gpi c t b)
+    ib-lam : ∀ {c t b} → sharpCxt Γ ≡ false → InB (c Vec.∷ Γ) b →
+             InB Γ (glam c t b)
+    ib-mat : ∀ {e z s} → InB Γ e → InB Γ z →
+             InB (predGrade Γ e Vec.∷ Γ) s → InB Γ (gmatch e z s)
+    ib-ref : ∀ {k} → InB Γ (gref k)
+    ib-con : ∀ {t es} → AllInB Γ es → InB Γ (gcon t es)
+    ib-case : ∀ {e as} → InB Γ e → AllInBArm Γ (predGrade Γ e) as →
+              InB Γ (gcase e as)
+
+  data AllInB {n} (Γ : Cxt n) : List (BTm n) → Set where
+    aib-nil  : AllInB Γ []
+    aib-cons : ∀ {e es} → InB Γ e → AllInB Γ es → AllInB Γ (e ∷ es)
+
+  data InBArm {n} (Γ : Cxt n) (g : Grade) : Arm n → Set where
+    ib-arm : ∀ {t k b} → InB (telG k g Γ) b → InBArm Γ g (arm t k b)
+
+  data AllInBArm {n} (Γ : Cxt n) (g : Grade) : List (Arm n) → Set where
+    aiba-nil  : AllInBArm Γ g []
+    aiba-cons : ∀ {a as} → InBArm Γ g a → AllInBArm Γ g as →
+                AllInBArm Γ g (a ∷ as)
 
 InBoundary : GTm 0 → Set
 InBoundary t = InB Vec.[] (embed t)
@@ -221,6 +239,9 @@ inBoundary→noEscape : ∀ {e} → InBoundary e → NoEscape e
 inBoundary→noEscape = toNo Vec.[]
   where
   toNo : ∀ {n} (Γ : Cxt n) {e} → InB Γ e → NoEsc Γ e
+  toNoArgs : ∀ {n} (Γ : Cxt n) {es} → AllInB Γ es → AllNoEsc Γ es
+  toNoArm : ∀ {n g} (Γ : Cxt n) {a} → InBArm Γ g a → NoEscArm Γ g a
+  toNoArms : ∀ {n g} (Γ : Cxt n) {as} → AllInBArm Γ g as → AllNoEscArm Γ g as
   toNo Γ (ib-var x _)     = ne-var x
   toNo Γ (ib-typ x)       = ne-typ x
   toNo _ ib-ze            = ne-ze
@@ -230,6 +251,13 @@ inBoundary→noEscape = toNo Vec.[]
   toNo _ (ib-lam q p)     = ne-lam q (toNo _ p)
   toNo Γ (ib-mat pe pz ps) = ne-mat (toNo Γ pe) (toNo Γ pz) (toNo _ ps)
   toNo _ ib-ref = ne-ref
+  toNo Γ (ib-con p) = ne-con (toNoArgs Γ p)
+  toNo Γ (ib-case pe pa) = ne-case (toNo Γ pe) (toNoArms Γ pa)
+  toNoArgs Γ aib-nil = ane-nil
+  toNoArgs Γ (aib-cons p ps) = ane-cons (toNo Γ p) (toNoArgs Γ ps)
+  toNoArm Γ (ib-arm p) = ne-arm (toNo _ p)
+  toNoArms Γ aiba-nil = anea-nil
+  toNoArms Γ (aiba-cons p ps) = anea-cons (toNoArm Γ p) (toNoArms Γ ps)
 
 -- A `glam` the fragment accepts is not under a grade-1 binder.
 lam-not-under-g1 : ∀ {n} {Γ : Cxt n} {c t b} →
@@ -274,39 +302,68 @@ closed-lam-clear ib = capture-check-clear ib eg-nil
 -- Decision. Structural on the term. No fuel, no pragma.
 ------------------------------------------------------------------------
 
-inB? : ∀ {n} (Γ : Cxt n) (t : BTm n) → Dec (InB Γ t)
-inB? Γ (gvar x) = varAns (isZeroGrade (lookup Γ x)) refl
-  where
-  varAns : (z : Bool) → isZeroGrade (lookup Γ x) ≡ z → Dec (InB Γ (gvar x))
-  varAns true  eq = no (λ { (ib-var _ ez) → boom (trans (sym eq) ez) })
-  varAns false eq = yes (ib-var x eq)
-inB? Γ (gtyp _) = yes (ib-typ _)
-inB? Γ gze = yes ib-ze
-inB? Γ (gsu e) with inB? Γ e
-... | yes p = yes (ib-su p)
-... | no ¬p = no (λ { (ib-su p) → ¬p p })
-inB? Γ (gapp f a) with inB? Γ f | inB? Γ a
-... | yes pf | yes pa = yes (ib-app pf pa)
-... | no ¬f  | _      = no (λ { (ib-app pf _) → ¬f pf })
-... | yes _  | no ¬a  = no (λ { (ib-app _ pa) → ¬a pa })
-inB? Γ (gpi c _ b) with inB? (c Vec.∷ Γ) b
-... | yes p = yes (ib-pi p)
-... | no ¬p = no (λ { (ib-pi p) → ¬p p })
-inB? Γ (glam c ty b) = lamAns (sharpCxt Γ) (inB? (c Vec.∷ Γ) b) refl
-  where
-  lamAns : (s : Bool) → Dec (InB (c Vec.∷ Γ) b) → sharpCxt Γ ≡ s →
-           Dec (InB Γ (glam c ty b))
-  lamAns true  _       eq = no (λ ib → boom (trans (sym eq) (lam-not-under-g1 ib)))
-  lamAns false (yes p) eq = yes (ib-lam eq p)
-  lamAns false (no ¬p) _  = no (λ { (ib-lam _ p) → ¬p p })
-inB? Γ (gmatch e z s) with inB? Γ e | inB? Γ z | inB? (predGrade Γ e Vec.∷ Γ) s
-... | yes pe | yes pz | yes ps = yes (ib-mat pe pz ps)
-... | no ¬e  | _      | _      = no (λ { (ib-mat pe _ _) → ¬e pe })
-... | yes _  | no ¬z  | _      = no (λ { (ib-mat _ pz _) → ¬z pz })
-... | yes _  | yes _  | no ¬s  = no (λ { (ib-mat _ _ ps) → ¬s ps })
--- Closed code. The index is not checked here; `decideB` checks it.
--- `InBoundary` is still `InB []` of `embed` of a `GTm`.
-inB? Γ (gref _) = yes ib-ref
+mutual
+  inB? : ∀ {n} (Γ : Cxt n) (t : BTm n) → Dec (InB Γ t)
+  inB? Γ (gvar x) = varAns (isZeroGrade (lookup Γ x)) refl
+    where
+    varAns : (z : Bool) → isZeroGrade (lookup Γ x) ≡ z → Dec (InB Γ (gvar x))
+    varAns true  eq = no (λ { (ib-var _ ez) → boom (trans (sym eq) ez) })
+    varAns false eq = yes (ib-var x eq)
+  inB? Γ (gtyp _) = yes (ib-typ _)
+  inB? Γ gze = yes ib-ze
+  inB? Γ (gsu e) with inB? Γ e
+  ... | yes p = yes (ib-su p)
+  ... | no ¬p = no (λ { (ib-su p) → ¬p p })
+  inB? Γ (gapp f a) with inB? Γ f | inB? Γ a
+  ... | yes pf | yes pa = yes (ib-app pf pa)
+  ... | no ¬f  | _      = no (λ { (ib-app pf _) → ¬f pf })
+  ... | yes _  | no ¬a  = no (λ { (ib-app _ pa) → ¬a pa })
+  inB? Γ (gpi c _ b) with inB? (c Vec.∷ Γ) b
+  ... | yes p = yes (ib-pi p)
+  ... | no ¬p = no (λ { (ib-pi p) → ¬p p })
+  inB? Γ (glam c ty b) = lamAns (sharpCxt Γ) (inB? (c Vec.∷ Γ) b) refl
+    where
+    lamAns : (s : Bool) → Dec (InB (c Vec.∷ Γ) b) → sharpCxt Γ ≡ s →
+             Dec (InB Γ (glam c ty b))
+    lamAns true  _       eq = no (λ ib → boom (trans (sym eq) (lam-not-under-g1 ib)))
+    lamAns false (yes p) eq = yes (ib-lam eq p)
+    lamAns false (no ¬p) _  = no (λ { (ib-lam _ p) → ¬p p })
+  inB? Γ (gmatch e z s) with inB? Γ e | inB? Γ z | inB? (predGrade Γ e Vec.∷ Γ) s
+  ... | yes pe | yes pz | yes ps = yes (ib-mat pe pz ps)
+  ... | no ¬e  | _      | _      = no (λ { (ib-mat pe _ _) → ¬e pe })
+  ... | yes _  | no ¬z  | _      = no (λ { (ib-mat _ pz _) → ¬z pz })
+  ... | yes _  | yes _  | no ¬s  = no (λ { (ib-mat _ _ ps) → ¬s ps })
+  -- Closed code. The index is not checked here; `decideB` checks it.
+  -- `InBoundary` is still `InB []` of `embed` of a `GTm`.
+  inB? Γ (gref _) = yes ib-ref
+  inB? Γ (gcon _ es) with inBArgs? Γ es
+  ... | yes p = yes (ib-con p)
+  ... | no ¬p = no (λ { (ib-con p) → ¬p p })
+  inB? Γ (gcase e as) with inB? Γ e | inBArms? Γ (predGrade Γ e) as
+  ... | yes pe | yes pa = yes (ib-case pe pa)
+  ... | no ¬e  | _      = no (λ { (ib-case pe _) → ¬e pe })
+  ... | yes _  | no ¬a  = no (λ { (ib-case _ pa) → ¬a pa })
+
+  inBArgs? : ∀ {n} (Γ : Cxt n) (es : List (BTm n)) → Dec (AllInB Γ es)
+  inBArgs? Γ [] = yes aib-nil
+  inBArgs? Γ (e ∷ es) with inB? Γ e | inBArgs? Γ es
+  ... | yes p | yes ps = yes (aib-cons p ps)
+  ... | no ¬p | _      = no (λ { (aib-cons p _) → ¬p p })
+  ... | yes _ | no ¬ps = no (λ { (aib-cons _ ps) → ¬ps ps })
+
+  inBArm? : ∀ {n} (Γ : Cxt n) (g : Grade) (a : Arm n) → Dec (InBArm Γ g a)
+  inBArm? Γ g (arm _ k b) with inB? (telG k g Γ) b
+  ... | yes p = yes (ib-arm p)
+  ... | no ¬p = no (λ { (ib-arm p) → ¬p p })
+
+  inBArms? : ∀ {n} (Γ : Cxt n) (g : Grade) (as : List (Arm n)) →
+           Dec (AllInBArm Γ g as)
+  inBArms? Γ _ [] = yes aiba-nil
+  inBArms? Γ g (a ∷ as) with inBArm? Γ g a | inBArms? Γ g as
+  ... | yes p | yes ps = yes (aiba-cons p ps)
+  ... | no ¬p | _      = no (λ { (aiba-cons p _) → ¬p p })
+  ... | yes _ | no ¬ps = no (λ { (aiba-cons _ ps) → ¬ps ps })
+
 
 inBoundary? : (t : GTm 0) → Dec (InBoundary t)
 inBoundary? t = inB? Vec.[] (embed t)

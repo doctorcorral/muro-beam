@@ -30,7 +30,7 @@ open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; sym; 
 
 open import Muro.Grade using (Point; fin; inf; Grade; pt; iv)
 open import MuroBeam.BTm using
-  ( BTm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref )
+  ( BTm; Arm; arm; gvar; gtyp; glam; gpi; gapp; gze; gsu; gmatch; gref; gcon; gcase )
 open import MuroBeam.PSyntax using (Thin; t[]; keep; skip)
 
 ------------------------------------------------------------------------
@@ -505,21 +505,39 @@ showPair : Grade → Grade → List Char
 showPair c t =
   toList "(" ++ showGrade c ++ toList " " ++ showGrade t ++ toList ")"
 
-showB : ∀ {n} → BTm n → List Char
-showB (gvar x) = toList "(gvar " ++ showNat (toℕ x) ++ toList ")"
-showB (gtyp x) = toList "(gtyp " ++ showNat (toℕ x) ++ toList ")"
-showB (glam c t b) =
-  toList "(glam " ++ showPair c t ++ toList " " ++ showB b ++ toList ")"
-showB (gpi c t b) =
-  toList "(gpi " ++ showPair c t ++ toList " " ++ showB b ++ toList ")"
-showB (gapp f a) =
-  toList "(gapp " ++ showB f ++ toList " " ++ showB a ++ toList ")"
-showB gze = toList "gze"
-showB (gsu e) = toList "(gsu " ++ showB e ++ toList ")"
-showB (gmatch e z s) =
-  toList "(gmatch " ++ showB e ++ toList " " ++ showB z
-    ++ toList " " ++ showB s ++ toList ")"
-showB (gref k) = toList "(gref " ++ showNat k ++ toList ")"
+mutual
+  showB : ∀ {n} → BTm n → List Char
+  showB (gvar x) = toList "(gvar " ++ showNat (toℕ x) ++ toList ")"
+  showB (gtyp x) = toList "(gtyp " ++ showNat (toℕ x) ++ toList ")"
+  showB (glam c t b) =
+    toList "(glam " ++ showPair c t ++ toList " " ++ showB b ++ toList ")"
+  showB (gpi c t b) =
+    toList "(gpi " ++ showPair c t ++ toList " " ++ showB b ++ toList ")"
+  showB (gapp f a) =
+    toList "(gapp " ++ showB f ++ toList " " ++ showB a ++ toList ")"
+  showB gze = toList "gze"
+  showB (gsu e) = toList "(gsu " ++ showB e ++ toList ")"
+  showB (gmatch e z s) =
+    toList "(gmatch " ++ showB e ++ toList " " ++ showB z
+      ++ toList " " ++ showB s ++ toList ")"
+  showB (gref k) = toList "(gref " ++ showNat k ++ toList ")"
+  showB (gcon t es) =
+    toList "(gcon " ++ showNat t ++ showBArgs es ++ toList ")"
+  showB (gcase e as) =
+    toList "(gcase " ++ showB e ++ showBArms as ++ toList ")"
+
+  showBArgs : ∀ {n} → List (BTm n) → List Char
+  showBArgs [] = []
+  showBArgs (e ∷ es) = toList " " ++ showB e ++ showBArgs es
+
+  showBArm : ∀ {n} → Arm n → List Char
+  showBArm (arm t k b) =
+    toList "(garm " ++ showNat t ++ toList " " ++ showNat k
+      ++ toList " " ++ showB b ++ toList ")"
+
+  showBArms : ∀ {n} → List (Arm n) → List Char
+  showBArms [] = []
+  showBArms (a ∷ as) = toList " " ++ showBArm a ++ showBArms as
 
 -- Right-associated, so a parser proof can split off one term.
 showDefs : List (BTm 0) → List Char

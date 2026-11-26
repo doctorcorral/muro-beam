@@ -44,6 +44,9 @@ def frameRefs : run Π (f : Frame) → List Ref :=
       | fn r => cons r nil
       | su => nil
       | mt n a b s => nil
+      | ca n t acc es => acc
+      | cs0 n e tg b => nil
+      | cs1 n e tg b => nil
       | bd env => env
       | saved cd => codeRefs cd
 

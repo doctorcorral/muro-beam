@@ -22,7 +22,7 @@ open import Muro.Grade using (Grade; g0; g1; GTm)
 
 open import MuroBeam.Grade using (selfKept; isZeroGrade; isG1; kind; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using
-  ( Obj; cell; live; Val; nat; suc↑; clo; payload; kids
+  ( Obj; cell; live; Val; nat; suc↑; clo; con; payload; kids
   ; Ref; ref; obj; checked; residual; repl
   ; count; hasG1; count-++; has-++
   ; edgeRefs
@@ -37,7 +37,7 @@ open import MuroBeam.PSyntax using
 open import MuroBeam.Process using
   ( Proc; proc; PState; ready; waiting; Sys; sys; heap; procs
   ; ctl; Ctl; idle; ev; rv; pr
-  ; Frame; ar; fn; su; mt; bd; saved; seg
+  ; Frame; ar; fn; su; mt; ca; cs; bd; saved; seg
   ; roots; inbox; state; Msg; msg; post; setProc; snoc
   ; refsOf; regrade )
   renaming (done to pstDone)
@@ -317,6 +317,8 @@ scrubFrame τ ph (saved c) = saved (scrubCode τ ph c)
 scrubFrame _ _  (ar a)    = ar a
 scrubFrame _ _  su        = su
 scrubFrame _ _  (mt e z s) = mt e z s
+scrubFrame τ ph (ca t acc es) = ca t (scrubRefs τ ph acc) es
+scrubFrame _ _  (cs e as) = cs e as
 scrubFrame _ _  (seg ds)  = seg ds
 
 scrubFrames : ℕ → Ref → List Frame → List Frame
@@ -376,6 +378,7 @@ holdsVal : ℕ → Val → Bool
 holdsVal _ (nat _)     = false
 holdsVal τ (suc↑ r)    = obj r ≡ᵇ τ
 holdsVal τ (clo rs _)  = holdsRefs τ rs
+holdsVal τ (con _ rs)  = holdsRefs τ rs
 
 blankVal : ℕ → Val → Val
 blankVal τ v = if holdsVal τ v then nat zero else v
@@ -408,6 +411,9 @@ kids-blank τ (suc↑ r) with obj r ≡ᵇ τ in eq
 kids-blank τ (clo rs _) with holdsRefs τ rs in eq
 ... | true  = refl
 ... | false = holdsRefs-0 τ rs eq
+kids-blank τ (con _ rs) with holdsRefs τ rs in eq
+... | true  = refl
+... | false = holdsRefs-0 τ rs eq
 
 blank-edge-0 : ∀ τ h → count τ (edgeRefs (blankEdges τ h)) ≡ 0
 blank-edge-0 _ []       = refl
@@ -422,6 +428,9 @@ kids-le _ τ (suc↑ r) with obj r ≡ᵇ τ
 ... | true  = z≤n
 ... | false = ≤-refl
 kids-le _ τ (clo rs _) with holdsRefs τ rs
+... | true  = z≤n
+... | false = ≤-refl
+kids-le _ τ (con _ rs) with holdsRefs τ rs
 ... | true  = z≤n
 ... | false = ≤-refl
 
@@ -443,6 +452,12 @@ kids-has _ τ (suc↑ r) eq with obj r ≡ᵇ τ
   boom ()
 ... | false = eq
 kids-has _ τ (clo rs _) eq with holdsRefs τ rs
+... | true  = ⊥-elim (boom eq)
+  where
+  boom : false ≡ true → ⊥
+  boom ()
+... | false = eq
+kids-has _ τ (con _ rs) eq with holdsRefs τ rs
 ... | true  = ⊥-elim (boom eq)
   where
   boom : false ≡ true → ⊥
@@ -481,6 +496,9 @@ kids-bound τ (suc↑ r)   b with obj r ≡ᵇ τ
 ... | true  = bnil
 ... | false = b
 kids-bound τ (clo rs _) b with holdsRefs τ rs
+... | true  = bnil
+... | false = b
+kids-bound τ (con _ rs) b with holdsRefs τ rs
 ... | true  = bnil
 ... | false = b
 
