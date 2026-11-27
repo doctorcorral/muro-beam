@@ -166,6 +166,11 @@ IO = {
     "out-recv": "deadlock [] h0l0p2 v-",
     # A spawn reply sent to the console: printed, the parent's await deadlocks.
     "out-reply": "0\ndeadlock [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove] h3l3p3 v0",
+    # The same reply under ignore: the flush scrubs it from the console's
+    # inbox, so no line is printed. B4c: pid 1 stays done and idle.
+    "out-flush": "halted [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p3 v0",
+    # Under nignore the console keeps the reply and prints it.
+    "out-nflush": "0\nhalted [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(1 2)] h3l1p3 v0",
 }
 
 

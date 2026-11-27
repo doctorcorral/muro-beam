@@ -15,9 +15,11 @@
 --   * `input-vals`: reading the sends back out of `inputP xs` gives
 --     `xs`. Each send goes to pid 0 and carries the slot its `seq`
 --     just bound, and the values are in the order the host read them.
--- Not proved: that `checkP` accepts `inputP xs` for every `xs` (the
--- port is not a loaded program; `inputP-ok` pins one list), or that a
--- run delivers every value before it stops.
+--   * `inputP-checks` (B4c): `checkP` accepts `inputP xs` for every
+--     `xs`, with every slot at use zero. Boot still does not run
+--     `checkP` on the port; this is the theorem that it would pass.
+--     `inputP-ok` is that theorem at one list.
+-- Not proved: that a run delivers every value before it stops.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -29,16 +31,21 @@ open import Data.Char.Base using (Char)
 open import Data.Fin.Base using (Fin) renaming (zero to fzero)
 open import Data.List.Base using (List; []; _∷_; reverse)
 open import Data.Maybe.Base using (Maybe; just; nothing; _>>=_)
-open import Data.Vec.Base using () renaming ([] to v[])
+open import Data.Vec.Base using (_∷_) renaming ([] to v[])
 open import Data.Nat.Base using (ℕ; zero; suc; _+_; _*_)
 open import Data.String.Base using (String; toList)
 open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 
-open import Muro.Base using (Result; ok; fail)
+open import Data.Unit.Base using (tt)
+open import Relation.Nullary.Decidable.Core using (yes; no)
 
-open import MuroBeam.BTm using (BTm; gze; gsu)
+open import Muro.Base using (Result; ok; fail; run)
+open import Muro.Grade using (GCtx; gp; gω; g0; addU; zeros)
+
+open import MuroBeam.Boundary using (Cxt; inB?)
+open import MuroBeam.BTm using (BTm; gze; gsu; decideB)
 open import MuroBeam.PSyntax using (PTm; done; send; seq)
-open import MuroBeam.PTm using (checkP)
+open import MuroBeam.PTm using (checkP; checkGo; falses; comps; boundaryOk)
 
 ------------------------------------------------------------------------
 -- The port process.
@@ -132,9 +139,47 @@ readInput : String → Result (List ℕ)
 readInput s = readGo (toList s) nothing []
 
 ------------------------------------------------------------------------
--- One closed check. `checkP` is not run on the port at boot; this pin
--- says a two-value port, `3` then `0`, is a term `load` would accept.
+-- `checkP` accepts the port for every input (B4c). Boot still does not
+-- run `checkP` on the port; this is the theorem that it would pass.
+-- Below the `k`-th value the port's scope is `k` `seq` binders, each at
+-- `gp gω g0` (`seqGrade` of a `send` is ω), and none came from `recv`.
+-- Every binder is sent once (`Kcopy`) and discharged by `under`, so
+-- the use vector at every depth is `zeros`.
 ------------------------------------------------------------------------
 
+-- The port's context at depth `n`.
+portCtx : ∀ n → GCtx n
+portCtx zero    = v[]
+portCtx (suc n) = gp gω g0 ∷ portCtx n
+
+addU-zeros : ∀ n → addU (zeros {n}) (zeros {n}) ≡ zeros {n}
+addU-zeros zero = refl
+addU-zeros (suc n) rewrite addU-zeros n = refl
+
+numeral-inB : ∀ {n} (Γ : Cxt n) k → boundaryOk (inB? Γ (numeral k)) ≡ ok tt
+numeral-inB Γ zero = refl
+numeral-inB Γ (suc k) with inB? Γ (numeral k) | numeral-inB Γ k
+... | yes _ | _  = refl
+... | no _  | ()
+
+numeral-uses : ∀ {n} w m (Γ : GCtx n) k → decideB w m Γ (numeral k) ≡ ok zeros
+numeral-uses w m Γ zero = refl
+numeral-uses w m Γ (suc k) = numeral-uses w m Γ k
+
+inputP-checks-at : ∀ n xs → checkGo (falses {n}) (portCtx n) (inputP xs) ≡ ok (zeros {n})
+inputP-checks-at n [] = refl
+inputP-checks-at n (x ∷ xs)
+  rewrite numeral-inB (comps (portCtx n)) x
+        | numeral-uses zero run (portCtx n) x
+        | inputP-checks-at (suc n) xs
+        | addU-zeros n
+        | addU-zeros n   -- twice: the goal has two nested `addU zeros zeros`
+        = refl
+
+-- The closed statement: what `load` would require of a program.
+inputP-checks : ∀ xs → checkP v[] (inputP {zero} xs) ≡ ok v[]
+inputP-checks xs = inputP-checks-at zero xs
+
+-- The two-value pin B4b shipped, now an instance.
 inputP-ok : checkP v[] (inputP {zero} (3 ∷ 0 ∷ [])) ≡ ok v[]
-inputP-ok = refl
+inputP-ok = inputP-checks (3 ∷ 0 ∷ [])

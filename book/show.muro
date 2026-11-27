@@ -5,8 +5,8 @@
 -- show-collect, show-wide, show-down, show-down-again,
 -- show-down-done, show-abandon, show-send-dead,
 -- show-settle-after-exit, the show-sched-* lines, show-sched-up,
--- show-sched-stray, show-sched-empty, show-sched-console, and
--- show-sched-input. Each one is a
+-- show-sched-stray, show-sched-empty, show-sched-console,
+-- show-sched-input, and show-sched-scrub. Each one is a
 -- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
@@ -779,3 +779,38 @@ def inputLine : run Π (+ s : Sys) → String :=
 def show-sched-input : run String :=
   match inputSys motive (λ _ → String)
     | sys h ps => inputLine (sys h ps)
+
+-- B4c. A reply that reached the console is scrubbed by the flush.
+-- pid 0 is the flush of tag 0 a demonitoring ignore arms. The console
+-- at pid 1 is done and idle and holds one message: the g1 reply on
+-- object 0. consume scrubs tag 0 from every mailbox, the console's
+-- too, so out is v-. The console itself stays done and idle.
+def scrubW : run Ref := ref 0 grade1 grade1 (selfKept grade1)
+
+def scrubSys : run Sys :=
+  sys (cons (cell (nat 0) live) nil)
+    (cons (proc 0 ready nil nil
+            (pr (go 0 (flushT 0 0 (pdone 0)) nil nil nil (cons 0 nil))))
+      (cons (proc (suc 0) done nil (cons (msg scrubW) nil) idle) nil))
+
+def scrubLine : run Π (+ s : Sys) → String :=
+  λ (+ s : Sys) →
+    match (driveSys s nil) motive (λ _ → String)
+      | drv t o ev ms v =>
+          (match t motive (λ _ → String)
+            | sys h ps =>
+                strCat (sinkMs ms)
+                  (strCat "sched-scrub: "
+                    (strCat (shOc o)
+                      (strCat " "
+                        (strCat (shEvents ev)
+                          (strCat " "
+                            (strCat (shFp (sys h ps))
+                              (strCat " "
+                                (strCat (shVal v)
+                                  (strCat " out "
+                                    (strCat (shVal (inboxNat (sys h ps) (suc 0))) "\n")))))))))))
+
+def show-sched-scrub : run String :=
+  match scrubSys motive (λ _ → String)
+    | sys h ps => scrubLine (sys h ps)

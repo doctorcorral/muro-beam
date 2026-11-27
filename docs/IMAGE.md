@@ -248,11 +248,18 @@ and every `PStep*` from it stays `WF`. `io-final-wf` applies
 `drive-sound` and says the system the output is read from is `WF`.
 `idle-quiet` says a `done` process with `idle` control has no enabled
 wrapper, whatever its inbox, and `console-quiet-0` applies it to the
-initial layout. Not proved: that every step keeps pid 1 `done` and
-`idle`, that its inbox only grows, or that a halted run delivered
-every flight. `checkP` does not look at pids, so a spawn reply sent to
-pid 1 instead of the parent loads; the console prints it and the
-parent's `await` deadlocks (`out-reply.mbi`).
+initial layout. B4c: `console-stays` says every `PStep*` from a
+console layout (format 3 or 4) keeps pid 1 `done` and `idle`
+(`MuroBeam.Quiet.psteps-q`), so `console-never-runs` (no wrapper is
+ever enabled at pid 1) and `drive-console` (the system `drive` returns
+still has that shape). Not proved: that its inbox only grows, which is
+false, or that a halted run delivered every flight. `checkP` does not
+look at pids, so a spawn reply sent to pid 1 instead of the parent
+loads; the console prints it and the parent's `await` deadlocks
+(`out-reply.mbi`). Under `ignore` the parent's flush scrubs that tag
+from every mailbox, the console's too, so nothing is printed and the
+run halts (`out-flush.mbi`); under `nignore` the reply stays and is
+printed (`out-nflush.mbi`).
 
 `MuroBeam.IoPins` pins `ioImage` (`loadIO`, `drive` at `imgFuel` on
 `lowerIO`, then the console lines and `showDrove`) on the text of every
@@ -321,12 +328,12 @@ returns is `WF`. `lowerIO` is `lowerIn []`, and the B4a names are those
 facts at `[]`. `stdio-quiet-0` is `console-quiet-0` for this layout.
 `input-at` says pid 2 is `inputProc xs`, and `input-vals` reads `xs`
 back out of `inputP xs`: every send goes to pid 0 and carries the slot
-its `seq` just bound, in host order. `inputP-ok` is a closed `refl`
-that `checkP` accepts the two-value port `3`, `0`. Not proved: that
-`checkP` accepts `inputP xs` for every `xs` (the port is not a loaded
-program, and boot does not run `checkP` on it), that every value
-reaches pid 0 before the run stops, or how the port's sends interleave
-with other senders to pid 0.
+its `seq` just bound, in host order. `inputP-checks` (B4c) says
+`checkP` accepts `inputP xs` for every `xs`, with every slot at use
+zero; boot still does not run `checkP` on the port, so this is the
+theorem that it would pass. `inputP-ok` is that theorem at `3`, `0`.
+Not proved: that every value reaches pid 0 before the run stops, or
+how the port's sends interleave with other senders to pid 0.
 
 `MuroBeam.InPins` pins `ioImageIn` (`loadIO`, the port gate,
 `readInput`, `drive` at `imgFuel` on `lowerIn`, then the console lines

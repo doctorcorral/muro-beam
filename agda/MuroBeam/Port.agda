@@ -24,9 +24,15 @@
 --     scheduled while it has that shape.
 --   * `io-final-wf`: the system `drive` returns from `lowerIO` is
 --     `WF`, so the inbox the host prints is read off a `WF` state.
--- Not proved: that every step keeps pid 1 `pstDone` and `idle`, that
--- its inbox only grows, or that a run delivers every flight before
--- it stops. Output after `fuel`, `deadlock`, or `stuck` is what was
+--   * `console-stays` (B4c, end of this module): every `PStep*` from
+--     a console layout keeps pid 1 `pstDone` and `idle`
+--     (`MuroBeam.Quiet.psteps-q`), so `console-never-runs` (no wrapper
+--     is ever enabled at pid 1) and `drive-console` (the system
+--     `drive` returns still has it).
+-- Not proved: that its inbox only grows (it does not: a `flush`
+-- scrubs reply tags from every mailbox, the console's too,
+-- `out-flush.mbi`), or that a run delivers every flight before it
+-- stops. Output after `fuel`, `deadlock`, or `stuck` is what was
 -- delivered by then.
 --
 -- B4b host input. A format-4 image (`stdio`) is the console layout
@@ -70,6 +76,7 @@ open import MuroBeam.PRun using (PStep*)
 open import MuroBeam.PTm using (CheckedP; lowerP)
 open import MuroBeam.PWf using (psteps)
 open import MuroBeam.Unique using (WF)
+open import MuroBeam.Quiet using (Quiet; psteps-q)
 open import MuroBeam.Sched using
   ( K; k-deliver; k-seq; k-bind; k-spawn; k-emit; k-await; k-arm
   ; k-flush; k-npeek; k-ndemon; k-recv; k-done; k-eval
@@ -256,3 +263,48 @@ stdio-quiet-0 xs p =
 -- And the input port at pid 2, running `inputP xs`.
 input-at : ∀ xs p → lookup (procs (lowerIn xs stdio p)) input-pid ≡ just (inputProc xs)
 input-at xs p = refl
+
+------------------------------------------------------------------------
+-- B4c. The console stays quiet on every trace. `MuroBeam.Quiet.psteps-q`
+-- says no `PStep` turns a `pstDone` / `idle` process into anything
+-- else: every step at that pid needs a control it does not have, and
+-- a step elsewhere writes its state and control only at its own pid.
+-- `deliver1` posts and `wake`s (a `pstDone` process stays `pstDone`),
+-- `consume` scrubs every process (an `idle` control stays `idle`),
+-- and the v0 steps and `collect` write roots and mailboxes only.
+------------------------------------------------------------------------
+
+-- The layouts with a console.
+data HasConsole : Ports → Set where
+  has-console : HasConsole console
+  has-stdio   : HasConsole stdio
+
+boot-quiet : ∀ {pt} xs p → HasConsole pt → Quiet console-pid (procs (lowerIn xs pt p))
+boot-quiet xs p has-console = consoleProc , refl , refl , refl
+boot-quiet xs p has-stdio   = consoleProc , refl , refl , refl
+
+-- Every state reachable from a console layout still has pid 1
+-- `pstDone` with `idle` control.
+console-stays : ∀ {xs pt p s} → HasConsole pt → PStep* (lowerIn xs pt p) s →
+                Quiet console-pid (procs s)
+console-stays {xs} {pt} {p} hc tr = psteps-q console-pid tr (boot-quiet xs p hc)
+
+-- A quiet pid has no enabled wrapper.
+quiet-enabled : ∀ h ps c → Quiet c ps → enabled (sys h ps) c ≡ nothing
+quiet-enabled h ps c (proc j st rs ib cl , lk , refl , refl) = idle-quiet h ps c j rs ib lk
+
+-- So the scheduler never runs the console, at any reachable state.
+console-never-runs : ∀ {xs pt p h ps} → HasConsole pt → PStep* (lowerIn xs pt p) (sys h ps) →
+                     enabled (sys h ps) console-pid ≡ nothing
+console-never-runs {h = h} {ps} hc tr = quiet-enabled h ps console-pid (console-stays hc tr)
+
+-- The system `drive` returns, whose pid-1 inbox the host prints, still
+-- has the console `pstDone` and `idle` at pid 1. Its inbox is what was
+-- delivered and not scrubbed: `consume` (await, a flushing ignore, a
+-- naive ignore that finds its reply) drops a reply tag from every
+-- mailbox, the console's included (`out-flush.mbi`).
+drive-console : ∀ {n c ms v xs pt p t} {o : Outcome t} {es ms' v'} → HasConsole pt →
+  proj₁ (drive n c ms v (lowerIn xs pt p)) ≡ drv t o es ms' v' →
+  Quiet console-pid (procs t)
+drive-console {n} {c} {ms} {v} {xs} {pt} {p} {t} {o} {es} {ms'} {v'} hc eq =
+  console-stays hc (drive-sound {n} {c} {ms} {v} {lowerIn xs pt p} {t} {o} {es} {ms'} {v'} eq)

@@ -235,6 +235,11 @@ pins every line below with `refl`.
 - `out-reply` sends a spawn reply to pid 1 instead of the parent. It
   loads (`checkP` does not read pids). The console prints `0`, and the
   parent's `await` deadlocks.
+- `out-flush` is `out-reply` with `ignore` (B4c). The parent's flush
+  scrubs tag 0 from every mailbox, the console's included, so nothing
+  is printed and the run halts. The console is still `done` and `idle`
+  (`drive-console`); its inbox lost the reply. `out-nflush` is the
+  same with `nignore`: the reply stays, and the console prints `0`.
 
 ## B4b input images
 
