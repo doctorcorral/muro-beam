@@ -208,10 +208,16 @@ markIf : Bool → ℕ → List Ref → List Bool → List Bool
 markIf true  i rs bs = markKids i rs bs
 markIf false _ _  bs = bs
 
+-- `markAt` takes the marked tail once. Written inline, the two
+-- copies of `go os (suc i) bs` are separate calls in compiled code,
+-- so a collect is exponential in the heap length. `go` is
+-- definitionally the same either way.
+markAt : ℕ → List Ref → List Bool → List Bool
+markAt i rs bs = markIf (lookupB bs i) i rs bs
+
 go : List Obj → ℕ → List Bool → List Bool
 go []       _ bs = bs
-go (o ∷ os) i bs =
-  markIf (lookupB (go os (suc i) bs) i) i (kids (payload o)) (go os (suc i) bs)
+go (o ∷ os) i bs = markAt i (kids (payload o)) (go os (suc i) bs)
 
 go-mono : ∀ os b bs i → lookupB bs i ≡ true → lookupB (go os b bs) i ≡ true
 go-mono []       _ bs i eq = eq
