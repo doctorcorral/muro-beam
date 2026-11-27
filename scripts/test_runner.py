@@ -6,7 +6,8 @@
 # fuel 0, invalid UTF-8, a file over the 1 MiB cap, and a bare
 # --fuel. The kept nat is the one the pid-0 harness prints.
 # Format 3 (B4a) adds the console at pid 1: the console lines come
-# before the summary line.
+# before the summary line. Format 4 (B4b) adds the input port at pid
+# 2; `--input FILE` (or `-` for stdin) is the host input.
 # The event words are the book trace constructors.
 
 import os
@@ -102,7 +103,7 @@ IO = {
 }
 
 REFUSE = [
-    ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 4 ", 1), "bad version"),
+    ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 5 ", 1), "bad version"),
     ("bad-gref", WRAP.format(body="(gref 0)"), "bad gref"),
     ("empty-gcase", WRAP.format(body="(gcase gze)"), "empty gcase"),
     (
@@ -266,14 +267,39 @@ REFUSE = [
 ]
 
 
+# B4b input images (format 4): image, input file, stdout without the
+# newline the main adds. MuroBeam.InPins pins the same text with refl.
+IN = {
+    "in-echo": ("in-echo", "in-echo", "7\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(7,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(7,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(7,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h8l8p3 v7"),
+    "in-two": ("in-two", "in-two", "3\n5\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(3,pt(inf),pt(inf),omega-kept), tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(9,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(9,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-send 0 1 ref(9,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h10l10p3 v3"),
+    "in-succ": ("in-succ", "in-succ", "5\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(4,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(4,pt(inf),pt(inf),omega-kept), tr-step 0, tr-step 0, tr-step 0, tr-send 0 1 ref(5,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h6l6p3 v4"),
+    "in-pred": ("in-pred", "in-pred", "2\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(3,pt(inf),pt(inf),omega-kept), tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-send 0 1 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(3)] h4l3p3 v3"),
+    "in-short": ("in-short", "in-short", "4\ndeadlock [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(4,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(4,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(4,pt(inf),pt(inf),omega-kept) Kcopy] h5l5p3 v4"),
+    "in-extra": ("in-echo", "in-extra", "1\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(1,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(4,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h5l5p3 v1"),
+    "in-child": ("in-child", "in-child", "1\n9\nhalted [tr-step 0, tr-step 2, tr-step 0, tr-step 2, tr-step 0, tr-step 2, tr-step 2, tr-spawn 0 3, tr-step 2, tr-send 3 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(12,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(12,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(12,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(2)] h13l12p4 v1"),
+}
+
+# Load refusals with input: exit 2, stderr muro-beam: plus the reason.
+IN_REFUSE = [
+    ("in-v3", "in-v3", "no input port"),
+    ("in-bad", "in-echo", "bad input"),
+]
+
+# Format 4 without --input: the port has no values.
+IN_NONE = {
+    "in-none": "1\nhalted [tr-step 0, tr-step 0, tr-step 0, tr-send 0 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h2l2p3 v1",
+    "in-echo": "deadlock [] h0l0p3 v-",
+}
+
+
 def fail(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
 
 
-def run(args):
+def run(args, stdin=None):
     proc = subprocess.run(
-        [BIN, *args], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        [BIN, *args], cwd=ROOT, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     return proc.returncode, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8")
 
@@ -435,6 +461,71 @@ def main():
     if code != 3 or out != "fuel [] h0l0p2 v-\n" or err != "muro-beam: out of fuel\n":
         fail("out-fuel0: " + repr((code, out, err)))
     print("ok out-fuel0")
+    for name, (img, inp, want) in IN.items():
+        path = os.path.join(IMG, img + ".mbi")
+        ipath = os.path.join(IMG, inp + ".in")
+        for args in ([path, "--input", ipath], ["--input", ipath, path, "--fuel", "1000"]):
+            code, out, err = run(args)
+            if code != 0 or err != "":
+                fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
+            check_proc(name, out, want + "\n")
+        # The same text on stdin.
+        with open(ipath, "rb") as fh:
+            data = fh.read()
+        code, out, err = run([path, "--input", "-"], stdin=data)
+        if code != 0 or err != "" or out != want + "\n":
+            fail(name + "-stdin: " + repr((code, out, err)))
+        print("ok " + name + "-stdin")
+    for name, img, reason in IN_REFUSE:
+        path = os.path.join(IMG, img + ".mbi")
+        code, out, err = run([path, "--input", os.path.join(IMG, name + ".in")])
+        if code != 2 or out != "" or err != "muro-beam: " + reason + "\n":
+            fail(name + ": " + repr((code, out, err)))
+        print("ok " + name)
+    # Input to a format-1 image is refused too, even when empty.
+    code, out, err = run([os.path.join(IMG, "suc.mbi"), "--input", "-"], stdin=b"")
+    if code != 2 or out != "" or err != "muro-beam: no input port\n":
+        fail("in-v1: " + repr((code, out, err)))
+    print("ok in-v1")
+    for name, want in IN_NONE.items():
+        code, out, err = run([os.path.join(IMG, name + ".mbi")])
+        if code != 0 or err != "" or out != want + "\n":
+            fail(name + "-noinput: " + repr((code, out, err)))
+        print("ok " + name + "-noinput")
+    # Empty input on stdin is the same run as no --input.
+    code, out, err = run([os.path.join(IMG, "in-none.mbi"), "--input", "-"], stdin=b"")
+    if code != 0 or err != "" or out != IN_NONE["in-none"] + "\n":
+        fail("in-none-empty: " + repr((code, out, err)))
+    print("ok in-none-empty")
+    # Fuel 0 on the input layout: three processes, nothing delivered.
+    code, out, err = run([os.path.join(IMG, "in-echo.mbi"), "--input", os.path.join(IMG, "in-echo.in"), "--fuel", "0"])
+    if code != 3 or out != "fuel [] h0l0p3 v-\n" or err != "muro-beam: out of fuel\n":
+        fail("in-fuel0: " + repr((code, out, err)))
+    print("ok in-fuel0")
+    # A larger value than the Agda pins use: 41 costs 83 port steps.
+    code, out, err = run([os.path.join(IMG, "in-succ.mbi"), "--input", "-"], stdin=b"41\n")
+    if code != 0 or err != "" or not out.startswith("42\nhalted [") or not out.endswith(" v41\n"):
+        fail("in-succ-41: " + repr((code, out, err)))
+    print("ok in-succ-41")
+    # Input flags.
+    path = os.path.join(IMG, "in-echo.mbi")
+    code, out, err = run([path, "--input"])
+    if code != 1 or out != "" or err != "muro-beam: --input needs a file\n":
+        fail("bare-input: " + repr((code, out, err)))
+    print("ok bare-input")
+    ipath = os.path.join(IMG, "in-echo.in")
+    code, out, err = run([path, "--input", ipath, "--input", ipath])
+    if code != 1 or "input given twice" not in err:
+        fail("input-twice: " + repr((code, out, err)))
+    print("ok input-twice")
+    code, out, err = run([path, "--input", "/no/such/input.in"])
+    if code != 1 or out != "" or "cannot read input /no/such/input.in" not in err:
+        fail("missing-input: " + repr((code, out, err)))
+    print("ok missing-input")
+    code, out, err = run([path, "--input", "-"], stdin=b"\xff\n")
+    if code != 1 or out != "" or "cannot read input -" not in err or "invalid UTF-8" not in err:
+        fail("input-utf8: " + repr((code, out, err)))
+    print("ok input-utf8")
     # Same file as the halting pin above. --alias-bind loads it, plants
     # a second reference, and bind1 refuses. Exit 0: the probe ran.
     path = os.path.join(IMG, "alias-bind.mbi")

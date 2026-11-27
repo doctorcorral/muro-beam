@@ -1,0 +1,1 @@
+(muro-beam-image 4 (boundary 1) (entry (recv (w 0) (seq (gmatch (gvar 0) gze (gvar 0)) (send 1 0 (done))))))

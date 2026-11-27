@@ -168,6 +168,29 @@ IO = {
     "out-reply": "0\ndeadlock [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove] h3l3p3 v0",
 }
 
+
+# B4b input images (format 4). Each case is an image and an input
+# file. `ioin` is ioImageIn at imgFuel: the console lines, then the
+# showDrove line. MuroBeam.InPins pins the same text with refl. The
+# input port is pid 2.
+IN = {
+    "in-echo": ("in-echo", "in-echo", "7\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(7,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(7,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(7,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h8l8p3 v7"),
+    "in-two": ("in-two", "in-two", "3\n5\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(3,pt(inf),pt(inf),omega-kept), tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(9,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(9,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-send 0 1 ref(9,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h10l10p3 v3"),
+    "in-succ": ("in-succ", "in-succ", "5\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(4,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(4,pt(inf),pt(inf),omega-kept), tr-step 0, tr-step 0, tr-step 0, tr-send 0 1 ref(5,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h6l6p3 v4"),
+    "in-pred": ("in-pred", "in-pred", "2\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(3,pt(inf),pt(inf),omega-kept), tr-step 0, tr-step 0, tr-step 0, tr-step 0, tr-send 0 1 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(3)] h4l3p3 v3"),
+    "in-short": ("in-short", "in-short", "4\ndeadlock [tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(4,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(4,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(4,pt(inf),pt(inf),omega-kept) Kcopy] h5l5p3 v4"),
+    "in-extra": ("in-echo", "in-extra", "1\nhalted [tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(1,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(4,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h5l5p3 v1"),
+    "in-child": ("in-child", "in-child", "1\n9\nhalted [tr-step 0, tr-step 2, tr-step 0, tr-step 2, tr-step 0, tr-step 2, tr-step 2, tr-spawn 0 3, tr-step 2, tr-send 3 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-step 2, tr-send 2 0 ref(12,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(12,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(12,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(2)] h13l12p4 v1"),
+    "in-v3": ("in-v3", "in-v3", "refuse: no input port"),
+    "in-bad": ("in-echo", "in-bad", "refuse: bad input"),
+}
+
+# Format 4 without input: io (ioImage) runs with an empty input.
+IN_NONE = {
+    "in-none": "1\nhalted [tr-step 0, tr-step 0, tr-step 0, tr-send 0 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h2l2p3 v1",
+    "in-echo": "deadlock [] h0l0p3 v-",
+}
+
 # Process entries. Not emitter goldens. `drove` is load then drive
 # at imgFuel (1000). The string is showDrove, the same line the binary
 # prints without the newline the Haskell main adds. Bare protocol
@@ -334,6 +357,7 @@ def build():
     drove_sym = symbol("d_droveImage")
     alias_sym = symbol("d_aliasImage")
     io_sym = symbol("d_ioImage")
+    ioin_sym = symbol("d_ioImageIn")
     with open(MAIN, "w", encoding="utf-8") as fh:
         fh.write(
             "\n".join(
@@ -344,7 +368,7 @@ def build():
                     "import qualified Data.Text.IO as TIO",
                     "import MAlonzo.Code.MuroBeam.RunImage ("
                     + run_sym + ", " + echo_sym + ", " + drive_sym + ", " + drove_sym
-                    + ", " + alias_sym + ", " + io_sym + ")",
+                    + ", " + alias_sym + ", " + io_sym + ", " + ioin_sym + ")",
                     "main :: IO ()",
                     "main = do",
                     "  args <- getArgs",
@@ -367,7 +391,11 @@ def build():
                     '    ["io", path] -> do',
                     "      src <- TIO.readFile path",
                     "      TIO.putStr (" + io_sym + " src)",
-                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH | alias PATH | io PATH"',
+                    '    ["ioin", path, inp] -> do',
+                    "      src <- TIO.readFile path",
+                    "      txt <- TIO.readFile inp",
+                    "      TIO.putStr (" + ioin_sym + " src txt)",
+                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH | alias PATH | io PATH | ioin PATH INPUT"',
                     "",
                 ]
             )
@@ -391,8 +419,10 @@ def build():
     )
 
 
-def call(mode, path, fuel="200"):
-    if mode == "echo":
+def call(mode, path, fuel="200", inp=None):
+    if mode == "ioin":
+        cmd = [BIN, "ioin", path, inp]
+    elif mode == "echo":
         cmd = [BIN, "echo", path]
     elif mode == "drive":
         cmd = [BIN, "drive", path]
@@ -501,6 +531,16 @@ def main():
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
             print("ok echo " + name)
             check(name + "-io", call("io", path), want)
+        for name, (img, inp, want) in IN.items():
+            path = os.path.join(IMG, img + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            check(name + "-ioin", call("ioin", path, inp=os.path.join(IMG, inp + ".in")), want)
+        for name, want in IN_NONE.items():
+            check(name + "-noinput", call("io", os.path.join(IMG, name + ".mbi")), want)
         # checkP refusals. driveImage and runImage both print the reason.
         for name, reason in REFUSE:
             path = os.path.join(IMG, name + ".mbi")
@@ -564,7 +604,7 @@ def main():
         print("ok echo v2-empty")
         check("v2-empty", call("run", path), "nat 0")
         cases = [
-            ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 4 ", 1), "refuse: bad version"),
+            ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 5 ", 1), "refuse: bad version"),
             ("bad-gref", WRAP.format(body="(gref 0)"), "refuse: bad gref"),
             ("bad-gref-index",
              "(muro-beam-image 2 (boundary 1) (defs (glam ((iv 0 1) 0) (gref 3))) "

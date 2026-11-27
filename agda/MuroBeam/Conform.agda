@@ -15,7 +15,10 @@
 -- keeps a delivered `suc↑`. `sched-stray` also prints `mailHas` and
 -- whether any wrapper is enabled. `sched-empty` prints the final
 -- heap's freeness. `sched-console` (B4a) writes to a `done`, `idle`
--- process at pid 1 and prints the nat of its first message. Event spelling, decimals, and `showDrove` are
+-- process at pid 1 and prints the nat of its first message.
+-- `sched-input` (B4b) is the format-4 shape: an input port at pid 2
+-- sends to pid 0, which receives it; the console at pid 1 stays empty.
+-- Event spelling, decimals, and `showDrove` are
 -- `MuroBeam.Show`, shared with the `muro-beam` CLI.
 --
 -- Example, Lower, Unique, PExample, Stray, and PWf are not imported.
@@ -341,6 +344,33 @@ consoleBody =
   let d = proj₁ (drive driveFuel zero [] nothing consoleSys) in
   showDrove d ++ " out " ++ showVal (inboxNat (final d) (suc zero))
 
+-- B4b input layout, written out the same way. pid 2 is the input
+-- port after its `seq` has bound the value: it holds an ω nat 2 and
+-- sends it to pid 0. pid 0 is `recv` at ω, then `done`. The console
+-- at pid 1 is idle, and `out` is the nat of its first message on the
+-- final system, so `v-` says input did not pass through it. The
+-- port's numeral `seq` is not in this line: the book `bind` resumes
+-- only a singleton `saved`, and the port's `seq` pushes `saved` over
+-- an empty `seg`. A write of the received slot is left out because
+-- the book normaliser takes tens of minutes on that three-process
+-- run; `sched-console` is the write.
+inputSys : Sys
+inputSys =
+  sys (cell (nat (suc (suc zero))) live ∷ [])
+    ( proc zero ready [] []
+        (pr (go (recv (pt inf) g0 (done {suc zero}))
+              [] [] [] []))
+    ∷ proc (suc zero) pstDone [] [] idle
+    ∷ proc (suc (suc zero)) ready [] []
+        (pr (go (send zero (fzero {zero}) (done {suc zero}))
+              (consoleW ∷ []) [] [] []))
+    ∷ [])
+
+inputBody : String
+inputBody =
+  let d = proj₁ (drive driveFuel zero [] nothing inputSys) in
+  showDrove d ++ " out " ++ showVal (inboxNat (final d) (suc zero))
+
 -- The older lines, then the scheduled ones. The driver prints this
 -- and nothing else.
 ------------------------------------------------------------------------
@@ -373,4 +403,5 @@ report =
   line "sched-up" (schedBody upSys []) ++
   line "sched-stray" strayBody ++
   line "sched-empty" emptyBody ++
-  line "sched-console" consoleBody
+  line "sched-console" consoleBody ++
+  line "sched-input" inputBody

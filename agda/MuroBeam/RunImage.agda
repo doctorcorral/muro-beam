@@ -40,8 +40,9 @@ open import MuroBeam.Image using (showImage; showNat)
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Load using (loadIO; Boot; mkBoot)
 open import MuroBeam.Port using
-  ( Ports; none; console; lowerIO; portOut
+  ( Ports; none; console; stdio; lowerIn; lowerIO; portOut
   ; OutV; out-nat; out-clo; out-con; out-bad )
+open import MuroBeam.Input using (readInput)
 open import MuroBeam.Parse using (parse)
 open import MuroBeam.PRun using (seq1; bind1)
 open import MuroBeam.PTm using
@@ -105,12 +106,19 @@ runSys fuel s with seq1 s zero
 
 -- The system an image boots: `lowerIO` on the ports `loadIO` read.
 -- Formats 1 and 2 are `lowerP` (`lowerIO none` is `lowerP` by
--- definition). Format 3 adds the console at pid 1. Every image entry
--- in this module goes through `loadIO` and `bootSys`, so no runner
--- lowers a format-3 program without its console. `load` is the
--- checker; it does not choose a layout.
+-- definition). Format 3 adds the console at pid 1. Format 4 adds the
+-- console and the input port at pid 2, here with no input, so the
+-- port ends at once. Every image entry in this module goes through
+-- `loadIO` and `bootSys` (or `bootIn` with host input), so no runner
+-- lowers a format-3 or format-4 program without its ports. `load` is
+-- the checker; it does not choose a layout.
 bootSys : Boot → Sys
 bootSys b = lowerIO (Boot.ports b) (Boot.prog b)
+
+-- With host input `xs` (B4b). Only a format-4 (`stdio`) layout puts
+-- `xs` anywhere; `bootSys` is `bootIn []`.
+bootIn : List ℕ → Boot → Sys
+bootIn xs b = lowerIn xs (Boot.ports b) (Boot.prog b)
 
 -- The harness reads pid 0 only. A console at pid 1 is not stepped.
 runImage : String → ℕ → String
@@ -298,13 +306,18 @@ outLines (v ∷ vs) = showOutV v ++ "\n" ++ outLines vs
 ioLine : Ports → Drove → String
 ioLine none    d = showDrove d
 ioLine console d = outLines (portOut console (final d)) ++ showDrove d
+ioLine stdio   d = outLines (portOut stdio (final d)) ++ showDrove d
 
 ioBody : Ports → Drove → String
 ioBody none    d = cliBody d
 ioBody console d = mark (oc d) ++ "\n" ++ ioLine console d
+ioBody stdio   d = mark (oc d) ++ "\n" ++ ioLine stdio d
 
 driveIO : ℕ → Boot → Drove
 driveIO fuel b = proj₁ (drive fuel zero [] nothing (bootSys b))
+
+driveIn : ℕ → List ℕ → Boot → Drove
+driveIn fuel xs b = proj₁ (drive fuel zero [] nothing (bootIn xs b))
 
 cliRun : String → ℕ → String
 cliRun src fuel with loadIO src
@@ -334,3 +347,51 @@ ioImage : String → String
 ioImage src with loadIO src
 ... | fail e = "refuse: " ++ e
 ... | ok b   = ioLine (Boot.ports b) (driveIO imgFuel b)
+
+------------------------------------------------------------------------
+-- B4b host input. `muro-beam IMAGE --input FILE` (or `--input -` for
+-- stdin) calls `cliRunIn` with the text it read. A format-4 image
+-- boots with the input port at pid 2 sending those values to pid 0.
+-- Input to any other format is the load refusal `no input port`; a
+-- text `readInput` refuses is `bad input`. Both are tagged `load`, so
+-- the binary exits 2 with the reason on stderr, as for a parse or
+-- `checkP` refusal. Without `--input` the binary calls `cliRun`: a
+-- format-4 image then runs with an empty input, and its port ends at
+-- once.
+------------------------------------------------------------------------
+
+-- The port gate. Only `stdio` takes input.
+inGate : ℕ → Boot → Ports → Result (List ℕ) → String
+inGate fuel b none    _        = "load\nno input port"
+inGate fuel b console _        = "load\nno input port"
+inGate fuel b stdio   (fail e) = "load\n" ++ e
+inGate fuel b stdio   (ok xs)  = ioBody stdio (driveIn fuel xs b)
+
+cliRunIn : String → ℕ → String → String
+cliRunIn src fuel inp with loadIO src
+... | fail e = "load\n" ++ e
+... | ok b   = inGate fuel b (Boot.ports b) (readInput inp)
+
+cli-in : ∀ src fuel inp b →
+  loadIO src ≡ ok b →
+  cliRunIn src fuel inp ≡ inGate fuel b (Boot.ports b) (readInput inp)
+cli-in src fuel inp b eq rewrite eq = refl
+
+-- A format-4 image with no input is the same run as `cliRun`.
+cli-in-empty : ∀ src fuel p →
+  loadIO src ≡ ok (mkBoot p stdio) →
+  cliRunIn src fuel "" ≡ cliRun src fuel
+cli-in-empty src fuel p eq rewrite eq = refl
+
+-- What a format-4 pin states: `ioImage` with that input. A refusal is
+-- `refuse: ` and the reason.
+inPinGate : Boot → Ports → Result (List ℕ) → String
+inPinGate b none    _        = "refuse: no input port"
+inPinGate b console _        = "refuse: no input port"
+inPinGate b stdio   (fail e) = "refuse: " ++ e
+inPinGate b stdio   (ok xs)  = ioLine stdio (driveIn imgFuel xs b)
+
+ioImageIn : String → String → String
+ioImageIn src inp with loadIO src
+... | fail e = "refuse: " ++ e
+... | ok b   = inPinGate b (Boot.ports b) (readInput inp)

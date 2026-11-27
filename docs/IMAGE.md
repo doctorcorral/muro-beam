@@ -6,9 +6,10 @@ grammar and the byte-level rules of that line are muro's
 `3f1cae2ae987d1ad27b301e0b1e1ddb03abdd988`. The printer there is
 `Muro.Beam.showPure`. v2 is the same line with a `(defs …)` section
 between the boundary and the entry. v3 (B4a) is the v1 or v2 line
-run with the host console at pid 1 (below). This repository parses
-all three. The emitter that writes the defs section is not in this
-repository, and no emitter writes v3 yet.
+run with the host console at pid 1, and v4 (B4b) is that line run
+with the console and the host input port at pid 2 (below). This
+repository parses all four. The emitter that writes the defs section
+is not in this repository, and no emitter writes v3 or v4 yet.
 
 One line, tokens separated by one space, a trailing newline. Naturals
 are decimal with no leading zero except `0`. `w` is ω.
@@ -36,7 +37,7 @@ point ::= <nat> | w
 
 `gcon` / `gcase` / `garm` are the B1d data forms. There is no format number bump: version 1 and 2 wrappers stay, and the `btm` grammar grows. `(gcon tag a0 … a_{k-1})` is a fully applied constructor; `tag` is the 0-based constructor index. `(garm tag arity body)` binds `arity` fields, last field nearest (de Bruijn 0), matching muro `to_db`. First matching tag wins. A tag hit with the wrong arity is stuck: `pickArms` stops at the first arm whose tag matches and does not fall through to a later arm with the same tag and the right arity (`case-arity.mbi`). With two arms on the same tag and arity, the first one runs (`case-first.mbi`). `garm+` is the grammar `decideB` accepts. `Parse` also reads `(gcase e)` with no arms; `decideB` then refuses it (`empty gcase`, `empty-gcase.mbi`). The parser does not check arity against a data table: there is none in the file. `gze` / `gsu` / `gmatch` are unchanged: `gcase` does not match `nat` / `suc↑`, and `gmatch` does not match `con`. The payload is `con tag fields`, a pointer like `suc↑` and `clo`. A `gcase` on a `g1` variable inherits the `gmatch` limit in `docs/DESIGN.md`: the pointer moves, the binder's slot becomes `g0`, the fields bind at `g0`, and a use of one is stuck (`case-g1.mbi`). The same term with an `ω` binder runs (`case-w.mbi`). `MuroBeam.DataPins` pins echo, run, and drive for every data image with `refl`. `muro emit --backend mbi` as of 0.22.x still refuses data (`mbi:data`); B1d is self-contained in muro-beam.
 
-`<version>` is `1`, `2`, or `3`. Any other number is `bad version`. A file
+`<version>` is `1`, `2`, `3`, or `4`. Any other number is `bad version`. A file
 with no defs section has an empty definition list, whatever the
 number is. An empty `(defs)` nest, with no term inside it, is `junk`.
 The printer chooses the bytes from the list, not from the number: an
@@ -234,8 +235,10 @@ The host prints the console inbox of the system `drive` returns, one
 line per message, in delivery order, before the summary line: a nat as
 its decimal, a constructor as `con <tag>`, a closure as `closure`, and
 a cell `readOut` cannot read as `stuck`. A `suc↑` chain is followed the
-way `RunImage.readRef` does. The console is output only. Nothing feeds
-pid 0, so a `recv` entry with no sender deadlocks (`out-recv.mbi`). On
+way `RunImage.readRef` does. The console is output only. In format 3
+nothing feeds pid 0, so a `recv` entry with no sender deadlocks
+(`out-recv.mbi`); format 4 adds the input port that does (Input,
+below). On
 `fuel`, `deadlock`, or `stuck`, the lines are what had been delivered
 by then; a flight still in a sender's ether is not printed.
 
@@ -262,24 +265,96 @@ Why the format number and not a `(ports …)` section: the wrapper's
 round trip `parse-show` is proved shape by shape (`legEmpty`,
 `legCons`, `genEmpty`, `genCons`). A new section would add four more
 shapes to that proof for one bit of information. The format field is
-already read as any natural and round-trips. A later slice that needs
-more than one port (host input) can add a section then.
+already read as any natural and round-trips. B4b's input port did not
+need a section either: the image only says it wants the port (format
+4); the values come from the host at run time, not from the file.
+
+## Input (format 4, B4b)
+
+A format-4 image is the format-1 or format-2 line with `4` in the
+version slot. As for format 3, the grammar does not change and `load`
+checks the program exactly as it checks a v1 or v2 one. `portsOf 4` is
+`stdio`: the console at pid 1 and the input port at pid 2. Pids are
+entry 0, console 1, input 2, and the first `spawn` is pid 3.
+
+The values are naturals the host reads before the run. `muro-beam
+IMAGE --input FILE` reads them from a file, and `--input -` from
+stdin. `MuroBeam.Input.readInput` parses the text: decimal digit runs
+separated by one or more spaces, tabs, carriage returns, or line
+feeds, with leading and trailing separators allowed. An empty text is
+no values. Leading zeros are read as the number. Any other character
+is the load refusal `bad input`. Input to an image of format 1, 2, or
+3 is the load refusal `no input port`, even when the text is empty.
+Both refusals are exit 2 with `muro-beam:` and the reason on stderr.
+The text is capped and decoded like the image (1 MiB, UTF-8); a read
+failure is exit 1 with `muro-beam: cannot read input …` on stderr.
+
+`MuroBeam.Port.lowerIn xs stdio p` is the console layout with one more
+process: pid 2, state `ready`, no roots, an empty inbox, and the
+control of `MuroBeam.Input.inputP xs` with an empty environment. That
+term is, for each value, `(seq <numeral> (send 0 0 …))` with empty
+defs, then `(done)`. So the port evaluates the numeral (`gsu` over
+`gze`), binds it at ω (the continuation is a `send`, not a reply
+root), sends it to pid 0 with `Kcopy`, and goes on to the next value.
+The trace shows `tr-step 2` and `tr-send 2 0 …`. The program reads
+with its own `recv`: an empty inbox parks pid 0 until the port
+delivers. Nothing new enters `PTm`, `PStep`, `checkP`, `decideB`, or
+the CEK. This is the BEAM port shape: a port delivers its data as
+messages to the process it is connected to, and the owner reads them
+from its mailbox. The console is still output only; input arrives at
+pid 0, not through pid 1.
+
+Values reach pid 0 in the order the host read them. A program that
+receives more values than the host gave parks on an empty inbox after
+the port has ended, and the run is a `deadlock` (`in-short`). Values
+nobody receives stay in pid 0's inbox; a run that otherwise ends still
+halts (`in-extra`). Without `--input`, a format-4 image runs with no
+values: the port is `(done)` and ends at once, and a reading program
+deadlocks. A numeral costs about `2n + 1` port steps and `n + 1`
+cells, so a large value spends fuel (`41` is 83 steps).
+
+`lowerIn-wf`, `lowerIn-safe`, and `in-final-wf` are the B4a facts for
+every input: the port's control holds no reference at boot, so
+`refsOf` is `[]` (`lowerIn-refs`), the layout is `WF` with an empty
+heap, every `PStep*` from it stays `WF`, and the system `drive`
+returns is `WF`. `lowerIO` is `lowerIn []`, and the B4a names are those
+facts at `[]`. `stdio-quiet-0` is `console-quiet-0` for this layout.
+`input-at` says pid 2 is `inputProc xs`, and `input-vals` reads `xs`
+back out of `inputP xs`: every send goes to pid 0 and carries the slot
+its `seq` just bound, in host order. `inputP-ok` is a closed `refl`
+that `checkP` accepts the two-value port `3`, `0`. Not proved: that
+`checkP` accepts `inputP xs` for every `xs` (the port is not a loaded
+program, and boot does not run `checkP` on it), that every value
+reaches pid 0 before the run stops, or how the port's sends interleave
+with other senders to pid 0.
+
+`MuroBeam.InPins` pins `ioImageIn` (`loadIO`, the port gate,
+`readInput`, `drive` at `imgFuel` on `lowerIn`, then the console lines
+and `showDrove`) on the text of every `examples/images/in-*.mbi` file
+and its `in-*.in` input with `refl`, plus the no-input runs.
+`make images` (`ioin` mode) and `make runner` (file and stdin) check
+the same strings through MAlonzo and the binary.
 
 ## Runner
 
-`muro-beam` reads one image file and an optional `--fuel N` (default
-1000). `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and
+`muro-beam` reads one image file, an optional `--fuel N` (default
+1000), and an optional `--input FILE` (`-` is stdin).
+`scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and
 links it. That Haskell main is not an Agda module.
 `MuroBeam.RunImage.cliRun` calls `loadIO`, then `drive` at that fuel
 on `lowerIO`, from cursor 0, with no meetings and no kept nat. Formats
 1 and 2 boot `lowerP` (`lowerIO none`); format 3 adds the console at
-pid 1. The other entries in that module (`runImage`, `driveImage`,
-`droveImage`, `aliasImage`, `aliasCli`, `ioImage`) boot the same way,
-through `bootSys`. Stdout is zero or more console lines (format 3
+pid 1; format 4 adds the console and the input port at pid 2. With
+`--input`, the main calls `cliRunIn` with the input text instead:
+`loadIO`, the port gate (`no input port` unless format 4),
+`readInput`, then `drive` on `lowerIn` (`bootIn`). The other entries
+in that module (`runImage`, `driveImage`, `droveImage`, `aliasImage`,
+`aliasCli`, `ioImage`) boot the same way with no input, through
+`bootSys`. Stdout is zero or more console lines (formats 3 and 4
 only, one per delivered message, see Console above) and then the
 summary line: the outcome, the events, the fingerprint
 `h<heap>l<live>p<procs>`, and the kept nat. The fingerprint counts
-the console as a process. The event spelling and the decimals are
+the ports as processes. The event spelling and the decimals are
 `MuroBeam.Show`, the same module `MuroBeam.Conform` uses for the book,
 so `make conformance` pins the CLI line as well. A numeral past eight
 digits is `overflow`.
@@ -289,12 +364,14 @@ on a loaded image also exits 0 and prints `refuse: aliased reply result`.
 A load refusal under that flag is exit 2. Exit 2 is a parse or load
 refusal, and stderr is `muro-beam:` plus the reason (`bad version`,
 `bad gref`, `junk`, `truncated`, `outside the boundary`, and the
-others `load` returns). Exit 3 is out of fuel: stderr says so, and
+others `load` returns, plus `no input port` and `bad input` under
+`--input`). Exit 3 is out of fuel: stderr says so, and
 stdout is still the partial line. Exit 1 is usage, a fuel argument
 that is not a natural, or a file the main cannot read: a missing
 file, permission denied, a directory, invalid UTF-8, or a file
 larger than 1 MiB. Those read failures print `muro-beam: cannot
-read …` on stderr.
+read …` on stderr (`cannot read input …` for the `--input` text). A
+second `--input`, or `--input` with no file, is exit 1.
 
 A pure image stops `stuck 0`. `seq1` pushes `saved` over `seg`.
 `bind1` resumes a singleton `saved` stack, and it resumes
@@ -302,12 +379,13 @@ A pure image stops `stuck 0`. `seq1` pushes `saved` over `seg`.
 aliased non-g1 reply, which is refused. A `done` continuation on
 that stack stays parked, so a pure image still never reaches `done`. The kept nat is the value on that returned
 reference. A closure keeps nothing (`v-`). Fuel 0 does not step:
-the summary is `fuel [] h0l0p1 v-` for formats 1 and 2, and
+the summary is `fuel [] h0l0p1 v-` for formats 1 and 2,
 `fuel [] h0l0p2 v-` for format 3 (the console is the second process,
-and nothing has been delivered, so no console line is printed).
+and nothing has been delivered, so no console line is printed), and
+`fuel [] h0l0p3 v-` for format 4 (the input port is the third).
 
-A process image is the same path: `loadIO`, then `lowerIO`, then
-`drive`. `spawn t[]` of two `done` terms halts. A bare `(done)`
+A process image is the same path: `loadIO`, then `lowerIO` (or
+`lowerIn` with input), then `drive`. `spawn t[]` of two `done` terms halts. A bare `(done)`
 halts. `examples/images/send-recv.mbi` binds `2` at ω, because the
 continuation is `recv`. The child sends that variable to pid 0 and
 the parent receives it at `(w 0)`. The send is `Kcopy`. The run
