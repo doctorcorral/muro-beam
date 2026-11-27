@@ -14,7 +14,8 @@
 -- the first nat the driver kept (`v-` when it kept none). `sched-up`
 -- keeps a delivered `suc↑`. `sched-stray` also prints `mailHas` and
 -- whether any wrapper is enabled. `sched-empty` prints the final
--- heap's freeness. Event spelling, decimals, and `showDrove` are
+-- heap's freeness. `sched-console` (B4a) writes to a `done`, `idle`
+-- process at pid 1 and prints the nat of its first message. Event spelling, decimals, and `showDrove` are
 -- `MuroBeam.Show`, shared with the `muro-beam` CLI.
 --
 -- Example, Lower, Unique, PExample, Stray, and PWf are not imported.
@@ -59,7 +60,7 @@ open import MuroBeam.Process using
   ( Sys; sys; heap; Proc; proc; ready; idle; ev; pr; procs; eval1; runFor; msg )
   renaming (done to pstDone)
 open import MuroBeam.Sched using
-  ( drive; Drove; final; oc; evs; val; findHit
+  ( drive; Drove; final; oc; evs; val; findHit; inboxNat
   ; Outcome; plain; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 open import MuroBeam.Show
 
@@ -317,6 +318,29 @@ emptyBody =
   let d = proj₁ (drive driveFuel zero [] nothing emptySys) in
   showDrove d ++ " free " ++ showBool (allFreeB (heap (final d)))
 
+-- B4a console layout, written out here so Conform does not import
+-- `MuroBeam.Port` (and with it PWf). pid 0 sends an ω nat 2 to pid 1,
+-- which is `pstDone`, `idle`, and has an empty inbox: the process
+-- `lowerIO console` appends. The console never steps. The deliver
+-- lands in its inbox, pid 0 ends, and the run halts. `out` is the
+-- nat of the console's first message on the final system.
+consoleW : Ref
+consoleW = ref zero (pt inf) (pt inf) (selfKept (pt inf))
+
+consoleSys : Sys
+consoleSys =
+  sys (cell (nat (suc (suc zero))) live ∷ [])
+    ( proc zero ready [] []
+        (pr (go (send (suc zero) (fzero {zero}) (done {suc zero}))
+              (consoleW ∷ []) [] [] []))
+    ∷ proc (suc zero) pstDone [] [] idle
+    ∷ [])
+
+consoleBody : String
+consoleBody =
+  let d = proj₁ (drive driveFuel zero [] nothing consoleSys) in
+  showDrove d ++ " out " ++ showVal (inboxNat (final d) (suc zero))
+
 -- The older lines, then the scheduled ones. The driver prints this
 -- and nothing else.
 ------------------------------------------------------------------------
@@ -348,4 +372,5 @@ report =
   line "sched-down-again" (schedBody (sys downH schedDownPs) (schedDown true ∷ [])) ++
   line "sched-up" (schedBody upSys []) ++
   line "sched-stray" strayBody ++
-  line "sched-empty" emptyBody
+  line "sched-empty" emptyBody ++
+  line "sched-console" consoleBody

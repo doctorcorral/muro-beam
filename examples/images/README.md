@@ -207,3 +207,31 @@ pins echo, run, and drive for every data image with `refl`, so
 `make agda` checks these lines without GHC. It also pins the
 `badFields` refusal of an aliased `g1` field on a hand-built heap,
 because no image reaches that branch.
+
+## B4a console images
+
+The `out-*.mbi` files are hand-written format-3 images. No emitter
+writes format 3 yet. The console is pid 1, so `(send 1 x k)` is a
+write and the first spawned child is pid 2. `muro-beam` prints one
+line per console message, then the summary line. `MuroBeam.IoPins`
+pins every line below with `refl`.
+
+- `out-one` writes `suc (suc 0)`: `2`, then `halted`.
+- `out-two` writes `0` then `1`, in program order.
+- `out-plus` is format 3 with the `plus` definition: `5`.
+- `out-child`: a spawned child (pid 2) writes `1`.
+- `out-relay`: the child sends `3` to pid 0, and pid 0 receives it and
+  writes it to the console.
+- `out-con` writes `(gcon 1 gze)`: `con 1`. `out-clo` writes a
+  closure: `closure`.
+- `out-none` is a format-3 pure entry. No line is written, and the run
+  stops `stuck 0` with two processes.
+- `out-v1` is the `out-one` shape in format 1. Format 1 boots no
+  console, so pid 1 does not exist and the write never happens: the
+  run stops `stuck 0` with one process (`p1`) and no output line.
+  `outv1-drove` pins that its line equals `droveImage`.
+- `out-recv` is a bare `recv` entry. The console is output only, so it
+  deadlocks.
+- `out-reply` sends a spawn reply to pid 1 instead of the parent. It
+  loads (`checkP` does not read pids). The console prints `0`, and the
+  parent's `await` deadlocks.

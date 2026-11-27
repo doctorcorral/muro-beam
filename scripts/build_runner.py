@@ -5,7 +5,9 @@
 # MAlonzo/Code/MuroBeam/RunImage.hs. The id on d_cliRun is not stable,
 # so this script reads it. This file writes MAlonzo/RunnerMain.hs and
 # links it, same rule as conform.py: IO stays out of agda/.
-# cliRun loads the text and runs drive. The generated main reads the
+# cliRun loads the text (loadIO) and runs drive. A format-3 image runs
+# with the console at pid 1, and its lines come before the summary
+# line inside the same string. The generated main reads the
 # path, parses the fuel, caps the read, decodes UTF-8, and turns the
 # tag into an exit code.
 
@@ -82,7 +84,13 @@ def write_main(sym, alias):
             "  , \"A load refusal under --alias-bind is exit 2, same as a normal load.\"",
             "  , \"N is a natural. The default is " + fuel + ".\"",
             "  , \"\"",
-            "  , \"A run prints one line: outcome, events, fingerprint, kept nat.\"",
+            "  , \"The last line is the summary: outcome, events, fingerprint\"",
+            "  , \"(h<heap>l<live>p<procs>), kept nat. Formats 1 and 2 print only\"",
+            "  , \"that line. Format 3 boots a console at pid 1 and first prints\"",
+            "  , \"one line per message delivered to it, in order: a nat,\"",
+            "  , \"con <tag>, closure, or stuck. The console counts in p<procs>:\"",
+            "  , \"--fuel 0 prints fuel [] h0l0p1 v- for formats 1 and 2, and\"",
+            "  , \"fuel [] h0l0p2 v- for format 3.\"",
             "  , \"exit 0  halted, deadlock, or stuck\"",
             "  , \"         --alias-bind on a loaded image also exits 0\"",
             "  , \"         and prints refuse: aliased reply result\"",

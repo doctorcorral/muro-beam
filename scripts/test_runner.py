@@ -5,6 +5,8 @@
 # format 1, format 2 with gref, a refusal, a truncated file, junk,
 # fuel 0, invalid UTF-8, a file over the 1 MiB cap, and a bare
 # --fuel. The kept nat is the one the pid-0 harness prints.
+# Format 3 (B4a) adds the console at pid 1: the console lines come
+# before the summary line.
 # The event words are the book trace constructors.
 
 import os
@@ -67,8 +69,40 @@ V2_EMPTY = "(muro-beam-image 2 (boundary 1) (entry (seq gze (done))))\n"
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
 
+# B4a console images (format 3). The binary prints the console
+# lines, then the showDrove line. MuroBeam.IoPins pins the same text
+# with refl, so make agda already checks these strings.
+def steps(n):
+    return "tr-step 0, " * n
+
+
+IO = {
+    # send 1 0 of an ω seq slot: one console line, then halted.
+    "out-one": "2\nhalted [" + steps(5) + "tr-send 0 1 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h3l3p2 v2",
+    # Two sends. Lines are delivery order.
+    "out-two": "0\n1\nhalted [" + steps(4) + "tr-send 0 1 ref(0,pt(inf),pt(inf),omega-kept) Kcopy, tr-send 0 1 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h3l3p2 v0",
+    # Format 3 with a defs section: plus 2 3 to the console.
+    "out-plus": "5\nhalted [" + steps(66) + "tr-send 0 1 ref(16,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(0 1 2 3 4 9 10 11 12 13 14)] h17l6p2 v5",
+    # The console is pid 1, so the first child is pid 2.
+    "out-child": "1\nhalted [" + steps(3) + "tr-spawn 0 2, tr-send 2 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(2)] h3l2p3 v1",
+    # The child sends to pid 0, which forwards to the console.
+    "out-relay": "3\nhalted [" + steps(7) + "tr-spawn 0 2, tr-send 2 0 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(3,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(4)] h5l4p3 v3",
+    # A constructor prints as con <tag>.
+    "out-con": "con 1\nhalted [" + steps(3) + "tr-send 0 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h2l2p2 v-",
+    # A closure prints as closure.
+    "out-clo": "closure\nhalted [tr-step 0, tr-send 0 1 ref(0,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h1l1p2 v-",
+    # Format 3 pure entry: no output line, console is p2.
+    "out-none": "stuck 0 [tr-step 0, tr-step 0, tr-step 0] h2l2p2 v1",
+    # Format 1: no pid 1, emit1 is blocked, stuck 0, no output line.
+    "out-v1": "stuck 0 [tr-step 0, tr-step 0, tr-step 0] h2l2p1 v1",
+    # The console is output only. A recv entry deadlocks.
+    "out-recv": "deadlock [] h0l0p2 v-",
+    # A spawn reply sent to the console: printed, the parent's await deadlocks.
+    "out-reply": "0\ndeadlock [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove] h3l3p3 v0",
+}
+
 REFUSE = [
-    ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 3 ", 1), "bad version"),
+    ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 4 ", 1), "bad version"),
     ("bad-gref", WRAP.format(body="(gref 0)"), "bad gref"),
     ("empty-gcase", WRAP.format(body="(gcase gze)"), "empty gcase"),
     (
@@ -388,6 +422,19 @@ def main():
         if code != 0 or err != "":
             fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
         check_proc(name, out, want)
+    for name, want in IO.items():
+        path = os.path.join(IMG, name + ".mbi")
+        for args in ([path], [path, "--fuel", "1000"]):
+            code, out, err = run(args)
+            if code != 0 or err != "":
+                fail(name + ": exit " + str(code) + " stderr " + repr(err) + " out " + repr(out))
+            check_proc(name, out, want + "\n")
+    # Fuel 0 on the console layout: no step, no output line, two
+    # processes. Exit 3 as for any fuel stop.
+    code, out, err = run([os.path.join(IMG, "out-one.mbi"), "--fuel", "0"])
+    if code != 3 or out != "fuel [] h0l0p2 v-\n" or err != "muro-beam: out of fuel\n":
+        fail("out-fuel0: " + repr((code, out, err)))
+    print("ok out-fuel0")
     # Same file as the halting pin above. --alias-bind loads it, plants
     # a second reference, and bind1 refuses. Exit 0: the probe ran.
     path = os.path.join(IMG, "alias-bind.mbi")

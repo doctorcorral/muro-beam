@@ -13,7 +13,7 @@ path = Path.expand("book/show.muro")
 check_fuel = 20_000
 norm_fuel = 200_000
 
-names = ~w(show-trip show-stuck show-alloc show-deref show-send show-step show-collect show-wide show-down show-down-again show-down-done show-abandon show-send-dead show-settle-after-exit show-sched-trip show-sched-ignore show-sched-await show-sched-dead show-sched-stuck show-sched-two show-sched-three show-sched-down show-sched-down-again show-sched-up show-sched-stray show-sched-empty)
+names = ~w(show-trip show-stuck show-alloc show-deref show-send show-step show-collect show-wide show-down show-down-again show-down-done show-abandon show-send-dead show-settle-after-exit show-sched-trip show-sched-ignore show-sched-await show-sched-dead show-sched-stuck show-sched-two show-sched-three show-sched-down show-sched-down-again show-sched-up show-sched-stray show-sched-empty show-sched-console)
 
 case Muro.Load.file(path, fuel: check_fuel) do
   {:error, msg} ->

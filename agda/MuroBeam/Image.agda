@@ -2,10 +2,12 @@
 -- Image format. v1 is the text muro emits (manual/mbi.md at 3f1cae2):
 -- one line, tokens separated by one space, a trailing newline, and
 -- `(seq <term> (done))` with no definitions. v2 is that line plus a
--- `(defs <term> …)` section between the boundary and the entry.
+-- `(defs <term> …)` section between the boundary and the entry. v3
+-- (B4a) is the v1/v2 grammar; the number only asks the loader for the
+-- host console at pid 1 (`MuroBeam.Load.loadIO`, `MuroBeam.Port`).
 -- An empty definition list is printed in the v1 shape, with no defs
 -- section. The format number is the number that was read, not a
--- forced 1, so a v1 file round-trips to the same bytes. Grades are
+-- forced 1, so a v1, v2, or v3 file round-trips to the same bytes. Grades are
 -- points or `(iv a b)`. `w` is ω.
 -- `gze` is bare. De Bruijn indices and `gref` indices are decimal,
 -- with no leading zero except 0.
@@ -60,8 +62,11 @@ isLegacy (sseq _ sdone) = true
 isLegacy _               = false
 
 ------------------------------------------------------------------------
--- The file. The loader accepts format 1 and format 2, and boundary
--- version 1. `defs` is the code segment. `entry` is the process.
+-- The file. The loader accepts format 1, 2, and 3, and boundary
+-- version 1. Format 3 is the format-1/2 grammar with the host console
+-- at pid 1 (B4a, `MuroBeam.Port`); the parser and printer read and
+-- reprint the number and do not treat it differently. `defs` is the
+-- code segment. `entry` is the process.
 -- A legacy entry is `sseq term sdone`, and the checked program is
 -- `seq defs term done`. A `(defs …)` section on any other entry is
 -- refused: the section attaches only to that root seq.

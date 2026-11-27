@@ -1,0 +1,1 @@
+(muro-beam-image 3 (boundary 1) (entry (seq (glam (w 0) (gvar 0)) (send 1 0 (done)))))
