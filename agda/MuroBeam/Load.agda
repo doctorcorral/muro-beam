@@ -73,6 +73,9 @@ eqℕ _       _       = false
 -- v3 (B4a) is the v1/v2 grammar run with the host console at pid 1
 -- (`MuroBeam.Port`). `load` checks a v3 program exactly as a v1 or v2
 -- one; the format number only reaches the layout, through `loadIO`.
+-- `load` is the checker, not a runner entry: lowering its result with
+-- `lowerP` drops the console. Every runner in `MuroBeam.RunImage`
+-- boots through `loadIO` and `lowerIO` (`bootSys`).
 -- Any other number is refused. The printer reprints the number it read.
 versionOk : ℕ → Bool
 versionOk n = eqℕ n format-version ∨ eqℕ n 2 ∨ eqℕ n 3

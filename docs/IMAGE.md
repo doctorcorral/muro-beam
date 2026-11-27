@@ -271,10 +271,15 @@ more than one port (host input) can add a section then.
 1000). `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and
 links it. That Haskell main is not an Agda module.
 `MuroBeam.RunImage.cliRun` calls `loadIO`, then `drive` at that fuel
-on `lowerIO`,
-from cursor 0, with no meetings and no kept nat. The printed line is
-the outcome, the events, the fingerprint `h<heap>l<live>p<procs>`,
-and the kept nat. The event spelling and the decimals are
+on `lowerIO`, from cursor 0, with no meetings and no kept nat. Formats
+1 and 2 boot `lowerP` (`lowerIO none`); format 3 adds the console at
+pid 1. The other entries in that module (`runImage`, `driveImage`,
+`droveImage`, `aliasImage`, `aliasCli`, `ioImage`) boot the same way,
+through `bootSys`. Stdout is zero or more console lines (format 3
+only, one per delivered message, see Console above) and then the
+summary line: the outcome, the events, the fingerprint
+`h<heap>l<live>p<procs>`, and the kept nat. The fingerprint counts
+the console as a process. The event spelling and the decimals are
 `MuroBeam.Show`, the same module `MuroBeam.Conform` uses for the book,
 so `make conformance` pins the CLI line as well. A numeral past eight
 digits is `overflow`.
@@ -297,9 +302,11 @@ A pure image stops `stuck 0`. `seq1` pushes `saved` over `seg`.
 aliased non-g1 reply, which is refused. A `done` continuation on
 that stack stays parked, so a pure image still never reaches `done`. The kept nat is the value on that returned
 reference. A closure keeps nothing (`v-`). Fuel 0 does not step:
-the line is `fuel [] h0l0p1 v-`.
+the summary is `fuel [] h0l0p1 v-` for formats 1 and 2, and
+`fuel [] h0l0p2 v-` for format 3 (the console is the second process,
+and nothing has been delivered, so no console line is printed).
 
-A process image is the same path: `load`, then `lowerP`, then
+A process image is the same path: `loadIO`, then `lowerIO`, then
 `drive`. `spawn t[]` of two `done` terms halts. A bare `(done)`
 halts. `examples/images/send-recv.mbi` binds `2` at ω, because the
 continuation is `recv`. The child sends that variable to pid 0 and

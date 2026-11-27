@@ -60,8 +60,11 @@ isLegacy (sseq _ sdone) = true
 isLegacy _               = false
 
 ------------------------------------------------------------------------
--- The file. The loader accepts format 1 and format 2, and boundary
--- version 1. `defs` is the code segment. `entry` is the process.
+-- The file. The loader accepts format 1, 2, and 3, and boundary
+-- version 1. Format 3 is the format-1/2 grammar with the host console
+-- at pid 1 (B4a, `MuroBeam.Port`); the parser and printer read and
+-- reprint the number and do not treat it differently. `defs` is the
+-- code segment. `entry` is the process.
 -- A legacy entry is `sseq term sdone`, and the checked program is
 -- `seq defs term done`. A `(defs …)` section on any other entry is
 -- refused: the section attaches only to that root seq.

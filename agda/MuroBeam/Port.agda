@@ -48,7 +48,6 @@ open import MuroBeam.PRun using (PStep*)
 open import MuroBeam.PTm using (CheckedP; lowerP)
 open import MuroBeam.PWf using (psteps)
 open import MuroBeam.Unique using (WF)
-open import MuroBeam.Death using (Meet)
 open import MuroBeam.Sched using
   ( K; k-deliver; k-seq; k-bind; k-spawn; k-emit; k-await; k-arm
   ; k-flush; k-npeek; k-ndemon; k-recv; k-done; k-eval

@@ -226,8 +226,10 @@ pins every line below with `refl`.
   closure: `closure`.
 - `out-none` is a format-3 pure entry. No line is written, and the run
   stops `stuck 0` with two processes.
-- `out-v1` is the `out-one` shape in format 1. There is no pid 1, so
-  the send is blocked and the run stops `stuck 0` with no output line.
+- `out-v1` is the `out-one` shape in format 1. Format 1 boots no
+  console, so pid 1 does not exist and the write never happens: the
+  run stops `stuck 0` with one process (`p1`) and no output line.
+  `outv1-drove` pins that its line equals `droveImage`.
 - `out-recv` is a bare `recv` entry. The console is output only, so it
   deadlocks.
 - `out-reply` sends a spawn reply to pid 1 instead of the parent. It
