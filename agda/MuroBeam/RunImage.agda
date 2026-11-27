@@ -4,8 +4,10 @@
 -- `runImage` is the pid-0 harness: `seq1` once, then `runFor`. The
 -- value sits on the `saved` frame; `bind` and `done` are not taken.
 --
--- `cliRun` is what the `muro-beam` binary calls. It `load`s the text
--- and runs `drive` at the fuel the caller passes. `scripts/build_runner.py`
+-- `cliRun` is what the `muro-beam` binary calls. It `loadIO`s the text
+-- and runs `drive` at the fuel the caller passes, on `lowerIO`: a
+-- format-3 image has the host console at pid 1 and prints its inbox
+-- before the summary line (B4a, `MuroBeam.Port`). `scripts/build_runner.py`
 -- generates `MAlonzo/RunnerMain.hs`, which reads the path and the
 -- fuel. That main is not an Agda module, so the audit still sees
 -- only `--safe` files. A pure entry, whose continuation is `done`,
@@ -36,13 +38,16 @@ open import Muro.Base using (Result; ok; fail)
 open import MuroBeam.Heap using (Obj; Val; nat; suc↑; clo; con; obj)
 open import MuroBeam.Image using (showImage; showNat)
 open import MuroBeam.Lib using (lookup)
-open import MuroBeam.Load using (load)
+open import MuroBeam.Load using (load; loadIO; Boot; mkBoot)
+open import MuroBeam.Port using
+  ( Ports; none; console; lowerIO; portOut
+  ; OutV; out-nat; out-clo; out-con; out-bad )
 open import MuroBeam.Parse using (parse)
 open import MuroBeam.PRun using (seq1; bind1)
 open import MuroBeam.PTm using
   ( lowerP; CheckedP; checkedP; spawnAwait; spawnAwait-ok )
 open import MuroBeam.Sched using
-  ( drive; Drove; oc; val; plain; Outcome
+  ( drive; Drove; oc; val; final; plain; Outcome
   ; plain-halted; plain-deadlock; plain-stuck; plain-fuel )
 open import MuroBeam.Show using (showOc; showVal; showDrove)
 open import MuroBeam.Process using
@@ -251,16 +256,65 @@ mark o with plain o
 cliBody : Drove → String
 cliBody d = mark (oc d) ++ "\n" ++ showDrove d
 
+------------------------------------------------------------------------
+-- B4a console output. A format-3 image runs on `lowerIO console`, and
+-- the host prints the console inbox of the final system before the
+-- `showDrove` line: one line per message, in delivery order. A nat is
+-- its decimal, a constructor is `con <tag>`, a closure is `closure`,
+-- and a cell `readOut` cannot read is `stuck`. Format 1 and 2 print
+-- no output lines, so their bytes do not move (`ioBody none` is
+-- `cliBody`).
+------------------------------------------------------------------------
+
+showOutV : OutV → String
+showOutV (out-nat n) = fromList (showNat n)
+showOutV out-clo     = "closure"
+showOutV (out-con t) = "con " ++ fromList (showNat t)
+showOutV out-bad     = "stuck"
+
+outLines : List OutV → String
+outLines []       = ""
+outLines (v ∷ vs) = showOutV v ++ "\n" ++ outLines vs
+
+-- The output lines then the summary line. No trailing newline: the
+-- Haskell main adds one.
+ioLine : Ports → Drove → String
+ioLine none    d = showDrove d
+ioLine console d = outLines (portOut console (final d)) ++ showDrove d
+
+ioBody : Ports → Drove → String
+ioBody none    d = cliBody d
+ioBody console d = mark (oc d) ++ "\n" ++ ioLine console d
+
+driveIO : ℕ → Boot → Drove
+driveIO fuel b =
+  proj₁ (drive fuel zero [] nothing (lowerIO (Boot.ports b) (Boot.prog b)))
+
 cliRun : String → ℕ → String
-cliRun src fuel with load src
+cliRun src fuel with loadIO src
 ... | fail e = "load\n" ++ e
-... | ok p   = cliBody (proj₁ (drive fuel zero [] nothing (lowerP p)))
+... | ok b   = ioBody (Boot.ports b) (driveIO fuel b)
 
 -- `cliRun` keeps `proj₁`. The `PStep*` is `proj₂` of that same `drive`,
 -- and this string does not carry it. `drive-sound` names `proj₂` when
--- the `Drove` is matched. It is not a theorem about `cliRun`.
-cli-drove : ∀ src fuel p →
-  load src ≡ ok p →
+-- the `Drove` is matched (`Port.io-final-wf` is `WF` of that final
+-- system). It is not a theorem about `cliRun`.
+cli-drove : ∀ src fuel b →
+  loadIO src ≡ ok b →
+  cliRun src fuel ≡ ioBody (Boot.ports b) (driveIO fuel b)
+cli-drove src fuel b eq rewrite eq = refl
+
+-- A format 1 or 2 image is the pre-B4 line: `cliBody` of `drive` on
+-- `lowerP`.
+cli-drove-none : ∀ src fuel p →
+  loadIO src ≡ ok (mkBoot p none) →
   cliRun src fuel ≡
     cliBody (proj₁ (drive fuel zero [] nothing (lowerP p)))
-cli-drove src fuel p eq rewrite eq = refl
+cli-drove-none src fuel p eq rewrite eq = refl
+
+-- What a format-3 pin states: the output lines and the summary at
+-- `imgFuel`. A refusal is `refuse: ` and the reason, as `droveImage`.
+ioImage : String → String
+ioImage src with loadIO src
+... | fail e = "refuse: " ++ e
+... | ok b   = ioLine (Boot.ports b) (driveIO imgFuel b)

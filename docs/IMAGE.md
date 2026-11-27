@@ -5,8 +5,10 @@ grammar and the byte-level rules of that line are muro's
 `manual/mbi.md` at commit
 `3f1cae2ae987d1ad27b301e0b1e1ddb03abdd988`. The printer there is
 `Muro.Beam.showPure`. v2 is the same line with a `(defs …)` section
-between the boundary and the entry. This repository parses both.
-The emitter that writes the defs section is not in this repository.
+between the boundary and the entry. v3 (B4a) is the v1 or v2 line
+run with the host console at pid 1 (below). This repository parses
+all three. The emitter that writes the defs section is not in this
+repository, and no emitter writes v3 yet.
 
 One line, tokens separated by one space, a trailing newline. Naturals
 are decimal with no leading zero except `0`. `w` is ω.
@@ -34,7 +36,7 @@ point ::= <nat> | w
 
 `gcon` / `gcase` / `garm` are the B1d data forms. There is no format number bump: version 1 and 2 wrappers stay, and the `btm` grammar grows. `(gcon tag a0 … a_{k-1})` is a fully applied constructor; `tag` is the 0-based constructor index. `(garm tag arity body)` binds `arity` fields, last field nearest (de Bruijn 0), matching muro `to_db`. First matching tag wins. A tag hit with the wrong arity is stuck: `pickArms` stops at the first arm whose tag matches and does not fall through to a later arm with the same tag and the right arity (`case-arity.mbi`). With two arms on the same tag and arity, the first one runs (`case-first.mbi`). `garm+` is the grammar `decideB` accepts. `Parse` also reads `(gcase e)` with no arms; `decideB` then refuses it (`empty gcase`, `empty-gcase.mbi`). The parser does not check arity against a data table: there is none in the file. `gze` / `gsu` / `gmatch` are unchanged: `gcase` does not match `nat` / `suc↑`, and `gmatch` does not match `con`. The payload is `con tag fields`, a pointer like `suc↑` and `clo`. A `gcase` on a `g1` variable inherits the `gmatch` limit in `docs/DESIGN.md`: the pointer moves, the binder's slot becomes `g0`, the fields bind at `g0`, and a use of one is stuck (`case-g1.mbi`). The same term with an `ω` binder runs (`case-w.mbi`). `MuroBeam.DataPins` pins echo, run, and drive for every data image with `refl`. `muro emit --backend mbi` as of 0.22.x still refuses data (`mbi:data`); B1d is self-contained in muro-beam.
 
-`<version>` is `1` or `2`. Any other number is `bad version`. A file
+`<version>` is `1`, `2`, or `3`. Any other number is `bad version`. A file
 with no defs section has an empty definition list, whatever the
 number is. An empty `(defs)` nest, with no term inside it, is `junk`.
 The printer chooses the bytes from the list, not from the number: an
@@ -145,7 +147,7 @@ the TCB. A v1 file with no defs section stays valid.
 and the printer. `entry` is a surface `SPtm 0`. `MuroBeam.Parse`
 reads `String` to `Maybe Image`, and refuses a de Bruijn index or a
 thinning that does not fit its scope. `MuroBeam.Load.load` accepts
-format 1 or 2 and `boundary-version`, embeds the surface term, and
+format 1, 2, or 3 and `boundary-version`, embeds the surface term, and
 runs `checkP` on that program. A root `seq` receives the image's
 definition list. A success is a `CheckedP`, built only after that
 check returns `ok []`. A legacy entry loads as `seq defs btm done`,
@@ -204,12 +206,72 @@ A complete sexp with no trailing newline, or a file that ends inside
 an open sexp, is `truncated`. A newline while a sexp is still open is
 `junk`, as is any other ill-formed token.
 
+## Console (format 3, B4a)
+
+A format-3 image is the format-1 or format-2 line with `3` in the
+version slot. The grammar does not change, and `load` checks the
+program exactly as it checks a v1 or v2 one. The number only reaches
+the process layout. `MuroBeam.Load.loadIO` is `load` plus `Ports`
+(`portsOf`: 3 is `console`, 1 and 2 are `none`). `loadIO-load` says a
+`loadIO` success is a `load` success on the same text, so `load-sound`
+and `load-checks` transfer. `loadIO-ports` says the ports are those of
+the parsed format.
+
+`MuroBeam.Port.lowerIO console p` is `lowerP p` with one more process
+after the entry: pid 1, state `done`, control `idle`, no roots, an
+empty inbox. That process is the console. Pids are entry 0, console 1,
+and the first `spawn` is pid 2. A write is `(send 1 <index> <ptm>)`:
+the existing `emit1` / `deliver1` pair, so the payload is moved or
+copied by its `kind` exactly as for any other destination, and the
+trace shows `tr-send <src> 1 …`. Nothing new enters `PTm`, `PStep`,
+`checkP`, `decideB`, or the CEK. `deliver1` appends to a `done`
+process's inbox and `wake` leaves it `done`, so `allDone` does not wait
+on the console and a run can still halt. A format-1 or format-2 image
+has no pid 1 until something spawns it: `(send 1 …)` from the entry
+there is `blocked` and stops `stuck` (`out-v1.mbi`).
+
+The host prints the console inbox of the system `drive` returns, one
+line per message, in delivery order, before the summary line: a nat as
+its decimal, a constructor as `con <tag>`, a closure as `closure`, and
+a cell `readOut` cannot read as `stuck`. A `suc↑` chain is followed the
+way `RunImage.readRef` does. The console is output only. Nothing feeds
+pid 0, so a `recv` entry with no sender deadlocks (`out-recv.mbi`). On
+`fuel`, `deadlock`, or `stuck`, the lines are what had been delivered
+by then; a flight still in a sender's ether is not printed.
+
+`lowerIO-wf` and `lowerIO-safe` are `lowerP-wf` and `lowerP-safe` for
+that layout: the console holds no reference, so `refsOf` is still `[]`,
+and every `PStep*` from it stays `WF`. `io-final-wf` applies
+`drive-sound` and says the system the output is read from is `WF`.
+`idle-quiet` says a `done` process with `idle` control has no enabled
+wrapper, whatever its inbox, and `console-quiet-0` applies it to the
+initial layout. Not proved: that every step keeps pid 1 `done` and
+`idle`, that its inbox only grows, or that a halted run delivered
+every flight. `checkP` does not look at pids, so a spawn reply sent to
+pid 1 instead of the parent loads; the console prints it and the
+parent's `await` deadlocks (`out-reply.mbi`).
+
+`MuroBeam.IoPins` pins `ioImage` (`loadIO`, `drive` at `imgFuel` on
+`lowerIO`, then the console lines and `showDrove`) on the text of every
+`examples/images/out-*.mbi` file with `refl`, so `make agda` checks
+those lines without GHC. `outv1-drove` pins that the format-1 file
+prints the pre-B4 `droveImage` line. `make images` (`io` mode) and
+`make runner` check the same strings through MAlonzo and the binary.
+
+Why the format number and not a `(ports …)` section: the wrapper's
+round trip `parse-show` is proved shape by shape (`legEmpty`,
+`legCons`, `genEmpty`, `genCons`). A new section would add four more
+shapes to that proof for one bit of information. The format field is
+already read as any natural and round-trips. A later slice that needs
+more than one port (host input) can add a section then.
+
 ## Runner
 
 `muro-beam` reads one image file and an optional `--fuel N` (default
 1000). `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and
 links it. That Haskell main is not an Agda module.
-`MuroBeam.RunImage.cliRun` calls `load`, then `drive` at that fuel,
+`MuroBeam.RunImage.cliRun` calls `loadIO`, then `drive` at that fuel
+on `lowerIO`,
 from cursor 0, with no meetings and no kept nat. The printed line is
 the outcome, the events, the fingerprint `h<heap>l<live>p<procs>`,
 and the kept nat. The event spelling and the decimals are
@@ -492,12 +554,13 @@ adds. The pure images in that file's `VALUES` table (`plus`, `half`,
 `suc`, and the rest) stay Python-only. The harness `drove` pins the
 content lines, and the binary's line is the same text plus a newline.
 
-What this shows is `load` of the `String` the Haskell main passed
-in, then one fuelled `drive` of `lowerP`. File IO is Haskell, so
+What this shows is `loadIO` of the `String` the Haskell main passed
+in, then one fuelled `drive` of `lowerIO`. File IO is Haskell, so
 Agda never sees the bytes, only that `String`. `cliRun` keeps
 `proj₁` of `drive` and discards `proj₂`. `cli-drove` is that
-equation: a successful `load` makes `cliRun` the `cliBody` of that
-`proj₁`. `drive-sound` names `proj₂` when a `Drove` is matched. It
+equation: a successful `loadIO` makes `cliRun` the `ioBody` of that
+`proj₁`. `cli-drove-none` is the format-1 and format-2 case: the
+`cliBody` of `drive` on `lowerP`, the pre-B4 line. `drive-sound` names `proj₂` when a `Drove` is matched. It
 is not a witness for the string `cliRun` returns. It does not show `budget-adequate`,
 `MatchFree`, or `no-stray-reply`. A loaded `gmatch` is still
 outside `MatchFree`. `lowerP-wf` and `lowerP-safe` are the

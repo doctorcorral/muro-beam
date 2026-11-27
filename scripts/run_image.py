@@ -136,6 +136,38 @@ FORWARD = (
 
 WRAP = "(muro-beam-image 1 (boundary 1) (entry (seq {body} (done))))\n"
 
+# B4a console images (format 3). `io` is ioImage: the console
+# lines, then the showDrove line, at imgFuel. MuroBeam.IoPins pins the same text
+# with refl, so make agda already checks these strings.
+def steps(n):
+    return "tr-step 0, " * n
+
+
+IO = {
+    # send 1 0 of an ω seq slot: one console line, then halted.
+    "out-one": "2\nhalted [" + steps(5) + "tr-send 0 1 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h3l3p2 v2",
+    # Two sends. Lines are delivery order.
+    "out-two": "0\n1\nhalted [" + steps(4) + "tr-send 0 1 ref(0,pt(inf),pt(inf),omega-kept) Kcopy, tr-send 0 1 ref(2,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h3l3p2 v0",
+    # Format 3 with a defs section: plus 2 3 to the console.
+    "out-plus": "5\nhalted [" + steps(66) + "tr-send 0 1 ref(16,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(0 1 2 3 4 9 10 11 12 13 14)] h17l6p2 v5",
+    # The console is pid 1, so the first child is pid 2.
+    "out-child": "1\nhalted [" + steps(3) + "tr-spawn 0 2, tr-send 2 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(2)] h3l2p3 v1",
+    # The child sends to pid 0, which forwards to the console.
+    "out-relay": "3\nhalted [" + steps(7) + "tr-spawn 0 2, tr-send 2 0 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-recv 0 ref(3,pt(inf),pt(inf),omega-kept), tr-send 0 1 ref(3,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect(4)] h5l4p3 v3",
+    # A constructor prints as con <tag>.
+    "out-con": "con 1\nhalted [" + steps(3) + "tr-send 0 1 ref(1,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h2l2p2 v-",
+    # A closure prints as closure.
+    "out-clo": "closure\nhalted [tr-step 0, tr-send 0 1 ref(0,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h1l1p2 v-",
+    # Format 3 pure entry: no output line, console is p2.
+    "out-none": "stuck 0 [tr-step 0, tr-step 0, tr-step 0] h2l2p2 v1",
+    # Format 1: no pid 1, emit1 is blocked, stuck 0, no output line.
+    "out-v1": "stuck 0 [tr-step 0, tr-step 0, tr-step 0] h2l2p1 v1",
+    # The console is output only. A recv entry deadlocks.
+    "out-recv": "deadlock [] h0l0p2 v-",
+    # A spawn reply sent to the console: printed, the parent's await deadlocks.
+    "out-reply": "0\ndeadlock [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove] h3l3p3 v0",
+}
+
 # Process entries. Not emitter goldens. `drove` is load then drive
 # at imgFuel (1000). The string is showDrove, the same line the binary
 # prints without the newline the Haskell main adds. Bare protocol
@@ -301,6 +333,7 @@ def build():
     drive_sym = symbol("d_driveImage")
     drove_sym = symbol("d_droveImage")
     alias_sym = symbol("d_aliasImage")
+    io_sym = symbol("d_ioImage")
     with open(MAIN, "w", encoding="utf-8") as fh:
         fh.write(
             "\n".join(
@@ -311,7 +344,7 @@ def build():
                     "import qualified Data.Text.IO as TIO",
                     "import MAlonzo.Code.MuroBeam.RunImage ("
                     + run_sym + ", " + echo_sym + ", " + drive_sym + ", " + drove_sym
-                    + ", " + alias_sym + ")",
+                    + ", " + alias_sym + ", " + io_sym + ")",
                     "main :: IO ()",
                     "main = do",
                     "  args <- getArgs",
@@ -331,7 +364,10 @@ def build():
                     '    ["alias", path] -> do',
                     "      src <- TIO.readFile path",
                     "      TIO.putStr (" + alias_sym + " src)",
-                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH | alias PATH"',
+                    '    ["io", path] -> do',
+                    "      src <- TIO.readFile path",
+                    "      TIO.putStr (" + io_sym + " src)",
+                    '    _ -> fail "usage: image-malonzo run PATH FUEL | echo PATH | drive PATH | drove PATH | alias PATH | io PATH"',
                     "",
                 ]
             )
@@ -364,6 +400,8 @@ def call(mode, path, fuel="200"):
         cmd = [BIN, "drove", path]
     elif mode == "alias":
         cmd = [BIN, "alias", path]
+    elif mode == "io":
+        cmd = [BIN, "io", path]
     else:
         cmd = [BIN, "run", path, fuel]
     proc = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE)
@@ -454,6 +492,15 @@ def main():
                 fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
             print("ok echo " + name)
             check(name, call("drove", path), want)
+        for name, want in IO.items():
+            path = os.path.join(IMG, name + ".mbi")
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+            echoed = call("echo", path)
+            if echoed != raw:
+                fail(name + " echo: got " + repr(echoed) + " want " + repr(raw))
+            print("ok echo " + name)
+            check(name + "-io", call("io", path), want)
         # checkP refusals. driveImage and runImage both print the reason.
         for name, reason in REFUSE:
             path = os.path.join(IMG, name + ".mbi")
@@ -517,7 +564,7 @@ def main():
         print("ok echo v2-empty")
         check("v2-empty", call("run", path), "nat 0")
         cases = [
-            ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 3 ", 1), "refuse: bad version"),
+            ("bad-version", WRAP.format(body="gze").replace("image 1 ", "image 4 ", 1), "refuse: bad version"),
             ("bad-gref", WRAP.format(body="(gref 0)"), "refuse: bad gref"),
             ("bad-gref-index",
              "(muro-beam-image 2 (boundary 1) (defs (glam ((iv 0 1) 0) (gref 3))) "

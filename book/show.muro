@@ -5,7 +5,7 @@
 -- show-collect, show-wide, show-down, show-down-again,
 -- show-down-done, show-abandon, show-send-dead,
 -- show-settle-after-exit, the show-sched-* lines, show-sched-up,
--- show-sched-stray, and show-sched-empty. Each one is a
+-- show-sched-stray, show-sched-empty, and show-sched-console. Each one is a
 -- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
@@ -698,3 +698,40 @@ def emptyLine : run Π (+ s : Sys) → String :=
 def show-sched-empty : run String :=
   match emptySys motive (λ _ → String)
     | sys h ps => emptyLine (sys h ps)
+
+-- B4a console layout. pid 0 sends an omega nat 2 to pid 1, which is
+-- done, idle, and has an empty inbox: the process muro-beam appends
+-- for a format-3 image. The console never steps. The deliver lands in
+-- its inbox, pid 0 ends, and the run halts. out is the nat of the
+-- console's first message on the final system.
+def consoleW : run Ref := ref 0 gradeOmega gradeOmega (selfKept gradeOmega)
+
+def consoleSys : run Sys :=
+  sys (cons (cell (nat (suc (suc 0))) live) nil)
+    (cons (proc 0 ready nil nil
+            (pr (go (suc 0)
+                  (send (suc 0) (suc 0) (fzero 0) (pdone (suc 0)))
+                  (cons consoleW nil) nil nil nil)))
+      (cons (proc (suc 0) done nil nil idle) nil))
+
+def consoleLine : run Π (+ s : Sys) → String :=
+  λ (+ s : Sys) →
+    match (driveSys s nil) motive (λ _ → String)
+      | drv t o ev ms v =>
+          (match t motive (λ _ → String)
+            | sys h ps =>
+                strCat (sinkMs ms)
+                  (strCat "sched-console: "
+                    (strCat (shOc o)
+                      (strCat " "
+                        (strCat (shEvents ev)
+                          (strCat " "
+                            (strCat (shFp (sys h ps))
+                              (strCat " "
+                                (strCat (shVal v)
+                                  (strCat " out "
+                                    (strCat (shVal (inboxNat (sys h ps) (suc 0))) "\n")))))))))))
+
+def show-sched-console : run String :=
+  match consoleSys motive (λ _ → String)
+    | sys h ps => consoleLine (sys h ps)

@@ -5,7 +5,9 @@
 # MAlonzo/Code/MuroBeam/RunImage.hs. The id on d_cliRun is not stable,
 # so this script reads it. This file writes MAlonzo/RunnerMain.hs and
 # links it, same rule as conform.py: IO stays out of agda/.
-# cliRun loads the text and runs drive. The generated main reads the
+# cliRun loads the text (loadIO) and runs drive. A format-3 image runs
+# with the console at pid 1, and its lines come before the summary
+# line inside the same string. The generated main reads the
 # path, parses the fuel, caps the read, decodes UTF-8, and turns the
 # tag into an exit code.
 
@@ -83,6 +85,8 @@ def write_main(sym, alias):
             "  , \"N is a natural. The default is " + fuel + ".\"",
             "  , \"\"",
             "  , \"A run prints one line: outcome, events, fingerprint, kept nat.\"",
+            "  , \"A format-3 image prints one line per console message (pid 1)\"",
+            "  , \"before it.\"",
             "  , \"exit 0  halted, deadlock, or stuck\"",
             "  , \"         --alias-bind on a loaded image also exits 0\"",
             "  , \"         and prints refuse: aliased reply result\"",

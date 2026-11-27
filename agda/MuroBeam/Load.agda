@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------
--- Load an image. Parse, then demand format 1 or 2 and this tree's
+-- Load an image. Parse, then demand format 1, 2, or 3 and this tree's
 -- boundary version, then re-run `checkP` on the definitions and the
 -- entry. A definition is checked once there. A `gref` in that pass
 -- is `ok zeros`: the use vector is zeros. It is not a discharge of
@@ -62,6 +62,7 @@ open import MuroBeam.Parse using (parseR)
 open import MuroBeam.PSyntax using
   (PTm; done; send; recv; spawn; seq; await; ignore; nignore)
 open import MuroBeam.PTm using (CheckedP; checkedP; checkP)
+open import MuroBeam.Port using (Ports; portsOf)
 
 eqℕ : ℕ → ℕ → Bool
 eqℕ zero    zero    = true
@@ -69,9 +70,12 @@ eqℕ (suc m) (suc n) = eqℕ m n
 eqℕ _       _       = false
 
 -- v1 is the empty-defs file muro emits. v2 carries a defs section.
+-- v3 (B4a) is the v1/v2 grammar run with the host console at pid 1
+-- (`MuroBeam.Port`). `load` checks a v3 program exactly as a v1 or v2
+-- one; the format number only reaches the layout, through `loadIO`.
 -- Any other number is refused. The printer reprints the number it read.
 versionOk : ℕ → Bool
-versionOk n = eqℕ n format-version ∨ eqℕ n 2
+versionOk n = eqℕ n format-version ∨ eqℕ n 2 ∨ eqℕ n 3
 
 -- `Uses 0` is an empty vector, so the only success is `ok []`.
 -- The name is `packLoad`: `admit` reads like a hole.
@@ -201,3 +205,53 @@ load-sound s p eq = proj₁ (load-facts s p eq)
 -- stored `ok []`, so the loaded program is that check.
 load-checks : ∀ s p → load s ≡ ok p → checkP [] (CheckedP.prog p) ≡ ok []
 load-checks s p eq = proj₂ (load-facts s p eq)
+
+------------------------------------------------------------------------
+-- B4a. `loadIO` is `load` plus the host ports the format number asks
+-- for (`portsOf`: 3 is the console, 1 and 2 are none). The checked
+-- program is the one `load` returns (`loadIO-load`), so every `load`
+-- fact transfers. `muro-beam` calls this, then `drive` on `lowerIO`.
+------------------------------------------------------------------------
+
+record Boot : Set where
+  constructor mkBoot
+  field
+    prog  : CheckedP
+    ports : Ports
+
+withPorts : Ports → Result CheckedP → Result Boot
+withPorts _  (fail e) = fail e
+withPorts pt (ok p)   = ok (mkBoot p pt)
+
+bootFrom : Result Image → Result Boot
+bootFrom (fail e) = fail e
+bootFrom (ok i)   = withPorts (portsOf (format i)) (loadFrom (ok i))
+
+loadIO : String → Result Boot
+loadIO s = bootFrom (parseR s)
+
+withPorts-ok : ∀ pt r b → withPorts pt r ≡ ok b → r ≡ ok (Boot.prog b)
+withPorts-ok pt (fail e) b ()
+withPorts-ok pt (ok p) .(mkBoot p pt) refl = refl
+
+bootFrom-ok : ∀ r b → bootFrom r ≡ ok b → loadFrom r ≡ ok (Boot.prog b)
+bootFrom-ok (fail e) b ()
+bootFrom-ok (ok i)   b eq = withPorts-ok (portsOf (format i)) (loadFrom (ok i)) b eq
+
+-- A `loadIO` success is a `load` success on the same text.
+loadIO-load : ∀ s b → loadIO s ≡ ok b → load s ≡ ok (Boot.prog b)
+loadIO-load s b eq = bootFrom-ok (parseR s) b eq
+
+loadIO-checks : ∀ s b → loadIO s ≡ ok b →
+  checkP [] (CheckedP.prog (Boot.prog b)) ≡ ok []
+loadIO-checks s b eq = load-checks s (Boot.prog b) (loadIO-load s b eq)
+
+withPorts-ports : ∀ pt r b → withPorts pt r ≡ ok b → Boot.ports b ≡ pt
+withPorts-ports pt (fail e) b ()
+withPorts-ports pt (ok p) .(mkBoot p pt) refl = refl
+
+-- The ports are the parsed format's: 3 is `console`, 1 and 2 `none`.
+loadIO-ports : ∀ s i b → parseR s ≡ ok i → loadIO s ≡ ok b →
+  Boot.ports b ≡ portsOf (format i)
+loadIO-ports s i b pe eq rewrite pe =
+  withPorts-ports (portsOf (format i)) (loadFrom (ok i)) b eq

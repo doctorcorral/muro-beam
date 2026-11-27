@@ -37,6 +37,7 @@ sched-down-again: halted [tr-recv 0 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-
 sched-up: halted [tr-recv 0 ref(1,pt(fin(0)),pt(fin(0)),fin-kept(0,0,le-zero(0))), tr-collect(0 1)] h2l0p1 v1
 sched-stray: stuck 1 [] h2l2p2 v- mail false en none
 sched-empty: halted [tr-collect(0)] h1l0p1 v- free true
+sched-console: halted [tr-send 0 1 ref(0,pt(inf),pt(inf),omega-kept) Kcopy, tr-collect()] h1l1p2 v- out v2
 ```
 
 `trip` is `emitPops` of spawn, emit, deliver, and recv on `s0`. `stuck` is `eval1` after `runFor 6` of the lowered `cexApp`. Both sides refuse, and the line is `nothing`. A refusal carries no fingerprint. `alloc`, `deref`, `send`, `step`, and `collect` are the one-step pins in `book/emit.muro`. `collect` is total, so that line says `ran`. `sched-ignore` and `sched-await` are in the comparison. `await1`, `flush1`, `npeek1`, and `ndemon1` are ported in `book/await.muro`, and `drive` runs the ignore and await programs. The step-by-step proper-ignore flush and the naive-ignore leak are not comparison lines. `sched-up` is a delivered `suc↑` of `nat 0`, so the kept nat is `v1`. `sched-stray` prints `mailHas` of tag 0 after `drive` of a `ReplyDone` start, and `en none` when no wrapper is enabled. That scan is `¬ At`, not `¬ PStep`. `sched-empty` prints whether the halted heap is all `nat 0` and `free`. A wrapper is still not proved equal to its operation for an arbitrary system. `eval1` still returns `Maybe Sys`. `collect` still returns `Sys`. The events are built by the wrappers.
@@ -235,7 +236,7 @@ The OTP image in muro 0.21.0 (`Muro.Emit.Otp` at tag `v0.21.0`) is the behaviour
 - `d-send` models only the consumed put. It is `nothing` on the halt path, where `dead` is false. OTP's `peer_dead` is the failure mark, not the halt mark. A successful enqueue is still the existing send.
 - One monitor and two processes. A third process, a monitor set, credit, and acks are not in this meeting.
 - The steps are not `PStep`. `no-stray-reply` does not quantify over them. `d-done` sets the state and the halt flag. It does not run `done1`, so it does not clear roots.
-- This is not a host VM. The image and the loader are Agda (`docs/IMAGE.md`, `MuroBeam.Load`). The emitter is muro's `--backend mbi`, outside this book. A harness runs one pure image on pid 0. `drive` runs a system it is given, on fuel. A `.mbi` entry may be a surface process term; `load` re-checks it and `muro-beam` runs `drive` on `lowerP`. There is no host I/O. There is no bounded-wait theorem. The book `seq` still pushes only `saved`.
+- This is not a host VM. The image and the loader are Agda (`docs/IMAGE.md`, `MuroBeam.Load`). The emitter is muro's `--backend mbi`, outside this book. A harness runs one pure image on pid 0. `drive` runs a system it is given, on fuel. A `.mbi` entry may be a surface process term; `load` re-checks it and `muro-beam` runs `drive` on `lowerP`, or on `lowerIO console` for a format-3 image. Host output (B4a) is that console: a `done`, `idle` process at pid 1 that `deliver1` writes into, so the book needs no new step, and `sched-console` compares a write to it on both sides (`out` is the nat of the console's first message). There is no host input. There is no bounded-wait theorem. The book `seq` still pushes only `saved`.
 
 ## Names
 
