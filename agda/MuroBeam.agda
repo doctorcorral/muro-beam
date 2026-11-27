@@ -65,8 +65,11 @@ import MuroBeam.Image
 import MuroBeam.Parse
 import MuroBeam.Load
 import MuroBeam.RunImage
--- B4a host console: `lowerIO`, `idle-quiet`, `io-final-wf`, and the
--- closed pins on the `out-*.mbi` images.
+-- B4a host console and B4b host input: `inputP` and `input-vals`,
+-- `lowerIn` / `lowerIO`, `idle-quiet`, `in-final-wf`, and the closed
+-- pins on the `out-*.mbi` and `in-*.mbi` images.
+import MuroBeam.Input
 import MuroBeam.Port
 import MuroBeam.IoPins
+import MuroBeam.InPins
 import MuroBeam.BTm

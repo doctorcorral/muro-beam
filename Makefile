@@ -44,8 +44,9 @@ audit:
 # Parse, load, and run the checked-in images. agda writes the Haskell
 # and does not call GHC. scripts/run_image.py compiles the pid-0 driver.
 # scripts/build_runner.py writes MAlonzo/RunnerMain.hs and links
-# muro-beam. That main reads the file and the fuel. load and drive
-# stay in RunImage, which is --safe. The printed line is showDrove
+# muro-beam. That main reads the file, the fuel, and the optional
+# --input bytes. load, the input parser, and drive stay in RunImage,
+# which is --safe. The printed line is showDrove
 # from MuroBeam.Show, the same printer make conformance checks.
 malonzo-image:
 	$(AGDA) $(RTS) $(AFLAGS) --safe --ghc --ghc-dont-call-ghc \

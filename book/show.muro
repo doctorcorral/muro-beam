@@ -5,7 +5,8 @@
 -- show-collect, show-wide, show-down, show-down-again,
 -- show-down-done, show-abandon, show-send-dead,
 -- show-settle-after-exit, the show-sched-* lines, show-sched-up,
--- show-sched-stray, show-sched-empty, and show-sched-console. Each one is a
+-- show-sched-stray, show-sched-empty, show-sched-console, and
+-- show-sched-input. Each one is a
 -- closed run String.
 -- The normal form is a string literal. CI diffs those literals
 -- against the MAlonzo binary. This is not a hand-copied expected list.
@@ -735,3 +736,46 @@ def consoleLine : run Π (+ s : Sys) → String :=
 def show-sched-console : run String :=
   match consoleSys motive (λ _ → String)
     | sys h ps => consoleLine (sys h ps)
+
+-- B4b input layout. pid 2 is the input port after its seq has bound
+-- the value: it holds an omega nat 2 and sends it to pid 0. pid 0
+-- receives at omega and is done. The console at pid 1 is done and
+-- idle; out is the nat of its first message on the final system, so
+-- v- says input did not pass through it. The port's numeral seq is
+-- not in this line: this book's bind resumes only a singleton saved.
+-- A console write of the received slot is left out: normalising that
+-- three-process run takes tens of minutes. sched-console is the write.
+def inputSys : run Sys :=
+  sys (cons (cell (nat (suc (suc 0))) live) nil)
+    (cons (proc 0 ready nil nil
+            (pr (go 0
+                  (recv 0 gradeOmega grade0 (pdone (suc 0)))
+                  nil nil nil nil)))
+      (cons (proc (suc 0) done nil nil idle)
+        (cons (proc (suc (suc 0)) ready nil nil
+                (pr (go (suc 0)
+                      (send (suc 0) 0 (fzero 0) (pdone (suc 0)))
+                      (cons consoleW nil) nil nil nil)))
+          nil)))
+
+def inputLine : run Π (+ s : Sys) → String :=
+  λ (+ s : Sys) →
+    match (driveSys s nil) motive (λ _ → String)
+      | drv t o ev ms v =>
+          (match t motive (λ _ → String)
+            | sys h ps =>
+                strCat (sinkMs ms)
+                  (strCat "sched-input: "
+                    (strCat (shOc o)
+                      (strCat " "
+                        (strCat (shEvents ev)
+                          (strCat " "
+                            (strCat (shFp (sys h ps))
+                              (strCat " "
+                                (strCat (shVal v)
+                                  (strCat " out "
+                                    (strCat (shVal (inboxNat (sys h ps) (suc 0))) "\n")))))))))))
+
+def show-sched-input : run String :=
+  match inputSys motive (λ _ → String)
+    | sys h ps => inputLine (sys h ps)

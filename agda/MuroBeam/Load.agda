@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------
--- Load an image. Parse, then demand format 1, 2, or 3 and this tree's
+-- Load an image. Parse, then demand format 1, 2, 3, or 4 and this tree's
 -- boundary version, then re-run `checkP` on the definitions and the
 -- entry. A definition is checked once there. A `gref` in that pass
 -- is `ok zeros`: the use vector is zeros. It is not a discharge of
@@ -73,12 +73,14 @@ eqℕ _       _       = false
 -- v3 (B4a) is the v1/v2 grammar run with the host console at pid 1
 -- (`MuroBeam.Port`). `load` checks a v3 program exactly as a v1 or v2
 -- one; the format number only reaches the layout, through `loadIO`.
+-- v4 (B4b) is the same grammar run with the console at pid 1 and the
+-- host input port at pid 2. `load` checks it the same way too.
 -- `load` is the checker, not a runner entry: lowering its result with
--- `lowerP` drops the console. Every runner in `MuroBeam.RunImage`
--- boots through `loadIO` and `lowerIO` (`bootSys`).
+-- `lowerP` drops the ports. Every runner in `MuroBeam.RunImage`
+-- boots through `loadIO` and `lowerIn` / `lowerIO` (`bootIn`, `bootSys`).
 -- Any other number is refused. The printer reprints the number it read.
 versionOk : ℕ → Bool
-versionOk n = eqℕ n format-version ∨ eqℕ n 2 ∨ eqℕ n 3
+versionOk n = eqℕ n format-version ∨ eqℕ n 2 ∨ eqℕ n 3 ∨ eqℕ n 4
 
 -- `Uses 0` is an empty vector, so the only success is `ok []`.
 -- The name is `packLoad`: `admit` reads like a hole.
@@ -210,10 +212,12 @@ load-checks : ∀ s p → load s ≡ ok p → checkP [] (CheckedP.prog p) ≡ ok
 load-checks s p eq = proj₂ (load-facts s p eq)
 
 ------------------------------------------------------------------------
--- B4a. `loadIO` is `load` plus the host ports the format number asks
--- for (`portsOf`: 3 is the console, 1 and 2 are none). The checked
--- program is the one `load` returns (`loadIO-load`), so every `load`
--- fact transfers. `muro-beam` calls this, then `drive` on `lowerIO`.
+-- B4a/B4b. `loadIO` is `load` plus the host ports the format number
+-- asks for (`portsOf`: 3 is the console, 4 the console and the input
+-- port, 1 and 2 none). The checked program is the one `load` returns
+-- (`loadIO-load`), so every `load` fact transfers. `muro-beam` calls
+-- this, then `drive` on `lowerIn` (`lowerIO` when the host gives no
+-- input).
 ------------------------------------------------------------------------
 
 record Boot : Set where
@@ -253,7 +257,8 @@ withPorts-ports : ∀ pt r b → withPorts pt r ≡ ok b → Boot.ports b ≡ pt
 withPorts-ports pt (fail e) b ()
 withPorts-ports pt (ok p) .(mkBoot p pt) refl = refl
 
--- The ports are the parsed format's: 3 is `console`, 1 and 2 `none`.
+-- The ports are the parsed format's: 3 is `console`, 4 is `stdio`,
+-- 1 and 2 are `none`.
 loadIO-ports : ∀ s i b → parseR s ≡ ok i → loadIO s ≡ ok b →
   Boot.ports b ≡ portsOf (format i)
 loadIO-ports s i b pe eq rewrite pe =

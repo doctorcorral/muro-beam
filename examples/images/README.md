@@ -235,3 +235,32 @@ pins every line below with `refl`.
 - `out-reply` sends a spawn reply to pid 1 instead of the parent. It
   loads (`checkP` does not read pids). The console prints `0`, and the
   parent's `await` deadlocks.
+
+## B4b input images
+
+The `in-*.mbi` files are hand-written format-4 images, and each
+`in-*.in` file is the host input `make runner` passes with `--input`.
+No emitter writes format 4 yet. Pids are entry 0, console 1, input
+port 2, so the first spawned child is pid 3. The port sends each input
+value to pid 0 in order; the entry reads them with `recv`. Each value
+`n` costs the port about `2n + 1` steps (`tr-step 2`) before its
+`tr-send 2 0`. `MuroBeam.InPins` pins every line below with `refl`.
+
+- `in-echo` with `7`: receives one value and writes it: `7`.
+- `in-two` with `3 5`: receives two values and writes them back in
+  order: `3`, `5`.
+- `in-succ` with `4`: writes `suc` of the value: `5`.
+- `in-pred` with `3`: matches the value and writes its predecessor: `2`.
+- `in-short` with `4`: receives twice but is given one value. There is
+  no end-of-input message, so the second `recv` deadlocks after `4`.
+- `in-echo` with `in-extra.in` (`1 2`): the second value is sent and
+  stays in pid 0's inbox; the run still halts after `1`.
+- `in-child` with `9`: the spawned child (pid 3) writes `1`, and pid 0
+  echoes the input: `1`, `9`.
+- `in-none` is a format-4 entry that ignores input: `1`. Run without
+  `--input` it also writes `1` (`innone-empty`), and `in-echo` without
+  `--input` deadlocks with three processes (`inecho-empty`).
+- `in-v3` is `in-echo` in format 3. Format 3 has no input port, so
+  `--input` is refused: `refuse: no input port`, exit 2.
+- `in-bad.in` (`7 x`) is not naturals separated by whitespace:
+  `refuse: bad input`, exit 2.

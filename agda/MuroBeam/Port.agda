@@ -1,7 +1,9 @@
 ------------------------------------------------------------------------
--- B4a host output. A format-3 image runs with one host port, the
--- console, at pid 1. The console is an ordinary `Proc`: state
--- `pstDone`, control `idle`, no roots, and an empty inbox. A `send`
+-- B4a host output and B4b host input. A format-3 image runs with
+-- one host port, the console, at pid 1; a format-4 image adds the
+-- input port at pid 2 (B4b, below). The console is an ordinary
+-- `Proc`: state `pstDone`, control `idle`, no roots, and an empty
+-- inbox. A `send`
 -- to pid 1 is the existing `emit1` / `deliver1` pair, so a write is a
 -- `PStep` and nothing new enters `PStep`, `checkP`, or the CEK.
 -- `deliver1` appends to a `pstDone` inbox and `wake` leaves the state,
@@ -26,6 +28,24 @@
 -- its inbox only grows, or that a run delivers every flight before
 -- it stops. Output after `fuel`, `deadlock`, or `stuck` is what was
 -- delivered by then.
+--
+-- B4b host input. A format-4 image (`stdio`) is the console layout
+-- plus one more process, the input port, at pid 2: state `ready`, no
+-- roots, an empty inbox, and the control of the closed term
+-- `MuroBeam.Input.inputP xs` over the values the host read. It sends
+-- each value to pid 0 with the existing `seq` / `emit1` / `deliver1`
+-- steps and then ends. A read is the program's own `recv`. Pids:
+-- entry 0, console 1, input 2, so the first `spawn` is pid 3.
+-- `lowerIn xs` is the layout with input `xs`; `lowerIO` is `lowerIn []`.
+--   * `lowerIn-wf` / `lowerIn-safe` / `in-final-wf`: the same three
+--     facts for every input. The port's control holds no reference
+--     (`lowerIn-refs`), so the layout is `WF` with an empty heap.
+--   * `input-at`: pid 2 of the `stdio` layout is `inputProc xs`, and
+--     `MuroBeam.Input.input-vals` reads `xs` back out of its term.
+-- Not proved: that the port's values all reach pid 0 before the run
+-- stops, or anything about the order of the port's sends relative to
+-- other senders to pid 0. A program that receives more values than
+-- the host gave parks on an empty inbox.
 ------------------------------------------------------------------------
 
 {-# OPTIONS --safe #-}
@@ -42,8 +62,10 @@ open import MuroBeam.Heap using (Obj; Ref; obj; nat; suc↑; clo; con; bnil; uni
 open import MuroBeam.Lib using (lookup)
 open import MuroBeam.Process using
   ( Sys; sys; heap; procs; Proc; proc; inbox; Msg; msg
-  ; idle; refsOf; AllInv; residual-inv-refs; payloadAt )
+  ; idle; ready; pr; refsOf; AllInv; residual-inv-refs; payloadAt )
   renaming (done to pstDone)
+open import MuroBeam.PSyntax using (go)
+open import MuroBeam.Input using (inputP)
 open import MuroBeam.PRun using (PStep*)
 open import MuroBeam.PTm using (CheckedP; lowerP)
 open import MuroBeam.PWf using (psteps)
@@ -56,16 +78,19 @@ open import MuroBeam.Sched using
 
 ------------------------------------------------------------------------
 -- Which host ports an image asks for. Only the format number selects
--- them: 3 is the console layout, every other accepted format is none.
+-- them: 3 is the console layout, 4 is the console and the input port
+-- (`stdio`), every other accepted format is none.
 ------------------------------------------------------------------------
 
 data Ports : Set where
   none    : Ports
   console : Ports
+  stdio   : Ports
 
 portsOf : ℕ → Ports
-portsOf (suc (suc (suc zero))) = console
-portsOf _                      = none
+portsOf (suc (suc (suc zero)))       = console
+portsOf (suc (suc (suc (suc zero)))) = stdio
+portsOf _                            = none
 
 console-pid : ℕ
 console-pid = suc zero
@@ -75,32 +100,67 @@ console-pid = suc zero
 consoleProc : Proc
 consoleProc = proc console-pid pstDone [] [] idle
 
--- `lowerP` plus the console after the entry. `none` is `lowerP`.
+input-pid : ℕ
+input-pid = suc (suc zero)
+
+-- The input port (B4b). `ready`, so the scheduler runs it; its
+-- control is the closed port term over the host's values, with an
+-- empty environment, so it holds no reference at boot.
+inputProc : List ℕ → Proc
+inputProc xs = proc input-pid ready [] [] (pr (go (inputP {zero} xs) [] [] [] []))
+
+-- `lowerP` plus the ports after the entry. `none` is `lowerP`. The
+-- input `xs` only reaches the `stdio` layout.
+lowerIn : List ℕ → Ports → CheckedP → Sys
+lowerIn _  none    p = lowerP p
+lowerIn _  console p = sys (heap (lowerP p)) (procs (lowerP p) ++ consoleProc ∷ [])
+lowerIn xs stdio   p =
+  sys (heap (lowerP p)) (procs (lowerP p) ++ consoleProc ∷ inputProc xs ∷ [])
+
+-- The layout with no host input. Formats 1 to 3 never see input, and a
+-- format-4 image run without any has a port that ends at once.
 lowerIO : Ports → CheckedP → Sys
-lowerIO none    p = lowerP p
-lowerIO console p = sys (heap (lowerP p)) (procs (lowerP p) ++ consoleProc ∷ [])
+lowerIO pt p = lowerIn [] pt p
 
-lowerIO-refs : ∀ pt p → refsOf (lowerIO pt p) ≡ []
-lowerIO-refs none    p = refl
-lowerIO-refs console p = refl
+lowerIn-refs : ∀ xs pt p → refsOf (lowerIn xs pt p) ≡ []
+lowerIn-refs xs none    p = refl
+lowerIn-refs xs console p = refl
+lowerIn-refs xs stdio   p = refl
 
-lowerIO-wf : ∀ pt p → WF (lowerIO pt p)
-lowerIO-wf none    p = bnil , uniq-nil
-lowerIO-wf console p = bnil , uniq-nil
+lowerIn-wf : ∀ xs pt p → WF (lowerIn xs pt p)
+lowerIn-wf xs none    p = bnil , uniq-nil
+lowerIn-wf xs console p = bnil , uniq-nil
+lowerIn-wf xs stdio   p = bnil , uniq-nil
 
 -- Same shape as `lowerP-safe`. The `AllInv` conjunct holds of every
 -- `Sys` (`residual-inv-refs`).
-lowerIO-safe : ∀ {pt p s} → PStep* (lowerIO pt p) s → WF s × AllInv (refsOf s)
-lowerIO-safe {pt} {p} {s} tr = psteps tr (lowerIO-wf pt p) , residual-inv-refs s
+lowerIn-safe : ∀ {xs pt p s} → PStep* (lowerIn xs pt p) s → WF s × AllInv (refsOf s)
+lowerIn-safe {xs} {pt} {p} {s} tr = psteps tr (lowerIn-wf xs pt p) , residual-inv-refs s
 
--- `drive` from the console layout ends on a `WF` system. The trace is
+-- `drive` from any port layout ends on a `WF` system. The trace is
 -- `drive-sound`; nothing here re-runs it.
+in-final-wf : ∀ {n c ms v xs pt p t} {o : Outcome t} {es ms' v'} →
+  proj₁ (drive n c ms v (lowerIn xs pt p)) ≡ drv t o es ms' v' →
+  WF t
+in-final-wf {n} {c} {ms} {v} {xs} {pt} {p} {t} {o} {es} {ms'} {v'} eq =
+  proj₁ (lowerIn-safe {xs} {pt} {p}
+    (drive-sound {n} {c} {ms} {v} {lowerIn xs pt p} {t} {o} {es} {ms'} {v'} eq))
+
+-- The B4a statements, as the no-input case.
+lowerIO-refs : ∀ pt p → refsOf (lowerIO pt p) ≡ []
+lowerIO-refs pt p = lowerIn-refs [] pt p
+
+lowerIO-wf : ∀ pt p → WF (lowerIO pt p)
+lowerIO-wf pt p = lowerIn-wf [] pt p
+
+lowerIO-safe : ∀ {pt p s} → PStep* (lowerIO pt p) s → WF s × AllInv (refsOf s)
+lowerIO-safe {pt} {p} tr = lowerIn-safe {[]} {pt} {p} tr
+
 io-final-wf : ∀ {n c ms v pt p t} {o : Outcome t} {es ms' v'} →
   proj₁ (drive n c ms v (lowerIO pt p)) ≡ drv t o es ms' v' →
   WF t
 io-final-wf {n} {c} {ms} {v} {pt} {p} {t} {o} {es} {ms'} {v'} eq =
-  proj₁ (lowerIO-safe {pt} {p}
-    (drive-sound {n} {c} {ms} {v} {lowerIO pt p} {t} {o} {es} {ms'} {v'} eq))
+  in-final-wf {n} {c} {ms} {v} {[]} {pt} {p} {t} {o} {es} {ms'} {v'} eq
 
 ------------------------------------------------------------------------
 -- A `pstDone` process with `idle` control is never scheduled.
@@ -171,6 +231,7 @@ consoleOut s with lookup (procs s) console-pid
 portOut : Ports → Sys → List OutV
 portOut none    _ = []
 portOut console s = consoleOut s
+portOut stdio   s = consoleOut s
 
 -- The console layout puts `consoleProc` at `console-pid`.
 console-at : ∀ p → lookup (procs (lowerIO console p)) console-pid ≡ just consoleProc
@@ -181,3 +242,17 @@ console-quiet-0 : ∀ p → enabled (lowerIO console p) console-pid ≡ nothing
 console-quiet-0 p =
   idle-quiet (heap (lowerIO console p)) (procs (lowerIO console p))
     console-pid console-pid [] [] (console-at p)
+
+-- B4b. The `stdio` layout has the console at pid 1 too, quiet at boot.
+stdio-console-at : ∀ xs p →
+  lookup (procs (lowerIn xs stdio p)) console-pid ≡ just consoleProc
+stdio-console-at xs p = refl
+
+stdio-quiet-0 : ∀ xs p → enabled (lowerIn xs stdio p) console-pid ≡ nothing
+stdio-quiet-0 xs p =
+  idle-quiet (heap (lowerIn xs stdio p)) (procs (lowerIn xs stdio p))
+    console-pid console-pid [] [] (stdio-console-at xs p)
+
+-- And the input port at pid 2, running `inputP xs`.
+input-at : ∀ xs p → lookup (procs (lowerIn xs stdio p)) input-pid ≡ just (inputProc xs)
+input-at xs p = refl
