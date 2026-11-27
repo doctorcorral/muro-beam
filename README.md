@@ -14,7 +14,7 @@ An image is the S-expression muro writes for `--backend mbi`. Format 2 adds a `(
 
 ## Run
 
-`make muro-beam` builds the `muro-beam` binary. Agda compiles `MuroBeam.RunImage` with `--safe` and `--ghc-dont-call-ghc`. `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and links it with `ghc -O0 -j1`. That main reads the path and the fuel. `load` and `drive` stay in the Agda module. The main is not an Agda file, so `make audit` still sees only `--safe` modules.
+`make muro-beam` builds the `muro-beam` binary. Agda compiles `MuroBeam.RunImage` with `--safe` and `--ghc-dont-call-ghc`. `scripts/build_runner.py` generates `MAlonzo/RunnerMain.hs` and links it with `ghc -O0 -j1`. That main reads the path and the fuel. `loadIO`, `lowerIO`, `drive`, and the printer stay in the Agda module (`cliRun`). The main is not an Agda file, so `make audit` still sees only `--safe` modules.
 
 ```sh
 make muro-beam
