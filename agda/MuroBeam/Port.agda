@@ -1,7 +1,9 @@
 ------------------------------------------------------------------------
--- B4a host output. A format-3 image runs with one host port, the
--- console, at pid 1. The console is an ordinary `Proc`: state
--- `pstDone`, control `idle`, no roots, and an empty inbox. A `send`
+-- B4a host output and B4b host input. A format-3 image runs with
+-- one host port, the console, at pid 1; a format-4 image adds the
+-- input port at pid 2 (B4b, below). The console is an ordinary
+-- `Proc`: state `pstDone`, control `idle`, no roots, and an empty
+-- inbox. A `send`
 -- to pid 1 is the existing `emit1` / `deliver1` pair, so a write is a
 -- `PStep` and nothing new enters `PStep`, `checkP`, or the CEK.
 -- `deliver1` appends to a `pstDone` inbox and `wake` leaves the state,

@@ -79,7 +79,7 @@ def write_main(sym, alias, insym):
             "",
             "usage :: String",
             "usage = unlines",
-            "  [ \"usage: muro-beam IMAGE [--fuel N] [--input FILE]\"",
+            "  [ \"usage: muro-beam IMAGE [--fuel N] [--input FILE|-]\"",
             "  , \"       muro-beam --alias-bind IMAGE\"",
             "  , \"       muro-beam --help\"",
             "  , \"\"",

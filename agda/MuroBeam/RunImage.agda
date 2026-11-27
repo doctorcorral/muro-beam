@@ -7,9 +7,13 @@
 -- `cliRun` is what the `muro-beam` binary calls. It `loadIO`s the text
 -- and runs `drive` at the fuel the caller passes, on `lowerIO`: a
 -- format-3 image has the host console at pid 1 and prints its inbox
--- before the summary line (B4a, `MuroBeam.Port`). `scripts/build_runner.py`
--- generates `MAlonzo/RunnerMain.hs`, which reads the path and the
--- fuel. That main is not an Agda module, so the audit still sees
+-- before the summary line (B4a, `MuroBeam.Port`). `cliRunIn` is the
+-- same with `--input`: it parses the host text with `readInput` and
+-- runs on `bootIn`, so a format-4 image also has the input port at
+-- pid 2 sending those values to pid 0 (B4b); any other format is
+-- `no input port`. `scripts/build_runner.py` generates
+-- `MAlonzo/RunnerMain.hs`, which reads the path, the fuel, and the
+-- optional `--input` file or stdin. That main is not an Agda module, so the audit still sees
 -- only `--safe` files. A pure entry, whose continuation is `done`,
 -- stops `stuck`: `seq1` pushes `saved` over `seg`, and `bind1`
 -- leaves that stack when the continuation is `done`. A continuation

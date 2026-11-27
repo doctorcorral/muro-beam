@@ -148,7 +148,7 @@ the TCB. A v1 file with no defs section stays valid.
 and the printer. `entry` is a surface `SPtm 0`. `MuroBeam.Parse`
 reads `String` to `Maybe Image`, and refuses a de Bruijn index or a
 thinning that does not fit its scope. `MuroBeam.Load.load` accepts
-format 1, 2, or 3 and `boundary-version`, embeds the surface term, and
+format 1, 2, 3, or 4 and `boundary-version`, embeds the surface term, and
 runs `checkP` on that program. A root `seq` receives the image's
 definition list. A success is a `CheckedP`, built only after that
 check returns `ok []`. A legacy entry loads as `seq defs btm done`,
@@ -213,7 +213,7 @@ A format-3 image is the format-1 or format-2 line with `3` in the
 version slot. The grammar does not change, and `load` checks the
 program exactly as it checks a v1 or v2 one. The number only reaches
 the process layout. `MuroBeam.Load.loadIO` is `load` plus `Ports`
-(`portsOf`: 3 is `console`, 1 and 2 are `none`). `loadIO-load` says a
+(`portsOf`: 4 is `stdio`, 3 is `console`, 1 and 2 are `none`). `loadIO-load` says a
 `loadIO` success is a `load` success on the same text, so `load-sound`
 and `load-checks` transfer. `loadIO-ports` says the ports are those of
 the parsed format.

@@ -24,7 +24,7 @@
 
 module MuroBeam.Input where
 
-open import Data.Bool.Base using (Bool; true; false; _∨_)
+open import Data.Bool.Base using (Bool; true; false)
 open import Data.Char.Base using (Char)
 open import Data.Fin.Base using (Fin) renaming (zero to fzero)
 open import Data.List.Base using (List; []; _∷_; reverse)
@@ -32,7 +32,7 @@ open import Data.Maybe.Base using (Maybe; just; nothing; _>>=_)
 open import Data.Vec.Base using () renaming ([] to v[])
 open import Data.Nat.Base using (ℕ; zero; suc; _+_; _*_)
 open import Data.String.Base using (String; toList)
-open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl; cong)
+open import Relation.Binary.PropositionalEquality.Core using (_≡_; refl)
 
 open import Muro.Base using (Result; ok; fail)
 
