@@ -67,8 +67,11 @@ import MuroBeam.Load
 import MuroBeam.RunImage
 -- B4a host console and B4b host input: `inputP` and `input-vals`,
 -- `lowerIn` / `lowerIO`, `idle-quiet`, `in-final-wf`, and the closed
--- pins on the `out-*.mbi` and `in-*.mbi` images.
+-- pins on the `out-*.mbi` and `in-*.mbi` images. B4c: `Quiet`
+-- (`psteps-q`), so `Port.console-stays` and `drive-console`, and
+-- `Input.inputP-checks`.
 import MuroBeam.Input
+import MuroBeam.Quiet
 import MuroBeam.Port
 import MuroBeam.IoPins
 import MuroBeam.InPins

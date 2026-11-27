@@ -18,6 +18,8 @@
 -- process at pid 1 and prints the nat of its first message.
 -- `sched-input` (B4b) is the format-4 shape: an input port at pid 2
 -- sends to pid 0, which receives it; the console at pid 1 stays empty.
+-- `sched-scrub` (B4c) is a flush that scrubs a reply out of the
+-- console's inbox: `out` is `v-`.
 -- Event spelling, decimals, and `showDrove` are
 -- `MuroBeam.Show`, shared with the `muro-beam` CLI.
 --
@@ -57,7 +59,7 @@ open import MuroBeam.Event using
   ; Why; killed; crash; normal; abandon )
 open import MuroBeam.Grade using (Kept; fin-kept; ω-kept; iv-kept; selfKept; Kind; Kmove; Kcopy)
 open import MuroBeam.Heap using (Obj; cell; nat; suc↑; live; free; Ref; ref)
-open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; await; ignore; go)
+open import MuroBeam.PSyntax using (PTm; t[]; keep; done; send; recv; spawn; await; ignore; flushT; go)
 open import MuroBeam.PRun using (mailHas)
 open import MuroBeam.Process using
   ( Sys; sys; heap; Proc; proc; ready; idle; ev; pr; procs; eval1; runFor; msg )
@@ -371,6 +373,29 @@ inputBody =
   let d = proj₁ (drive driveFuel zero [] nothing inputSys) in
   showDrove d ++ " out " ++ showVal (inboxNat (final d) (suc zero))
 
+-- B4c. A reply that reached the console is scrubbed by the flush.
+-- pid 0 is the `flushT` of tag 0 that `arm1` writes after a
+-- demonitoring `ignore`. The console at pid 1 is `pstDone`, `idle`,
+-- and holds one message: the g1 reply on object 0. `consume` scrubs
+-- tag 0 from every mailbox, the console's too, so `out` is `v-`.
+-- `MuroBeam.Port.drive-console` is the theorem that pid 1 is still
+-- `pstDone` and `idle` there; its inbox is not claimed to grow.
+scrubW : Ref
+scrubW = ref zero g1 g1 (selfKept g1)
+
+scrubSys : Sys
+scrubSys =
+  sys (cell (nat zero) live ∷ [])
+    ( proc zero ready [] []
+        (pr (go (flushT zero (done {zero})) [] [] [] (zero ∷ [])))
+    ∷ proc (suc zero) pstDone [] (msg scrubW ∷ []) idle
+    ∷ [])
+
+scrubBody : String
+scrubBody =
+  let d = proj₁ (drive driveFuel zero [] nothing scrubSys) in
+  showDrove d ++ " out " ++ showVal (inboxNat (final d) (suc zero))
+
 -- The older lines, then the scheduled ones. The driver prints this
 -- and nothing else.
 ------------------------------------------------------------------------
@@ -404,4 +429,5 @@ report =
   line "sched-stray" strayBody ++
   line "sched-empty" emptyBody ++
   line "sched-console" consoleBody ++
-  line "sched-input" inputBody
+  line "sched-input" inputBody ++
+  line "sched-scrub" scrubBody

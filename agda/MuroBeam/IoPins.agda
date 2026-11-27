@@ -131,6 +131,27 @@ outreply-io : ioImage outreplySrc ≡
   "0\ndeadlock [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove] h3l3p3 v0"
 outreply-io = refl
 
+-- The same reply under `ignore` (B4c). The parent's flush scrubs tag 0
+-- from every mailbox, the console's too, so no line is printed and the
+-- run halts. `MuroBeam.Port.drive-console` is why pid 1 is still
+-- `pstDone` and `idle`; its inbox does not only grow.
+outflushSrc : String
+outflushSrc =
+  "(muro-beam-image 3 (boundary 1) (entry (seq gze (spawn (keep t[]) (send 1 0 (done)) (ignore 0 (done))))))\n"
+
+outflush-io : ioImage outflushSrc ≡
+  "halted [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(0 1 2 3)] h4l0p3 v0"
+outflush-io = refl
+
+-- Under `nignore` the flush keeps the reply: the console prints `0`.
+outnflushSrc : String
+outnflushSrc =
+  "(muro-beam-image 3 (boundary 1) (entry (seq gze (spawn (keep t[]) (send 1 0 (done)) (nignore 0 (done))))))\n"
+
+outnflush-io : ioImage outnflushSrc ≡
+  "0\nhalted [tr-step 0, tr-spawn 0 2, tr-send 2 1 ref(0,pt(fin(1)),pt(fin(1)),fin-kept(1,1,le-suc(0,0,le-zero(0)))) Kmove, tr-collect(1 2)] h3l1p3 v0"
+outnflush-io = refl
+
 -- Format 1 is not the console layout: `ioImage` of the format-1 file
 -- is the pre-B4 `droveImage` line.
 outv1-drove : ioImage outv1Src ≡ droveImage outv1Src
