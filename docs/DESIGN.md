@@ -126,7 +126,7 @@ Allocation stores `residual = checked` for any grade, which is allowed by reflex
 - A heap slot that is still pointed at by a kept reference stays in place, with its payload, and is marked live.
 - Every other slot is marked free and its payload is cleared.
 
-The mark pass `go` walks the heap from the top once. Each slot's step is `markAt`, which takes the marked tail as one argument and reads it twice, so compiled code (`muro-beam`, `make conformance`) runs a collect in time polynomial in the heap length. Written with the tail inline twice, as it was before B4b, the compiled pass was exponential: one live nat 18 took seconds to collect. The two forms are definitionally equal, so no proof changed.
+The mark pass `go` walks the heap from the top once. Each slot's step is `markAt`, which takes the marked tail as one argument and reads it twice, so compiled code (`muro-beam`, `make conformance`) runs a collect in time polynomial in the heap length. Written with the tail inline twice, as it was before #19, the compiled pass was exponential: one live nat 18 took seconds to collect. The two forms are definitionally equal, so no proof changed.
 
 Grade 1 is a unique reference (below). After the single use, its residual is `g0`, so the next `collect` frees the slot. `reuse` may instead overwrite that slot in place, without waiting for `collect`, when the checked grade is `g1`, the residual is `g0`, and the object has exactly one reference.
 
